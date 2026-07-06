@@ -1,0 +1,20 @@
+{
+  "app.name": "ShellPilot",
+  "app.tagline": "원격 작업 공간",
+  "sidebar.collapse": "사이드바 접기",
+  "sidebar.expand": "사이드바 펼치기",
+  "session.search": "세션 검색",
+  "session.quickConnect": "접속",
+  "session.tree": "세션 트리",
+  "workspace.title": "Workspace",
+  "workspace.subtitle": "탭, 스플릿 뷰, AI 패널을 한 화면에서 관리합니다.",
+  "workspace.tabs": "워크스페이스 탭",
+  "workspace.layoutMode": "레이아웃 모드",
+  "workspace.split": "분할",
+  "workspace.saveLayout": "레이아웃 저장",
+  "workspace.closePanel": "패널 닫기",
+  "workspace.empty": "열려 있는 패널이 없습니다.",
+  "workspace.restorePanels": "패널 복원",
+  "ai.placeholder": "터미널 출력이나 에러 로그를 선택하면 AI가 원인을 분석하고 다음 명령을 제안합니다.",
+  "ai.ask": "AI에게 묻기"
+}

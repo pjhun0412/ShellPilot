@@ -1,0 +1,20 @@
+{
+  "app.name": "ShellPilot",
+  "app.tagline": "Remote workspace",
+  "sidebar.collapse": "Collapse sidebar",
+  "sidebar.expand": "Expand sidebar",
+  "session.search": "Search sessions",
+  "session.quickConnect": "Connect",
+  "session.tree": "Session tree",
+  "workspace.title": "Workspace",
+  "workspace.subtitle": "Manage tabs, split views, and AI panels in one place.",
+  "workspace.tabs": "Workspace tabs",
+  "workspace.layoutMode": "Layout mode",
+  "workspace.split": "Split",
+  "workspace.saveLayout": "Save layout",
+  "workspace.closePanel": "Close panel",
+  "workspace.empty": "No panels are open.",
+  "workspace.restorePanels": "Restore panels",
+  "ai.placeholder": "Select terminal output or error logs, and AI will analyze the cause and suggest the next command.",
+  "ai.ask": "Ask AI"
+}
