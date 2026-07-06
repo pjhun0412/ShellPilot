@@ -3,7 +3,7 @@
   "productName": "ShellPilot",
   "mainBinaryName": "ShellPilot",
   "version": "0.0.1",
-  "identifier": "com.shellpilot.app",
+  "identifier": "com.shellpilot.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
