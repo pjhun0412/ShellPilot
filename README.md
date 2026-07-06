@@ -250,7 +250,7 @@ src/
 ### Phase 0. Project Foundation
 
 - [x] README 정리
-- [ ] MVP 범위 확정
+- [x] MVP 범위 확정
 - [x] Tauri 프로젝트 생성
 - [x] React + TypeScript 설정
 - [x] 기본 레이아웃 구성
@@ -259,18 +259,18 @@ src/
 ### Phase 1. Core Workspace
 
 - [ ] 로컬 터미널
-- [ ] 기본 탭 시스템
-- [ ] 스플릿 뷰
-- [ ] 세션 매니저 UI
+- [x] 기본 탭 시스템
+- [x] 스플릿 뷰
+- [x] 세션 매니저 UI
 - [ ] 설정 화면
 - [ ] 테마 지원
-- [ ] 레이아웃 저장
+- [x] 레이아웃 저장
 
 ### Phase 2. SSH / SFTP
 
-- [ ] SSH 접속
+- [x] SSH 접속
 - [ ] SSH 키 인증
-- [ ] 접속 세션 저장
+- [x] 접속 세션 저장
 - [ ] 자동 재연결
 - [ ] SFTP 탐색기
 - [ ] 파일 업로드/다운로드
