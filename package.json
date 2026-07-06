@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "release:win": "tauri build --no-bundle",
+    "release:win": "tauri build --bundles nsis",
+    "release:win:portable": "tauri build --no-bundle",
     "release:win:installer": "tauri build --bundles nsis"
   },
   "dependencies": {
