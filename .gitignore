@@ -6,6 +6,8 @@ dist/
 target/
 src-tauri/target/
 release/win/*.exe
+release-assets/
+.tauri/
 
 # logs
 *.log

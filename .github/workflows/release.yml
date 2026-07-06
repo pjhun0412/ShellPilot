@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
-        run: npm run release:win
+        run: npm run release:win:build
 
       - name: Prepare release asset
         shell: pwsh
