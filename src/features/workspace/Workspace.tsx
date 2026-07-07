@@ -140,8 +140,8 @@ export function Workspace({
   };
   return (
     <section className="grid min-w-0 grid-rows-[minmax(0,1fr)] bg-background">
-      <div className="min-h-0 min-w-0 p-3">
-        <div className="workspace-frame relative h-full overflow-hidden rounded-lg border shadow-workspace">
+      <div className="min-h-0 min-w-0">
+        <div className="workspace-frame relative h-full overflow-hidden">
           <Layout
             model={model}
             factory={factory}

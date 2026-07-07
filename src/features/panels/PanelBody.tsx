@@ -19,7 +19,7 @@ export function PanelBody({
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         {panel.session?.kind === 'ssh' ? (
-          <SshTerminal panelId={panel.id} session={panel.session} />
+          <SshTerminal autoConnect={panel.autoConnect !== false} panelId={panel.id} session={panel.session} />
         ) : (
           <LocalTerminalPlaceholder />
         )}
@@ -101,10 +101,8 @@ function PanelFocusFrame({
   return (
     <div
       className={cn(
-        'relative h-full min-h-0 outline-none transition-[box-shadow,filter] duration-150',
-        !isActive && 'brightness-[0.97]',
-        isActive &&
-          'shadow-[inset_0_0_0_2px_hsl(var(--primary)),inset_0_3px_0_0_hsl(var(--primary)),0_0_0_1px_hsl(var(--primary)/0.28)]',
+        'relative h-full min-h-0 outline-none transition-[filter] duration-150',
+        !isActive && 'brightness-[0.98]',
       )}
       onPointerDown={onActivate}
       tabIndex={-1}

@@ -37,9 +37,11 @@ import {
 } from './sshTerminalBridge';
 
 export function SshTerminal({
+  autoConnect = true,
   panelId,
   session,
 }: {
+  autoConnect?: boolean;
   panelId: string;
   session: SessionItem;
 }) {
@@ -60,7 +62,9 @@ export function SshTerminal({
   const [manualUsername, setManualUsername] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
   const [shouldRememberUsername, setShouldRememberUsername] = useState(true);
-  const [status, setStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
+  const [status, setStatus] = useState<'connecting' | 'connected' | 'failed' | 'restored'>(
+    autoConnect ? 'connecting' : 'restored',
+  );
   const secretLabel =
     session.authMethod === 'key'
       ? 'key passphrase'
@@ -111,8 +115,14 @@ export function SshTerminal({
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     fitTerminal(panelId, terminal, fitAddon);
-    terminal.writeln(`Connecting to ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}...`);
-    publishConnectionStatus({ panelId, status: 'connecting' });
+    if (autoConnect) {
+      terminal.writeln(`Connecting to ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}...`);
+      publishConnectionStatus({ panelId, status: 'connecting' });
+    } else {
+      terminal.writeln(`Session restored: ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}`);
+      terminal.writeln('Use Reconnect to open a new SSH connection.');
+      publishConnectionStatus({ panelId, status: 'idle' });
+    }
     setFailure(undefined);
 
     const dataDisposable = terminal.onData((data) => {
@@ -276,7 +286,9 @@ export function SshTerminal({
         return;
       }
 
-      await openSshShell(panelId, session);
+      if (autoConnect) {
+        await openSshShell(panelId, session);
+      }
     };
 
     void startShellAfterListenerReady().catch((error: unknown) => {
@@ -301,7 +313,7 @@ export function SshTerminal({
       terminal.dispose();
       publishConnectionStatus({ panelId, status: 'idle' });
     };
-  }, [panelId, session]);
+  }, [autoConnect, panelId, session]);
 
   const copySelection = () => {
     const selectedText = terminalRef.current?.getSelection();
@@ -414,6 +426,19 @@ export function SshTerminal({
           }}
         >
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
+          {status === 'restored' && (
+            <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg">
+              <span className="font-medium text-slate-100">Session restored</span>
+              <span className="text-slate-300">
+                Terminal output was not restored. Reconnect to open a new SSH session.
+              </span>
+              <div className="flex justify-end">
+                <Button size="sm" type="button" onClick={() => void reconnectSession()}>
+                  Reconnect
+                </Button>
+              </div>
+            </div>
+          )}
           {status === 'failed' && failure && (
             <form
               className="absolute left-1/2 top-1/2 grid w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg"

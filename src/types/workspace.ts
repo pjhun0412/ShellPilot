@@ -40,6 +40,7 @@ export interface SessionGroup {
 export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp';
 
 export interface WorkspacePanel {
+  autoConnect?: boolean;
   id: string;
   session?: SessionItem;
   title: string;

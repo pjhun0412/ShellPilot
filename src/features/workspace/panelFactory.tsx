@@ -15,7 +15,11 @@ export function createPanelFactory({
     const panelId = node.getId();
     const isActive = activePanelId === panelId;
     const activatePanel = () => onActivatePanel(panelId);
-    const config = node.getConfig() as { panelType?: WorkspacePanelType | 'logs'; session?: WorkspacePanel['session'] };
+    const config = node.getConfig() as {
+      autoConnect?: boolean;
+      panelType?: WorkspacePanelType | 'logs';
+      session?: WorkspacePanel['session'];
+    };
     const panelType = config.panelType ?? resolvePanelType(panelId);
 
     if (panelType === 'logs') {
@@ -26,6 +30,7 @@ export function createPanelFactory({
       panelCatalog.find((item) => item.id === panelId) ??
       ({
         id: panelId,
+        autoConnect: config.autoConnect,
         session: config.session,
         title: node.getName(),
         type: panelType,
@@ -36,7 +41,11 @@ export function createPanelFactory({
 }
 
 export function panelFactory(node: TabNode) {
-  const config = node.getConfig() as { panelType?: WorkspacePanelType | 'logs'; session?: WorkspacePanel['session'] };
+  const config = node.getConfig() as {
+    autoConnect?: boolean;
+    panelType?: WorkspacePanelType | 'logs';
+    session?: WorkspacePanel['session'];
+  };
   const panelType = config.panelType ?? resolvePanelType(node.getId());
 
   if (panelType === 'logs') {
@@ -47,6 +56,7 @@ export function panelFactory(node: TabNode) {
     panelCatalog.find((item) => item.id === node.getId()) ??
     ({
       id: node.getId(),
+      autoConnect: config.autoConnect,
       session: config.session,
       title: node.getName(),
       type: panelType,

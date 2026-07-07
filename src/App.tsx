@@ -1,13 +1,12 @@
 import { Actions, DockLocation, Model } from 'flexlayout-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ActivityBar } from '@/components/navigation/ActivityBar';
 import { SidebarShell } from '@/components/navigation/SidebarShell';
 import { AppDialogProvider } from '@/components/ui/app-dialog';
 import { MenuBar } from '@/components/shell/MenuBar';
-import { StatusBar } from '@/components/shell/StatusBar';
 import { Workspace } from '@/features/workspace/Workspace';
-import { layoutStorageKey, loadSavedLayout } from '@/features/workspace/workspaceLayout';
+import { loadSavedLayout, saveWorkspaceLayout } from '@/features/workspace/workspaceLayout';
 import type { ActivityId, WorkspacePanel } from '@/types/workspace';
 
 export function App() {
@@ -15,11 +14,10 @@ export function App() {
   const [sidebarWidth, setSidebarWidth] = useState(312);
   const [activeActivity, setActiveActivity] = useState<ActivityId>('sessions');
   const [lastAddedPanelId, setLastAddedPanelId] = useState<string>();
-  const [savedLayoutAt, setSavedLayoutAt] = useState<string | null>(null);
-  const [, setLayoutVersion] = useState(0);
+  const [layoutVersion, setLayoutVersion] = useState(0);
   const model = useMemo(() => {
     const nextModel = Model.fromJson(loadSavedLayout());
-    nextModel.setSplitterSize(6);
+    nextModel.setSplitterSize(1);
     nextModel.setOnCreateTabSet(() => ({
       enableDivide: true,
       enableDrag: true,
@@ -45,11 +43,22 @@ export function App() {
     window.addEventListener('pointerup', stopResize);
   };
 
-  const saveLayout = () => {
-    const serialized = modelRef.current.toJson();
-    localStorage.setItem(layoutStorageKey, JSON.stringify(serialized));
-    setSavedLayoutAt(new Date().toLocaleTimeString());
-  };
+  useEffect(() => {
+    const saveTimer = window.setTimeout(() => {
+      saveWorkspaceLayout(modelRef.current.toJson());
+    }, 450);
+
+    return () => window.clearTimeout(saveTimer);
+  }, [layoutVersion]);
+
+  useEffect(() => {
+    const saveBeforeUnload = () => {
+      saveWorkspaceLayout(modelRef.current.toJson());
+    };
+
+    window.addEventListener('beforeunload', saveBeforeUnload);
+    return () => window.removeEventListener('beforeunload', saveBeforeUnload);
+  }, []);
 
   const addPanel = (panel: WorkspacePanel) => {
     const activeTabset = modelRef.current.getActiveTabset();
@@ -66,7 +75,7 @@ export function App() {
           id: tabId,
           name: panel.title,
           component: 'panel',
-          config: { panelType: panel.type, session: panel.session },
+          config: { autoConnect: true, panelType: panel.type, session: panel.session },
         },
         activeTabset.getId(),
         DockLocation.CENTER,
@@ -80,7 +89,7 @@ export function App() {
   };
 
   return (
-    <main className="workspace-bg grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden">
+    <main className="workspace-bg grid h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <MenuBar />
 
       <section
@@ -88,7 +97,7 @@ export function App() {
         style={{
           gridTemplateColumns: isSidebarCollapsed
             ? '3rem minmax(0, 1fr)'
-            : `3rem ${sidebarWidth}px 6px minmax(0, 1fr)`,
+            : `3rem ${sidebarWidth}px 3px minmax(0, 1fr)`,
         }}
       >
         <ActivityBar
@@ -107,11 +116,13 @@ export function App() {
         />
         {!isSidebarCollapsed && (
           <div
-            className="cursor-col-resize border-r bg-border/70 hover:bg-primary/60"
+            className="group cursor-col-resize bg-transparent"
             role="separator"
             aria-orientation="vertical"
             onPointerDown={startSidebarResize}
-          />
+          >
+            <div className="mx-auto h-full w-px bg-border/35 transition-[background-color,width] group-hover:w-[3px] group-hover:bg-primary/70" />
+          </div>
         )}
 
         <Workspace
@@ -119,11 +130,10 @@ export function App() {
           model={model}
           onModelChange={(nextModel) => {
             modelRef.current = nextModel;
+            setLayoutVersion((version) => version + 1);
           }}
         />
       </section>
-
-      <StatusBar savedLayoutAt={savedLayoutAt} onSaveLayout={saveLayout} />
       <AppDialogProvider />
     </main>
   );
