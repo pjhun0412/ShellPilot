@@ -5,10 +5,13 @@ import { resolveKeyCredentialRef, resolvePasswordCredentialRef } from '@/feature
 import type { SessionItem } from '@/types/workspace';
 
 export interface SshTerminalEvent {
+  authPrompt: boolean;
+  code?: 'auth_failed' | 'connection_failed' | 'host_key_mismatch' | 'host_key_trusted' | 'session_failed' | string;
   data?: string;
   message?: string;
   panelId: string;
-  status: 'closed' | 'connected' | 'data' | 'failed' | 'info';
+  retryable: boolean;
+  status: 'closed' | 'connected' | 'data' | 'failed' | 'info' | 'warning';
 }
 
 export async function openSshShell(panelId: string, session: SessionItem, password?: string) {
@@ -52,6 +55,17 @@ export async function resizeSshPty(panelId: string, terminal: Terminal) {
 
 export async function closeSshShell(panelId: string) {
   await invoke('ssh_close', { panelId });
+}
+
+export async function forgetSshKnownHost(session: SessionItem) {
+  if (!session.host) {
+    throw new Error('Host is required to reset SSH host key trust.');
+  }
+
+  await invoke<boolean>('forget_ssh_known_host', {
+    host: session.host,
+    port: session.port ?? 22,
+  });
 }
 
 export async function pasteClipboardToSsh(panelId: string) {

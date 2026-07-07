@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::{
     io::Read,
     net::{SocketAddr, TcpStream, ToSocketAddrs},
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -10,15 +12,28 @@ use std::{
 use crate::commands::credentials::read_credential_secret;
 use russh::{
     client,
-    keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg},
+    keys::{load_secret_key, ssh_key, HashAlg, PrivateKeyWithHashAlg},
     ChannelMsg, Disconnect,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::{mpsc, Mutex};
 
 #[derive(Default)]
 pub struct SshSessionStore {
     sessions: Mutex<HashMap<String, SshSessionHandle>>,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KnownHosts {
+    hosts: HashMap<String, KnownHostEntry>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KnownHostEntry {
+    algorithm: String,
+    fingerprint: String,
 }
 
 struct SshSessionHandle {
@@ -106,9 +121,12 @@ pub struct SshShellTarget {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct SshTerminalEvent {
+    auth_prompt: bool,
+    code: Option<String>,
     data: Option<String>,
     message: Option<String>,
     panel_id: String,
+    retryable: bool,
     status: SshTerminalStatus,
 }
 
@@ -118,8 +136,61 @@ enum SshTerminalStatus {
     Closed,
     Connected,
     Data,
+    Warning,
     Info,
     Failed,
+}
+
+#[derive(Debug)]
+struct SshFailure {
+    auth_prompt: bool,
+    code: &'static str,
+    message: String,
+    retryable: bool,
+}
+
+impl SshFailure {
+    fn auth(message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: true,
+            code: "auth_failed",
+            message: message.into(),
+            retryable: true,
+        }
+    }
+
+    fn connection(message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: false,
+            code: "connection_failed",
+            message: message.into(),
+            retryable: true,
+        }
+    }
+
+    fn host_key(message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: false,
+            code: "host_key_mismatch",
+            message: message.into(),
+            retryable: false,
+        }
+    }
+
+    fn session(message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: false,
+            code: "session_failed",
+            message: message.into(),
+            retryable: true,
+        }
+    }
+}
+
+impl From<String> for SshFailure {
+    fn from(message: String) -> Self {
+        Self::session(message)
+    }
 }
 
 #[tauri::command]
@@ -155,6 +226,7 @@ pub fn probe_ssh_connection(
 
 #[tauri::command]
 pub async fn connect_ssh_password(
+    app: AppHandle,
     host: String,
     port: u16,
     username: String,
@@ -171,12 +243,18 @@ pub async fn connect_ssh_password(
 
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(timeout),
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
         ..Default::default()
     });
 
-    let mut session = client::connect(config, (host.as_str(), port), ShellPilotSshClient)
-        .await
-        .map_err(|error| format!("ssh connect failed: {error}"))?;
+    let mut session = client::connect(
+        config,
+        (host.as_str(), port),
+        ShellPilotSshClient::new(app, None, &host, port),
+    )
+    .await
+    .map_err(|error| format!("ssh connect failed: {error}"))?;
 
     authenticate_session(&mut session, &username, &auth).await?;
 
@@ -206,12 +284,11 @@ pub async fn ssh_open_shell(
     let (tx, rx) = mpsc::unbounded_channel();
     let panel_id = target.panel_id.clone();
 
-    store.sessions.lock().await.insert(
-        panel_id.clone(),
-        SshSessionHandle {
-            tx,
-        },
-    );
+    store
+        .sessions
+        .lock()
+        .await
+        .insert(panel_id.clone(), SshSessionHandle { tx });
 
     tauri::async_runtime::spawn(run_shell_session(app, target, auth, rx));
     Ok(())
@@ -247,6 +324,17 @@ pub async fn ssh_close(store: State<'_, SshSessionStore>, panel_id: String) -> R
     Ok(())
 }
 
+#[tauri::command]
+pub fn forget_ssh_known_host(app: AppHandle, host: String, port: u16) -> Result<bool, String> {
+    let key = format!("{}:{}", host.to_ascii_lowercase(), port);
+    let path = known_hosts_path(&app)?;
+    let mut known_hosts = read_known_hosts(&path)?;
+    let removed = known_hosts.hosts.remove(&key).is_some();
+
+    write_known_hosts(&path, &known_hosts)?;
+    Ok(removed)
+}
+
 async fn run_shell_session(
     app: AppHandle,
     target: SshShellTarget,
@@ -264,6 +352,8 @@ async fn run_shell_session(
         );
         let config = Arc::new(client::Config {
             inactivity_timeout: None,
+            keepalive_interval: Some(Duration::from_secs(30)),
+            keepalive_max: 3,
             ..Default::default()
         });
         emit_terminal_event(
@@ -273,9 +363,13 @@ async fn run_shell_session(
             None,
             Some("opening tcp/ssh transport".to_string()),
         );
-        let mut session = client::connect(config, (target.host.as_str(), target.port), ShellPilotSshClient)
+        let mut session = client::connect(
+            config,
+            (target.host.as_str(), target.port),
+            ShellPilotSshClient::new(app.clone(), Some(panel_id.clone()), &target.host, target.port),
+        )
             .await
-            .map_err(|error| format!("ssh connect failed: {error}"))?;
+            .map_err(|error| classify_connect_error(error.to_string()))?;
         emit_terminal_event(
             &app,
             &panel_id,
@@ -283,12 +377,14 @@ async fn run_shell_session(
             None,
             Some(format!("authenticating {}", auth.label())),
         );
-        authenticate_session(&mut session, &target.username, &auth).await?;
+        authenticate_session(&mut session, &target.username, &auth)
+            .await
+            .map_err(|error| classify_auth_error(error, &auth))?;
 
         let mut channel = session
             .channel_open_session()
             .await
-            .map_err(|error| format!("failed to open ssh channel: {error}"))?;
+            .map_err(|error| SshFailure::session(format!("failed to open ssh channel: {error}")))?;
 
         emit_terminal_event(
             &app,
@@ -300,7 +396,7 @@ async fn run_shell_session(
         channel
             .request_pty(false, "xterm-256color", 120, 32, 0, 0, &[])
             .await
-            .map_err(|error| format!("failed to request pty: {error}"))?;
+            .map_err(|error| SshFailure::session(format!("failed to request pty: {error}")))?;
         emit_terminal_event(
             &app,
             &panel_id,
@@ -311,7 +407,7 @@ async fn run_shell_session(
         channel
             .request_shell(false)
             .await
-            .map_err(|error| format!("failed to request shell: {error}"))?;
+            .map_err(|error| SshFailure::session(format!("failed to request shell: {error}")))?;
 
         emit_terminal_event(&app, &panel_id, SshTerminalStatus::Connected, None, None);
 
@@ -328,13 +424,13 @@ async fn run_shell_session(
                             channel
                                 .window_change(cols, rows, 0, 0)
                                 .await
-                                .map_err(|error| format!("failed to resize pty: {error}"))?;
+                                .map_err(|error| SshFailure::session(format!("failed to resize pty: {error}")))?;
                         }
                         Some(SshSessionCommand::Write(data)) => {
                             channel
                                 .data_bytes(data.into_bytes())
                                 .await
-                                .map_err(|error| format!("failed to write ssh data: {error}"))?;
+                                .map_err(|error| SshFailure::session(format!("failed to write ssh data: {error}")))?;
                         }
                     }
                 }
@@ -358,7 +454,17 @@ async fn run_shell_session(
                                 None,
                             );
                         }
-                        Some(ChannelMsg::ExitStatus { .. }) | Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
+                        Some(ChannelMsg::ExitStatus { exit_status }) => {
+                            emit_terminal_event(
+                                &app,
+                                &panel_id,
+                                SshTerminalStatus::Info,
+                                None,
+                                Some(format!("remote shell exited with status {exit_status}")),
+                            );
+                            break;
+                        }
+                        Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
                             break;
                         }
                         _ => {}
@@ -367,13 +473,13 @@ async fn run_shell_session(
             }
         }
 
-        Ok::<(), String>(())
+        Ok::<(), SshFailure>(())
     }
     .await;
 
     match result {
         Ok(()) => emit_terminal_event(&app, &panel_id, SshTerminalStatus::Closed, None, None),
-        Err(error) => emit_terminal_event(&app, &panel_id, SshTerminalStatus::Failed, None, Some(error)),
+        Err(error) => emit_terminal_failure(&app, &panel_id, error),
     }
 }
 
@@ -385,7 +491,11 @@ fn read_ssh_banner(stream: &mut TcpStream) -> Option<String> {
         return None;
     }
 
-    Some(String::from_utf8_lossy(&buffer[..read_size]).trim().to_string())
+    Some(
+        String::from_utf8_lossy(&buffer[..read_size])
+            .trim()
+            .to_string(),
+    )
 }
 
 fn resolve_socket_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
@@ -422,12 +532,47 @@ fn emit_terminal_event(
     let _ = app.emit(
         "shellpilot-ssh-terminal",
         SshTerminalEvent {
+            auth_prompt: false,
+            code: None,
             data,
             message,
             panel_id: panel_id.to_string(),
+            retryable: false,
             status,
         },
     );
+}
+
+fn emit_terminal_failure(app: &AppHandle, panel_id: &str, error: SshFailure) {
+    let _ = app.emit(
+        "shellpilot-ssh-terminal",
+        SshTerminalEvent {
+            auth_prompt: error.auth_prompt,
+            code: Some(error.code.to_string()),
+            data: None,
+            message: Some(error.message),
+            panel_id: panel_id.to_string(),
+            retryable: error.retryable,
+            status: SshTerminalStatus::Failed,
+        },
+    );
+}
+
+fn emit_terminal_warning(app: &AppHandle, panel_id: Option<&str>, message: String) {
+    if let Some(panel_id) = panel_id {
+        let _ = app.emit(
+            "shellpilot-ssh-terminal",
+            SshTerminalEvent {
+                auth_prompt: false,
+                code: Some("host_key_trusted".to_string()),
+                data: None,
+                message: Some(message),
+                panel_id: panel_id.to_string(),
+                retryable: false,
+                status: SshTerminalStatus::Warning,
+            },
+        );
+    }
 }
 
 async fn authenticate_session(
@@ -479,23 +624,157 @@ async fn authenticate_session(
     };
 
     if !auth_result.success() {
-        return Err(format!("ssh {} authentication rejected by server", auth.label()));
+        return Err(format!(
+            "ssh {} authentication rejected by server",
+            auth.label()
+        ));
     }
 
     Ok(())
 }
 
-struct ShellPilotSshClient;
+struct ShellPilotSshClient {
+    app: AppHandle,
+    host: String,
+    panel_id: Option<String>,
+    port: u16,
+}
+
+impl ShellPilotSshClient {
+    fn new(app: AppHandle, panel_id: Option<String>, host: &str, port: u16) -> Self {
+        Self {
+            app,
+            host: host.to_string(),
+            panel_id,
+            port,
+        }
+    }
+}
 
 impl client::Handler for ShellPilotSshClient {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        let entry = KnownHostEntry {
+            algorithm: server_public_key.algorithm().to_string(),
+            fingerprint: server_public_key
+                .fingerprint(ssh_key::HashAlg::Sha256)
+                .to_string(),
+        };
+
+        match verify_known_host(&self.app, &self.host, self.port, &entry) {
+            Ok(KnownHostDecision::Trusted) => Ok(true),
+            Ok(KnownHostDecision::AcceptedNew) => {
+                emit_terminal_warning(
+                    &self.app,
+                    self.panel_id.as_deref(),
+                    format!(
+                        "Security: trusted new SSH host key for {}:{} ({})",
+                        self.host, self.port, entry.fingerprint
+                    ),
+                );
+                Ok(true)
+            }
+            Ok(KnownHostDecision::Mismatch { expected }) => {
+                emit_terminal_warning(
+                    &self.app,
+                    self.panel_id.as_deref(),
+                    format!(
+                        "Security: SSH host key mismatch for {}:{}. Expected {}, got {}.",
+                        self.host, self.port, expected.fingerprint, entry.fingerprint
+                    ),
+                );
+                Ok(false)
+            }
+            Err(error) => {
+                emit_terminal_warning(
+                    &self.app,
+                    self.panel_id.as_deref(),
+                    format!("Security: failed to verify SSH host key: {error}"),
+                );
+                Ok(false)
+            }
+        }
     }
+}
+
+enum KnownHostDecision {
+    AcceptedNew,
+    Mismatch { expected: KnownHostEntry },
+    Trusted,
+}
+
+fn verify_known_host(
+    app: &AppHandle,
+    host: &str,
+    port: u16,
+    entry: &KnownHostEntry,
+) -> Result<KnownHostDecision, String> {
+    let key = format!("{}:{}", host.to_ascii_lowercase(), port);
+    let path = known_hosts_path(app)?;
+    let mut known_hosts = read_known_hosts(&path)?;
+
+    if let Some(expected) = known_hosts.hosts.get(&key) {
+        if expected.fingerprint == entry.fingerprint && expected.algorithm == entry.algorithm {
+            return Ok(KnownHostDecision::Trusted);
+        }
+
+        return Ok(KnownHostDecision::Mismatch {
+            expected: expected.clone(),
+        });
+    }
+
+    known_hosts.hosts.insert(key, entry.clone());
+    write_known_hosts(&path, &known_hosts)?;
+    Ok(KnownHostDecision::AcceptedNew)
+}
+
+fn known_hosts_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))?;
+
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("failed to create app data directory: {error}"))?;
+
+    Ok(directory.join("known_hosts.json"))
+}
+
+fn read_known_hosts(path: &PathBuf) -> Result<KnownHosts, String> {
+    if !path.exists() {
+        return Ok(KnownHosts::default());
+    }
+
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("failed to read known hosts: {error}"))?;
+
+    serde_json::from_str(&content).map_err(|error| format!("failed to parse known hosts: {error}"))
+}
+
+fn write_known_hosts(path: &PathBuf, known_hosts: &KnownHosts) -> Result<(), String> {
+    let content = serde_json::to_string_pretty(known_hosts)
+        .map_err(|error| format!("failed to serialize known hosts: {error}"))?;
+
+    fs::write(path, content).map_err(|error| format!("failed to write known hosts: {error}"))
+}
+
+fn classify_auth_error(error: String, auth: &SshAuthRequest) -> SshFailure {
+    let label = auth.label();
+    SshFailure::auth(format!("SSH {label} authentication failed. {error}"))
+}
+
+fn classify_connect_error(error: String) -> SshFailure {
+    let lower = error.to_ascii_lowercase();
+
+    if lower.contains("key") || lower.contains("verify") || lower.contains("host") {
+        return SshFailure::host_key(format!("SSH host key verification failed. {error}"));
+    }
+
+    SshFailure::connection(format!("SSH connection failed. {error}"))
 }
 
 fn resolve_secret(
@@ -526,5 +805,7 @@ fn resolve_optional_secret(
         };
     }
 
-    Ok(secret.filter(|value| !value.is_empty()).map(ToOwned::to_owned))
+    Ok(secret
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned))
 }

@@ -21,6 +21,7 @@ pub fn run() {
             commands::sessions::load_session_registry,
             commands::sessions::save_session_registry,
             commands::ssh::connect_ssh_password,
+            commands::ssh::forget_ssh_known_host,
             commands::ssh::probe_ssh_connection,
             commands::ssh::ssh_close,
             commands::ssh::ssh_open_shell,
