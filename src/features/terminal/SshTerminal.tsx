@@ -36,6 +36,8 @@ import {
   type SshTerminalEvent,
 } from './sshTerminalBridge';
 
+type SshTerminalUiStatus = 'closed' | 'connecting' | 'connected' | 'failed' | 'restored';
+
 export function SshTerminal({
   autoConnect = true,
   panelId,
@@ -49,6 +51,11 @@ export function SshTerminal({
   const fitAddonRef = useRef<FitAddon>();
   const pendingPasswordRef = useRef<string>();
   const pendingUsernameRef = useRef<string>();
+  const lastHostKeyWarningRef = useRef<{
+    code?: string;
+    message: string;
+  }>();
+  const closeIntentRef = useRef<'dispose' | 'manual' | 'reconnect'>();
   const shouldRememberPasswordRef = useRef(true);
   const shouldRememberUsernameRef = useRef(true);
   const terminalRef = useRef<Terminal>();
@@ -62,9 +69,7 @@ export function SshTerminal({
   const [manualUsername, setManualUsername] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
   const [shouldRememberUsername, setShouldRememberUsername] = useState(true);
-  const [status, setStatus] = useState<'connecting' | 'connected' | 'failed' | 'restored'>(
-    autoConnect ? 'connecting' : 'restored',
-  );
+  const [status, setStatus] = useState<SshTerminalUiStatus>(autoConnect ? 'connecting' : 'restored');
   const secretLabel =
     session.authMethod === 'key'
       ? 'key passphrase'
@@ -121,7 +126,7 @@ export function SshTerminal({
     } else {
       terminal.writeln(`Session restored: ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}`);
       terminal.writeln('Use Reconnect to open a new SSH connection.');
-      publishConnectionStatus({ panelId, status: 'idle' });
+      publishConnectionStatus({ panelId, status: 'restored' });
     }
     setFailure(undefined);
 
@@ -195,6 +200,7 @@ export function SshTerminal({
       }
 
       terminal.writeln('\r\n[closing ssh session...]');
+      closeIntentRef.current = 'dispose';
       void closeSshShell(panelId);
       publishConnectionStatus({ panelId, status: 'idle' });
     });
@@ -208,6 +214,7 @@ export function SshTerminal({
       }
 
       if (event.payload.status === 'connected') {
+        closeIntentRef.current = undefined;
         setStatus('connected');
         setFailure(undefined);
         publishConnectionStatus({ panelId, status: 'connected' });
@@ -253,6 +260,12 @@ export function SshTerminal({
       }
 
       if (event.payload.status === 'warning') {
+        if (event.payload.code === 'host_key_unknown' || event.payload.code === 'host_key_mismatch') {
+          lastHostKeyWarningRef.current = {
+            code: event.payload.code,
+            message: event.payload.message ?? 'SSH host key verification failed.',
+          };
+        }
         terminal.writeln(`\r\n${event.payload.message ?? 'SSH security warning'}`);
         return;
       }
@@ -263,12 +276,18 @@ export function SshTerminal({
       }
 
       if (event.payload.status === 'failed') {
-        const message = event.payload.message ?? 'SSH session failed';
+        closeIntentRef.current = undefined;
+        const hostKeyWarning = lastHostKeyWarningRef.current;
+        const message =
+          hostKeyWarning &&
+          (event.payload.code === 'host_key_unknown' || event.payload.code === 'host_key_mismatch')
+            ? hostKeyWarning.message
+            : event.payload.message ?? 'SSH session failed';
 
         setStatus('failed');
         setFailure({
           authPrompt: event.payload.authPrompt,
-          code: event.payload.code,
+          code: hostKeyWarning?.code ?? event.payload.code,
           message,
           retryable: event.payload.retryable,
         });
@@ -277,7 +296,14 @@ export function SshTerminal({
       }
 
       if (event.payload.status === 'closed') {
-        publishConnectionStatus({ panelId, status: 'idle' });
+        if (closeIntentRef.current === 'reconnect' || closeIntentRef.current === 'dispose') {
+          return;
+        }
+
+        closeIntentRef.current = undefined;
+        setStatus('closed');
+        setFailure(undefined);
+        publishConnectionStatus({ panelId, status: 'closed' });
         terminal.writeln('\r\n[closed]');
       }
       });
@@ -303,6 +329,7 @@ export function SshTerminal({
 
     return () => {
       isDisposed = true;
+      closeIntentRef.current = 'dispose';
       void closeSshShell(panelId);
       dataDisposable.dispose();
       selectionDisposable.dispose();
@@ -333,13 +360,16 @@ export function SshTerminal({
 
     setStatus('connecting');
     setFailure(undefined);
+    lastHostKeyWarningRef.current = undefined;
     publishConnectionStatus({ panelId, status: 'connecting' });
     terminal?.clear();
     terminal?.writeln(`Reconnecting to ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}...`);
+    closeIntentRef.current = 'reconnect';
     await closeSshShell(panelId).catch(() => undefined);
     await openSshShell(panelId, session).catch((error: unknown) => {
       const failure = getSshOpenFailure(error);
 
+      closeIntentRef.current = undefined;
       setStatus('failed');
       setFailure(failure);
       publishConnectionStatus({ panelId, status: 'failed' });
@@ -357,9 +387,11 @@ export function SshTerminal({
 
   const closeSession = async () => {
     terminalRef.current?.writeln('\r\n[closing ssh session...]');
+    closeIntentRef.current = 'manual';
     await closeSshShell(panelId).catch(() => undefined);
-    setStatus('failed');
-    publishConnectionStatus({ panelId, status: 'idle' });
+    setFailure(undefined);
+    setStatus('closed');
+    publishConnectionStatus({ panelId, status: 'closed' });
   };
 
   const connectWithPassword = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -375,6 +407,7 @@ export function SshTerminal({
 
     setStatus('connecting');
     setFailure(undefined);
+    lastHostKeyWarningRef.current = undefined;
     pendingPasswordRef.current = manualPassword || undefined;
     pendingUsernameRef.current = username || undefined;
     terminalRef.current?.writeln(`\r\nRetrying with typed ${secretLabel}...`);
@@ -411,6 +444,25 @@ export function SshTerminal({
     await reconnectSession();
   };
 
+  const trustHostKeyAndReconnect = async () => {
+    setStatus('connecting');
+    setFailure(undefined);
+    lastHostKeyWarningRef.current = undefined;
+    publishConnectionStatus({ panelId, status: 'connecting' });
+    terminalRef.current?.writeln('\r\nTrusting SSH host key and reconnecting...');
+    closeIntentRef.current = 'reconnect';
+    await closeSshShell(panelId).catch(() => undefined);
+    await openSshShell(panelId, session, { acceptNewHostKey: true }).catch((error: unknown) => {
+      const failure = getSshOpenFailure(error);
+
+      closeIntentRef.current = undefined;
+      setStatus('failed');
+      setFailure(failure);
+      publishConnectionStatus({ panelId, status: 'failed' });
+    });
+    terminalRef.current?.focus();
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -427,12 +479,25 @@ export function SshTerminal({
         >
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
           {status === 'restored' && (
-            <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg">
+            <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
               <span className="font-medium text-slate-100">Session restored</span>
-              <span className="text-slate-300">
+              <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
                 Terminal output was not restored. Reconnect to open a new SSH session.
               </span>
-              <div className="flex justify-end">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button size="sm" type="button" onClick={() => void reconnectSession()}>
+                  Reconnect
+                </Button>
+              </div>
+            </div>
+          )}
+          {status === 'closed' && (
+            <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
+              <span className="font-medium text-slate-100">Session closed</span>
+              <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+                The SSH connection is closed. Reconnect to open a new shell session.
+              </span>
+              <div className="flex flex-wrap justify-end gap-2">
                 <Button size="sm" type="button" onClick={() => void reconnectSession()}>
                   Reconnect
                 </Button>
@@ -441,13 +506,15 @@ export function SshTerminal({
           )}
           {status === 'failed' && failure && (
             <form
-              className="absolute left-1/2 top-1/2 grid w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg"
+              className="absolute left-1/2 top-1/2 grid w-[min(28rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg"
               onSubmit={connectWithPassword}
             >
               <span className="font-medium text-slate-100">
                 {getSshFailureTitle(failure.code)}
               </span>
-              <span className="text-slate-300">{failure.message}</span>
+              <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+                {failure.message}
+              </span>
               {failure.authPrompt ? (
                 <>
                   <div className="grid gap-2">
@@ -478,7 +545,7 @@ export function SshTerminal({
                       />
                     )}
                   </div>
-                  <div className="flex justify-end">
+                  <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       size="sm"
                       type="submit"
@@ -520,7 +587,12 @@ export function SshTerminal({
                   )}
                 </>
               ) : (
-                <div className="flex justify-end gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {failure.code === 'host_key_unknown' && (
+                    <Button size="sm" type="button" onClick={() => void trustHostKeyAndReconnect()}>
+                      Trust & Connect
+                    </Button>
+                  )}
                   {failure.code === 'host_key_mismatch' && (
                     <Button size="sm" type="button" variant="secondary" onClick={() => void resetKnownHostAndReconnect()}>
                       Reset Host Key
@@ -529,9 +601,9 @@ export function SshTerminal({
                   <Button
                     size="sm"
                     type="button"
-                    variant={failure.retryable ? 'default' : 'secondary'}
+                    variant={failure.retryable && failure.code !== 'host_key_unknown' ? 'default' : 'secondary'}
                     onClick={() => void reconnectSession()}
-                    disabled={!failure.retryable}
+                    disabled={!failure.retryable || failure.code === 'host_key_unknown'}
                   >
                     Reconnect
                   </Button>
@@ -563,7 +635,7 @@ export function SshTerminal({
         </ContextMenuItem>
         <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => void closeSession()}>
           <PlugZap className="size-3.5" />
-          Close Session
+          Disconnect
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -612,8 +684,32 @@ function getSshFailureTitle(code?: string) {
     return 'SSH authentication failed';
   }
 
+  if (code === 'agent_failed') {
+    return 'SSH agent unavailable';
+  }
+
   if (code === 'host_key_mismatch') {
     return 'SSH host key blocked';
+  }
+
+  if (code === 'host_key_unknown') {
+    return 'Unknown SSH host key';
+  }
+
+  if (code === 'connection_refused') {
+    return 'SSH connection refused';
+  }
+
+  if (code === 'connection_timeout') {
+    return 'SSH connection timeout';
+  }
+
+  if (code === 'dns_failed') {
+    return 'SSH host not resolved';
+  }
+
+  if (code === 'network_unreachable') {
+    return 'SSH network unreachable';
   }
 
   return 'SSH connection failed';

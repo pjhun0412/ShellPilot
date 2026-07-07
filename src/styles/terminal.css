@@ -27,6 +27,10 @@
     display: none !important;
   }
 
+  .shellpilot-terminal .xterm-scrollable-element > .scrollbar {
+    background: transparent !important;
+  }
+
   .shellpilot-terminal .xterm-scrollable-element > .scrollbar > .scra {
     display: none !important;
   }
@@ -37,7 +41,20 @@
   }
 
   .shellpilot-terminal .xterm-scrollable-element > .scrollbar > .slider {
+    left: auto !important;
+    right: 1px !important;
+    width: 6px !important;
     border-radius: 999px !important;
-    background: hsl(var(--muted-foreground) / 0.4) !important;
+    background: transparent !important;
+    clip-path: inset(1px 0 round 999px);
+    transition: background-color 220ms ease !important;
+  }
+
+  .shellpilot-terminal:hover .xterm-scrollable-element > .scrollbar > .slider {
+    background: hsl(var(--scrollbar-thumb) / 0.78) !important;
+  }
+
+  .shellpilot-terminal .xterm-scrollable-element > .scrollbar > .slider:hover {
+    background: hsl(var(--scrollbar-thumb-hover) / 0.9) !important;
   }
 }

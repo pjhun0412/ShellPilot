@@ -5,6 +5,7 @@ import { ActivityBar } from '@/components/navigation/ActivityBar';
 import { SidebarShell } from '@/components/navigation/SidebarShell';
 import { AppDialogProvider } from '@/components/ui/app-dialog';
 import { MenuBar } from '@/components/shell/MenuBar';
+import { panelCatalog } from '@/features/panels/panelCatalog';
 import { Workspace } from '@/features/workspace/Workspace';
 import { loadSavedLayout, saveWorkspaceLayout } from '@/features/workspace/workspaceLayout';
 import type { ActivityId, WorkspacePanel } from '@/types/workspace';
@@ -52,21 +53,44 @@ export function App() {
   }, [layoutVersion]);
 
   useEffect(() => {
+    const suppressBrowserContextMenu = (event: MouseEvent) => {
+      if (!event.defaultPrevented) {
+        event.preventDefault();
+      }
+    };
+    const suppressMiddleClickAutoScroll = (event: MouseEvent) => {
+      if (event.button === 1 && !event.defaultPrevented) {
+        event.preventDefault();
+      }
+    };
     const saveBeforeUnload = () => {
       saveWorkspaceLayout(modelRef.current.toJson());
     };
 
+    window.addEventListener('contextmenu', suppressBrowserContextMenu);
+    window.addEventListener('mousedown', suppressMiddleClickAutoScroll);
+    window.addEventListener('auxclick', suppressMiddleClickAutoScroll);
     window.addEventListener('beforeunload', saveBeforeUnload);
-    return () => window.removeEventListener('beforeunload', saveBeforeUnload);
+    return () => {
+      window.removeEventListener('contextmenu', suppressBrowserContextMenu);
+      window.removeEventListener('mousedown', suppressMiddleClickAutoScroll);
+      window.removeEventListener('auxclick', suppressMiddleClickAutoScroll);
+      window.removeEventListener('beforeunload', saveBeforeUnload);
+    };
   }, []);
 
   const addPanel = (panel: WorkspacePanel) => {
-    const activeTabset = modelRef.current.getActiveTabset();
-    if (!activeTabset) {
+    const existingNode = modelRef.current.getNodeById(panel.id);
+
+    if (panel.type === 'settings' && existingNode?.getType() === 'tab') {
+      modelRef.current.doAction(Actions.selectTab(panel.id));
+      setLastAddedPanelId(panel.id);
+      setLayoutVersion((version) => version + 1);
       return;
     }
 
-    const tabId = `${panel.id}-${Date.now()}`;
+    const activeTabset = modelRef.current.getActiveTabset() ?? modelRef.current.getFirstTabSet();
+    const tabId = panel.type === 'settings' ? panel.id : `${panel.id}-${Date.now()}`;
 
     modelRef.current.doAction(
       Actions.addTab(
@@ -87,10 +111,17 @@ export function App() {
     setLastAddedPanelId(tabId);
     setLayoutVersion((version) => version + 1);
   };
+  const openSettings = () => {
+    const settingsPanel = panelCatalog.find((panel) => panel.type === 'settings');
+
+    if (settingsPanel) {
+      addPanel(settingsPanel);
+    }
+  };
 
   return (
     <main className="workspace-bg grid h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <MenuBar />
+      <MenuBar onOpenSettings={openSettings} />
 
       <section
         className="grid min-h-0"
@@ -103,6 +134,7 @@ export function App() {
         <ActivityBar
           activeActivity={activeActivity}
           isSidebarCollapsed={isSidebarCollapsed}
+          onOpenSettings={openSettings}
           onSelectActivity={(activityId) => {
             setActiveActivity(activityId);
             setIsSidebarCollapsed(false);

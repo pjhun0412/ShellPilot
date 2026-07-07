@@ -1,9 +1,10 @@
 import { Plus, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { PanelIcon } from '@/features/panels/PanelIcon';
 import { panelCatalog } from '@/features/panels/panelCatalog';
+import { loadSessionUiState, saveSessionUiState } from '@/features/sessions/sessionStorage';
 import { useSessionRegistry } from '@/features/sessions/useSessionRegistry';
 import { t } from '@/i18n';
 import type { SessionGroup, SessionItem, SessionKind, WorkspacePanel } from '@/types/workspace';
@@ -23,11 +24,14 @@ const sessionFilters: Array<{ id: SessionFilter; label: string }> = [
 export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePanel) => void }) {
   const [activeFilter, setActiveFilter] = useState<SessionFilter>('all');
   const [query, setQuery] = useState('');
-  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(() => new Set());
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(
+    () => new Set(loadSessionUiState().collapsedGroupIds),
+  );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createDialogGroupId, setCreateDialogGroupId] = useState<string | undefined>();
   const [editingSession, setEditingSession] = useState<SessionItem | undefined>();
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>();
+  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number }>();
   const {
     createFolder,
     deleteFolder,
@@ -42,13 +46,48 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
     setSelectedSessionId,
   } = useSessionRegistry({
     onCreateSession: (session) => {
-      openPanelForSession(session);
+      setSelectedGroupId(undefined);
+      setSelectedSessionId(session.id);
     },
   });
   const filteredGroups = useMemo(
     () => filterSessionGroups(groups, activeFilter, query),
     [activeFilter, groups, query],
   );
+
+  useEffect(() => {
+    if (!treeMenu) {
+      return;
+    }
+
+    const closeMenu = () => setTreeMenu(undefined);
+    const closeMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu();
+      }
+    };
+
+    window.addEventListener('pointerdown', closeMenu);
+    window.addEventListener('keydown', closeMenuOnEscape);
+
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu);
+      window.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, [treeMenu]);
+
+  useEffect(() => {
+    const groupIds = new Set(groups.map((group) => group.id));
+    const nextCollapsedGroupIds = [...collapsedGroupIds].filter((groupId) => groupIds.has(groupId));
+
+    saveSessionUiState({
+      collapsedGroupIds: nextCollapsedGroupIds,
+    });
+
+    if (nextCollapsedGroupIds.length !== collapsedGroupIds.size) {
+      setCollapsedGroupIds(new Set(nextCollapsedGroupIds));
+    }
+  }, [collapsedGroupIds, groups]);
 
   const toggleGroup = (groupId: string) => {
     setCollapsedGroupIds((current) => {
@@ -99,9 +138,18 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
       onAddPanel(panel);
     }
   };
+  const openTreeContextMenu = (event: React.MouseEvent<HTMLElement>) => {
+    if ((event.target as Element).closest('[data-session-tree-item="true"]')) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    setTreeMenu({ x: event.clientX, y: event.clientY });
+  };
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col gap-4" onContextMenu={openTreeContextMenu}>
       <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2">
         <label className="relative min-w-0">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -159,8 +207,23 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
         onRenameFolder={renameFolder}
         onSelectGroup={setSelectedGroupId}
         onSelectSession={selectSession}
+        onTreeContextMenu={openTreeContextMenu}
         onToggleGroup={toggleGroup}
       />
+      {treeMenu && (
+        <SessionTreeBlankMenu
+          x={treeMenu.x}
+          y={treeMenu.y}
+          onCreateFolder={() => {
+            createFolder();
+            setTreeMenu(undefined);
+          }}
+          onCreateSession={() => {
+            openCreateDialog();
+            setTreeMenu(undefined);
+          }}
+        />
+      )}
 
       <CreateSessionDialog
         existingGroups={groups}
@@ -170,7 +233,58 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
         onOpenChange={setCreateDialogOpen}
         onCreateSession={submitSession}
       />
-    </>
+    </div>
+  );
+}
+
+function SessionTreeBlankMenu({
+  onCreateFolder,
+  onCreateSession,
+  x,
+  y,
+}: {
+  onCreateFolder: () => void;
+  onCreateSession: () => void;
+  x: number;
+  y: number;
+}) {
+  return (
+    <div
+      className="fixed z-50 min-w-44 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-xl"
+      style={{ left: x, top: y }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground">Sessions</div>
+      <SessionTreeMenuButton onClick={onCreateSession}>
+        New Session
+        <span className="ml-auto text-[10px] tracking-widest text-muted-foreground">Ctrl+N</span>
+      </SessionTreeMenuButton>
+      <SessionTreeMenuButton onClick={onCreateFolder}>New Folder</SessionTreeMenuButton>
+      <div className="-mx-1 my-1 h-px bg-border" />
+      <SessionTreeMenuButton disabled onClick={() => undefined}>Import Sessions</SessionTreeMenuButton>
+      <SessionTreeMenuButton disabled onClick={() => undefined}>Export Sessions</SessionTreeMenuButton>
+    </div>
+  );
+}
+
+function SessionTreeMenuButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="flex w-full select-none items-center gap-2 rounded-sm px-2 py-1.5 text-left outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -1,4 +1,4 @@
-import { Bot, Folder, Monitor, Terminal } from 'lucide-react';
+import { Bot, Folder, Monitor, Settings, Terminal } from 'lucide-react';
 
 import type { WorkspacePanelType } from '@/types/workspace';
 
@@ -13,6 +13,10 @@ export function PanelIcon({ type }: { type: WorkspacePanelType }) {
 
   if (type === 'rdp') {
     return <Monitor />;
+  }
+
+  if (type === 'settings') {
+    return <Settings />;
   }
 
   return <Folder />;

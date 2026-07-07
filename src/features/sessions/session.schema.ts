@@ -35,10 +35,10 @@ export const createSessionSchema = z.object({
     });
   }
 
-  if (input.authMethod === 'key' && input.privateKeyPath && !input.privateKeyPath.trim()) {
+  if (input.authMethod === 'key' && !input.privateKeyPath?.trim()) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Private key path is invalid',
+      message: 'Private key path is required',
       path: ['privateKeyPath'],
     });
   }

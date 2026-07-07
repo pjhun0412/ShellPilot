@@ -37,7 +37,7 @@ export interface SessionGroup {
   sessions: SessionItem[];
 }
 
-export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp';
+export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'settings';
 
 export interface WorkspacePanel {
   autoConnect?: boolean;
@@ -47,4 +47,4 @@ export interface WorkspacePanel {
   type: WorkspacePanelType;
 }
 
-export type ActivityId = 'sessions' | 'files' | 'ai' | 'logs' | 'settings';
+export type ActivityId = 'sessions' | 'files' | 'ai' | 'logs';

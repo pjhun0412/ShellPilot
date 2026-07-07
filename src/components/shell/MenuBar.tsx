@@ -4,7 +4,7 @@ import { Minus, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-export function MenuBar() {
+export function MenuBar({ onOpenSettings }: { onOpenSettings: () => void }) {
   const appWindow = getCurrentWindow();
 
   return (
@@ -21,7 +21,15 @@ export function MenuBar() {
 
       <nav className="app-no-drag flex h-full items-center gap-1 px-1">
         {['File', 'Edit', 'View', 'Session', 'Tools', 'Help'].map((item) => (
-          <Button className="h-7 px-2 text-xs" variant="ghost" size="sm" type="button" key={item}>
+          <Button
+            className="h-7 px-2 text-xs"
+            variant="ghost"
+            size="sm"
+            type="button"
+            key={item}
+            title={item === 'Tools' ? 'Open Settings' : item}
+            onClick={item === 'Tools' ? onOpenSettings : undefined}
+          >
             {item}
           </Button>
         ))}

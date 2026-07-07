@@ -27,7 +27,7 @@ export function SessionBasicFields({
   return (
     <div className="grid grid-cols-2 gap-3">
       <SessionField label="Name" error={form.formState.errors.name?.message}>
-        <input className="session-input" {...form.register('name')} placeholder="Web-01" />
+        <input className="session-input" {...form.register('name')} />
       </SessionField>
       <SessionField label="Group" error={form.formState.errors.groupId?.message}>
         <Select
@@ -63,7 +63,7 @@ export function SessionBasicFields({
         </SessionField>
       )}
       <SessionField label="Host" error={form.formState.errors.host?.message}>
-        <input className="session-input" {...form.register('host')} placeholder="10.10.0.21" />
+        <input className="session-input" {...form.register('host')} />
       </SessionField>
       <SessionField label="Port" error={form.formState.errors.port?.message}>
         <input
@@ -73,7 +73,7 @@ export function SessionBasicFields({
         />
       </SessionField>
       <SessionField label="Username" error={form.formState.errors.username?.message}>
-        <input className="session-input" {...form.register('username')} placeholder="deploy" />
+        <input className="session-input" {...form.register('username')} />
       </SessionField>
       <SessionField label="Auth Method" error={form.formState.errors.authMethod?.message}>
         <Select

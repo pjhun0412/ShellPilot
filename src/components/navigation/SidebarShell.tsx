@@ -46,7 +46,9 @@ export function SidebarShell({
         </Button>
       </div>
 
-      <SidebarContent activeActivity={activeActivity} onAddPanel={onAddPanel} />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <SidebarContent activeActivity={activeActivity} onAddPanel={onAddPanel} />
+      </div>
     </aside>
   );
 }

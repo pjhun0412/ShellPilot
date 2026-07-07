@@ -15,6 +15,7 @@ export function WorkspaceTabMenu({
   onClose,
   onCloseOthers,
   onCloseRight,
+  onDisconnect,
   onReconnect,
 }: {
   menu: WorkspaceTabMenuState;
@@ -22,6 +23,7 @@ export function WorkspaceTabMenu({
   onClose: () => void;
   onCloseOthers: () => void;
   onCloseRight: () => void;
+  onDisconnect: () => void;
   onReconnect: () => void;
 }) {
   const { node, session, x, y } = menu;
@@ -49,11 +51,11 @@ export function WorkspaceTabMenu({
       <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onClone}>
         Clone Channel
       </WorkspaceTabMenuButton>
-      <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onClone}>
-        Duplicate Session
-      </WorkspaceTabMenuButton>
       <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onReconnect}>
         Reconnect
+      </WorkspaceTabMenuButton>
+      <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onDisconnect}>
+        Disconnect
       </WorkspaceTabMenuButton>
       <WorkspaceTabMenuSeparator />
       <WorkspaceTabMenuButton disabled={!session?.host} onClick={copyHost}>

@@ -35,6 +35,9 @@
     --workspace-tab-border: 215 18% 25%;
     --workspace-tab-text: 215 20% 76%;
     --workspace-tab-text-active: 210 40% 98%;
+
+    --scrollbar-thumb: 215 14% 46%;
+    --scrollbar-thumb-hover: 215 16% 56%;
   }
 
   * {

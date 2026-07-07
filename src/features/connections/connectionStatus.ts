@@ -1,4 +1,4 @@
-export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed';
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed' | 'closed' | 'restored';
 
 const connectionStatusEventName = 'shellpilot:connection-status';
 

@@ -6,7 +6,7 @@ import {
   subscribeConnectionStatus,
   type ConnectionStatus,
 } from '@/features/connections/connectionStatus';
-import { notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
+import { notifyTerminalClosing, notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
 import { createPanelFactory } from './panelFactory';
 import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
 import { createWorkspaceActionHandler, getSelectedPanelId } from './workspaceLayoutActions';
@@ -24,7 +24,7 @@ export function Workspace({
   const [closingPanelIds] = useState(() => new Set<string>());
   const [, setWorkspaceVersion] = useState(0);
   const [tabMenu, setTabMenu] = useState<WorkspaceTabMenuState>();
-  const effectiveActivePanelId = activePanelId ?? getSelectedPanelId(model);
+  const effectiveActivePanelId = getSelectedPanelId(model) ?? activePanelId;
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const factory = useMemo(
     () =>
@@ -116,8 +116,22 @@ export function Workspace({
     const config = node.getConfig() as { session?: unknown };
     const isActive = effectiveActivePanelId === node.getId();
 
+    const closeOnMiddleClick = (event: React.MouseEvent<HTMLElement, MouseEvent>) => {
+      if (event.button !== 1) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      requestTabClose(node.getId());
+    };
+
     renderValues.content = (
-      <span className={cn('shellpilot-tab-title', isActive && 'shellpilot-tab-title--active')}>
+      <span
+        className={cn('shellpilot-tab-title', isActive && 'shellpilot-tab-title--active')}
+        onMouseDown={closeOnMiddleClick}
+        onAuxClick={closeOnMiddleClick}
+      >
         {node.getName()}
       </span>
     );
@@ -134,6 +148,8 @@ export function Workspace({
           connectionStatuses[node.getId()] === 'connecting' && 'animate-pulse bg-primary',
           connectionStatuses[node.getId()] === 'connected' && 'bg-[hsl(var(--workspace-success))]',
           connectionStatuses[node.getId()] === 'failed' && 'bg-destructive',
+          connectionStatuses[node.getId()] === 'closed' && 'bg-slate-500/60',
+          connectionStatuses[node.getId()] === 'restored' && 'bg-slate-500/60',
         )}
       />
     );
@@ -183,6 +199,10 @@ export function Workspace({
               }}
               onCloseRight={() => {
                 closeTabsToRight(tabMenu.node);
+                setTabMenu(undefined);
+              }}
+              onDisconnect={() => {
+                notifyTerminalClosing(tabMenu.node.getId());
                 setTabMenu(undefined);
               }}
               onReconnect={() => {

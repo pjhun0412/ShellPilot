@@ -117,9 +117,19 @@ pub struct SshConnectResult {
     username: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKnownHostRecord {
+    algorithm: String,
+    fingerprint: String,
+    host: String,
+    port: u16,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshShellTarget {
+    accept_new_host_key: Option<bool>,
     auth_method: Option<String>,
     credential_id: Option<String>,
     host: String,
@@ -173,10 +183,28 @@ impl SshFailure {
         }
     }
 
+    fn auth_with_code(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: false,
+            code,
+            message: message.into(),
+            retryable: true,
+        }
+    }
+
     fn connection(message: impl Into<String>) -> Self {
         Self {
             auth_prompt: false,
             code: "connection_failed",
+            message: message.into(),
+            retryable: true,
+        }
+    }
+
+    fn connection_with_code(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: false,
+            code,
             message: message.into(),
             retryable: true,
         }
@@ -188,6 +216,15 @@ impl SshFailure {
             code: "host_key_mismatch",
             message: message.into(),
             retryable: false,
+        }
+    }
+
+    fn unknown_host_key(message: impl Into<String>) -> Self {
+        Self {
+            auth_prompt: false,
+            code: "host_key_unknown",
+            message: message.into(),
+            retryable: true,
         }
     }
 
@@ -265,7 +302,7 @@ pub async fn connect_ssh_password(
     let mut session = client::connect(
         config,
         (host.as_str(), port),
-        ShellPilotSshClient::new(app, None, &host, port),
+        ShellPilotSshClient::new(app, None, &host, port, false),
     )
     .await
     .map_err(|error| format!("ssh connect failed: {error}"))?;
@@ -349,6 +386,43 @@ pub fn forget_ssh_known_host(app: AppHandle, host: String, port: u16) -> Result<
     Ok(removed)
 }
 
+#[tauri::command]
+pub fn clear_ssh_known_hosts(app: AppHandle) -> Result<usize, String> {
+    let path = known_hosts_path(&app)?;
+    let known_hosts = read_known_hosts(&path)?;
+    let removed = known_hosts.hosts.len();
+
+    write_known_hosts(&path, &KnownHosts::default())?;
+    Ok(removed)
+}
+
+#[tauri::command]
+pub fn list_ssh_known_hosts(app: AppHandle) -> Result<Vec<SshKnownHostRecord>, String> {
+    let path = known_hosts_path(&app)?;
+    let known_hosts = read_known_hosts(&path)?;
+    let mut records = known_hosts
+        .hosts
+        .into_iter()
+        .filter_map(|(key, entry)| {
+            let (host, port) = key.rsplit_once(':')?;
+            Some(SshKnownHostRecord {
+                algorithm: entry.algorithm,
+                fingerprint: entry.fingerprint,
+                host: host.to_string(),
+                port: port.parse().unwrap_or(22),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    records.sort_by(|left, right| {
+        left.host
+            .cmp(&right.host)
+            .then_with(|| left.port.cmp(&right.port))
+    });
+
+    Ok(records)
+}
+
 async fn run_shell_session(
     app: AppHandle,
     target: SshShellTarget,
@@ -380,7 +454,13 @@ async fn run_shell_session(
         let mut session = client::connect(
             config,
             (target.host.as_str(), target.port),
-            ShellPilotSshClient::new(app.clone(), Some(panel_id.clone()), &target.host, target.port),
+            ShellPilotSshClient::new(
+                app.clone(),
+                Some(panel_id.clone()),
+                &target.host,
+                target.port,
+                target.accept_new_host_key.unwrap_or(false),
+            ),
         )
             .await
             .map_err(|error| classify_connect_error(error.to_string()))?;
@@ -572,13 +652,18 @@ fn emit_terminal_failure(app: &AppHandle, panel_id: &str, error: SshFailure) {
     );
 }
 
-fn emit_terminal_warning(app: &AppHandle, panel_id: Option<&str>, message: String) {
+fn emit_terminal_warning(
+    app: &AppHandle,
+    panel_id: Option<&str>,
+    code: &'static str,
+    message: String,
+) {
     if let Some(panel_id) = panel_id {
         let _ = app.emit(
             "shellpilot-ssh-terminal",
             SshTerminalEvent {
                 auth_prompt: false,
-                code: Some("host_key_trusted".to_string()),
+                code: Some(code.to_string()),
                 data: None,
                 message: Some(message),
                 panel_id: panel_id.to_string(),
@@ -776,6 +861,7 @@ async fn connect_ssh_agent() -> Result<BoxedAgentClient, String> {
 }
 
 struct ShellPilotSshClient {
+    accept_new_host_key: bool,
     app: AppHandle,
     host: String,
     panel_id: Option<String>,
@@ -783,8 +869,15 @@ struct ShellPilotSshClient {
 }
 
 impl ShellPilotSshClient {
-    fn new(app: AppHandle, panel_id: Option<String>, host: &str, port: u16) -> Self {
+    fn new(
+        app: AppHandle,
+        panel_id: Option<String>,
+        host: &str,
+        port: u16,
+        accept_new_host_key: bool,
+    ) -> Self {
         Self {
+            accept_new_host_key,
             app,
             host: host.to_string(),
             panel_id,
@@ -809,10 +902,21 @@ impl client::Handler for ShellPilotSshClient {
 
         match verify_known_host(&self.app, &self.host, self.port, &entry) {
             Ok(KnownHostDecision::Trusted) => Ok(true),
-            Ok(KnownHostDecision::AcceptedNew) => {
+            Ok(KnownHostDecision::Unknown) if self.accept_new_host_key => {
+                if let Err(error) = trust_known_host(&self.app, &self.host, self.port, &entry) {
+                    emit_terminal_warning(
+                        &self.app,
+                        self.panel_id.as_deref(),
+                        "host_key_store_failed",
+                        format!("Security: failed to store SSH host key: {error}"),
+                    );
+                    return Err(russh::Error::UnknownKey);
+                }
+
                 emit_terminal_warning(
                     &self.app,
                     self.panel_id.as_deref(),
+                    "host_key_trusted",
                     format!(
                         "Security: trusted new SSH host key for {}:{} ({})",
                         self.host, self.port, entry.fingerprint
@@ -820,33 +924,47 @@ impl client::Handler for ShellPilotSshClient {
                 );
                 Ok(true)
             }
+            Ok(KnownHostDecision::Unknown) => {
+                emit_terminal_warning(
+                    &self.app,
+                    self.panel_id.as_deref(),
+                    "host_key_unknown",
+                    format!(
+                        "Security: unknown SSH host key for {}:{}.\nAlgorithm: {}\nFingerprint: {}\nOnly trust this key if it matches the server you intended to reach.",
+                        self.host, self.port, entry.algorithm, entry.fingerprint
+                    ),
+                );
+                Ok(false)
+            }
             Ok(KnownHostDecision::Mismatch { expected }) => {
                 emit_terminal_warning(
                     &self.app,
                     self.panel_id.as_deref(),
+                    "host_key_mismatch",
                     format!(
                         "Security: SSH host key mismatch for {}:{}. Expected {}, got {}.",
                         self.host, self.port, expected.fingerprint, entry.fingerprint
                     ),
                 );
-                Ok(false)
+                Err(russh::Error::KeyChanged { line: 0 })
             }
             Err(error) => {
                 emit_terminal_warning(
                     &self.app,
                     self.panel_id.as_deref(),
+                    "host_key_store_failed",
                     format!("Security: failed to verify SSH host key: {error}"),
                 );
-                Ok(false)
+                Err(russh::Error::UnknownKey)
             }
         }
     }
 }
 
 enum KnownHostDecision {
-    AcceptedNew,
     Mismatch { expected: KnownHostEntry },
     Trusted,
+    Unknown,
 }
 
 fn verify_known_host(
@@ -857,7 +975,7 @@ fn verify_known_host(
 ) -> Result<KnownHostDecision, String> {
     let key = format!("{}:{}", host.to_ascii_lowercase(), port);
     let path = known_hosts_path(app)?;
-    let mut known_hosts = read_known_hosts(&path)?;
+    let known_hosts = read_known_hosts(&path)?;
 
     if let Some(expected) = known_hosts.hosts.get(&key) {
         if expected.fingerprint == entry.fingerprint && expected.algorithm == entry.algorithm {
@@ -869,9 +987,21 @@ fn verify_known_host(
         });
     }
 
+    Ok(KnownHostDecision::Unknown)
+}
+
+fn trust_known_host(
+    app: &AppHandle,
+    host: &str,
+    port: u16,
+    entry: &KnownHostEntry,
+) -> Result<(), String> {
+    let key = format!("{}:{}", host.to_ascii_lowercase(), port);
+    let path = known_hosts_path(app)?;
+    let mut known_hosts = read_known_hosts(&path)?;
+
     known_hosts.hosts.insert(key, entry.clone());
-    write_known_hosts(&path, &known_hosts)?;
-    Ok(KnownHostDecision::AcceptedNew)
+    write_known_hosts(&path, &known_hosts)
 }
 
 fn known_hosts_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -906,14 +1036,70 @@ fn write_known_hosts(path: &PathBuf, known_hosts: &KnownHosts) -> Result<(), Str
 
 fn classify_auth_error(error: String, auth: &SshAuthRequest) -> SshFailure {
     let label = auth.label();
+
+    if matches!(auth, SshAuthRequest::Agent) {
+        return SshFailure::auth_with_code(
+            "agent_failed",
+            format!("SSH agent authentication failed. Make sure OpenSSH Agent or Pageant is running and has a valid identity loaded. {error}"),
+        );
+    }
+
     SshFailure::auth(format!("SSH {label} authentication failed. {error}"))
 }
 
 fn classify_connect_error(error: String) -> SshFailure {
     let lower = error.to_ascii_lowercase();
 
-    if lower.contains("key") || lower.contains("verify") || lower.contains("host") {
+    if lower.contains("unknown server key") || lower.contains("unknownkey") {
+        return SshFailure::unknown_host_key(
+            "SSH host key is not trusted yet. Verify the fingerprint and trust this server to continue.",
+        );
+    }
+
+    if lower.contains("key changed") {
         return SshFailure::host_key(format!("SSH host key verification failed. {error}"));
+    }
+
+    if lower.contains("key") || lower.contains("verify") {
+        return SshFailure::host_key(format!("SSH host key verification failed. {error}"));
+    }
+
+    if lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("connectiontimeout")
+    {
+        return SshFailure::connection_with_code(
+            "connection_timeout",
+            format!("SSH connection timed out. Check network reachability and firewall rules. {error}"),
+        );
+    }
+
+    if lower.contains("refused") || lower.contains("10061") {
+        return SshFailure::connection_with_code(
+            "connection_refused",
+            format!("SSH connection was refused. Check that SSH is running on the target port. {error}"),
+        );
+    }
+
+    if lower.contains("no route")
+        || lower.contains("network unreachable")
+        || lower.contains("10065")
+    {
+        return SshFailure::connection_with_code(
+            "network_unreachable",
+            format!("SSH network is unreachable. Check routing, VPN, and firewall rules. {error}"),
+        );
+    }
+
+    if lower.contains("resolve")
+        || lower.contains("lookup")
+        || lower.contains("dns")
+        || lower.contains("no address")
+    {
+        return SshFailure::connection_with_code(
+            "dns_failed",
+            format!("SSH host could not be resolved. Check the host name or DNS settings. {error}"),
+        );
     }
 
     SshFailure::connection(format!("SSH connection failed. {error}"))

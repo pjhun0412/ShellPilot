@@ -29,7 +29,6 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
-  ContextMenuShortcut,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { t } from '@/i18n';
@@ -62,6 +61,7 @@ export function SessionTree({
   onSelectGroup,
   onSelectSession,
   onToggleGroup,
+  onTreeContextMenu,
   selectedGroupId,
   selectedSessionId,
 }: {
@@ -85,6 +85,7 @@ export function SessionTree({
   onSelectGroup: (groupId: string) => void;
   onSelectSession: (sessionId: string) => void;
   onToggleGroup: (groupId: string) => void;
+  onTreeContextMenu: (event: React.MouseEvent<HTMLElement>) => void;
   selectedGroupId?: string;
   selectedSessionId?: string;
 }) {
@@ -127,6 +128,7 @@ export function SessionTree({
       disableSessionDragGuard();
     };
   }, [activeDragItem]);
+
 
   const startDrag = (event: DragStartEvent) => {
     const dragItem = readDragItem(event.active.data.current);
@@ -180,56 +182,55 @@ export function SessionTree({
       onDragOver={moveDragOver}
       onDragStart={startDrag}
     >
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <nav
-            className="flex min-h-0 flex-col overflow-auto"
-            aria-label={t('session.tree')}
-            onPointerCancelCapture={disableSessionDragGuard}
-            onPointerDownCapture={enableSessionDragGuard}
-            onPointerUpCapture={disableSessionDragGuard}
-          >
-            <SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
-              {groups.map((group) => (
-                <SortableGroupSection
-                  activeDragItem={activeDragItem}
-                  group={group}
-                  isCollapsed={collapsedGroupIds.has(group.id)}
-                  isDropTarget={isGroupDropTarget({
-                    activeDragItem,
-                    groupId: group.id,
-                    overDragItem,
-                  })}
-                  isSelected={selectedGroupId === group.id}
-                  key={group.id}
-                  selectedSessionId={selectedSessionId}
-                  onCreateFolder={onCreateFolder}
-                  onCreateSession={() => onCreateSession(group.id)}
-                  onDeleteFolder={() => onDeleteFolder(group)}
-                  onDeleteSession={onDeleteSession}
-                  onDuplicateSession={onDuplicateSession}
-                  onEditSession={onEditSession}
-                  onOpenSession={onOpenSession}
-                  onRenameFolder={onRenameFolder}
-                  onSelectGroup={onSelectGroup}
-                  onSelectSession={onSelectSession}
-                  onToggleGroup={onToggleGroup}
-                  overDragItem={overDragItem}
-                />
-              ))}
-            </SortableContext>
-            {groups.length === 0 && (
-              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                No sessions found.
-              </div>
-            )}
-          </nav>
-        </ContextMenuTrigger>
-        <TreeContextMenuContent
-          onCreateFolder={onCreateFolder}
-          onCreateSession={() => onCreateSession()}
-        />
-      </ContextMenu>
+      <nav
+        className="app-scrollbar flex min-h-0 flex-1 flex-col overflow-auto"
+        aria-label={t('session.tree')}
+        onContextMenu={(event) => {
+          if ((event.target as Element).closest('[data-session-tree-item="true"]')) {
+            return;
+          }
+
+          onTreeContextMenu(event);
+        }}
+        onPointerCancelCapture={disableSessionDragGuard}
+        onPointerDownCapture={enableSessionDragGuard}
+        onPointerUpCapture={disableSessionDragGuard}
+      >
+        <SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
+          {groups.map((group) => (
+            <SortableGroupSection
+              activeDragItem={activeDragItem}
+              group={group}
+              isCollapsed={collapsedGroupIds.has(group.id)}
+              isDropTarget={isGroupDropTarget({
+                activeDragItem,
+                groupId: group.id,
+                overDragItem,
+              })}
+              isSelected={selectedGroupId === group.id}
+              key={group.id}
+              selectedSessionId={selectedSessionId}
+              onCreateFolder={onCreateFolder}
+              onCreateSession={() => onCreateSession(group.id)}
+              onDeleteFolder={() => onDeleteFolder(group)}
+              onDeleteSession={onDeleteSession}
+              onDuplicateSession={onDuplicateSession}
+              onEditSession={onEditSession}
+              onOpenSession={onOpenSession}
+              onRenameFolder={onRenameFolder}
+              onSelectGroup={onSelectGroup}
+              onSelectSession={onSelectSession}
+              onToggleGroup={onToggleGroup}
+              overDragItem={overDragItem}
+            />
+          ))}
+        </SortableContext>
+        {groups.length === 0 && (
+          <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+            No sessions found.
+          </div>
+        )}
+      </nav>
       <DragOverlay>
         {activeOverlayLabel && (
           <div className="rounded border border-primary/40 bg-card px-2 py-1 text-xs text-foreground shadow-lg">
@@ -303,6 +304,7 @@ function SortableGroupSection({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button
+            data-session-tree-item="true"
             className={cn(
               'group flex h-6 w-full items-center gap-1 rounded px-1 text-left text-sm font-semibold uppercase text-slate-200 transition-colors hover:bg-slate-800/75 hover:text-slate-50',
               isSelected && 'bg-slate-800/90 text-slate-50 shadow-[inset_2px_0_0_hsl(var(--primary))]',
@@ -432,6 +434,7 @@ function SortableSessionRow({
 
   return (
     <div
+      data-session-tree-item="true"
       className={cn(
         'rounded transition-colors',
         isDropTarget && 'bg-teal-500/10 ring-1 ring-inset ring-teal-400/40',
@@ -457,28 +460,6 @@ function SortableSessionRow({
         />
       </SessionContextMenu>
     </div>
-  );
-}
-
-function TreeContextMenuContent({
-  onCreateFolder,
-  onCreateSession,
-}: {
-  onCreateFolder: () => void;
-  onCreateSession: () => void;
-}) {
-  return (
-    <ContextMenuContent>
-      <ContextMenuLabel>Sessions</ContextMenuLabel>
-      <ContextMenuItem onSelect={onCreateSession}>
-        New Session
-        <ContextMenuShortcut>Ctrl+N</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={onCreateFolder}>New Folder</ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem>Import Sessions</ContextMenuItem>
-      <ContextMenuItem>Export Sessions</ContextMenuItem>
-    </ContextMenuContent>
   );
 }
 
@@ -524,17 +505,33 @@ function SessionContextMenu({
   onOpenSession: () => void;
   session: SessionItem;
 }) {
+  const copyHost = () => {
+    if (session.host) {
+      void navigator.clipboard.writeText(session.host).catch(() => undefined);
+    }
+  };
+  const copySshCommand = () => {
+    const command = createSshCommand(session);
+
+    if (command) {
+      void navigator.clipboard.writeText(command).catch(() => undefined);
+    }
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuLabel>{session.name}</ContextMenuLabel>
-        <ContextMenuItem onSelect={onOpenSession}>Open</ContextMenuItem>
-        <ContextMenuItem onSelect={onOpenSession}>Open in Split</ContextMenuItem>
+        <ContextMenuItem onSelect={onOpenSession}>Connect</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem disabled={!session.host} onSelect={copyHost}>Copy Host</ContextMenuItem>
+        <ContextMenuItem disabled={!createSshCommand(session)} onSelect={copySshCommand}>
+          Copy SSH Command
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onEditSession}>Edit Session</ContextMenuItem>
         <ContextMenuItem onSelect={onDuplicateSession}>Duplicate</ContextMenuItem>
-        <ContextMenuItem>Export</ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onDeleteSession}>
           Delete Session
@@ -542,4 +539,15 @@ function SessionContextMenu({
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function createSshCommand(session: SessionItem) {
+  if (session.kind !== 'ssh' || !session.host) {
+    return undefined;
+  }
+
+  const username = session.username ? `${session.username}@` : '';
+  const port = session.port && session.port !== 22 ? ` -p ${session.port}` : '';
+
+  return `ssh ${username}${session.host}${port}`;
 }

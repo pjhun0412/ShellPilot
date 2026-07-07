@@ -8,7 +8,10 @@ ShellPilot은 SSH 중심의 원격 작업을 하나의 데스크톱 워크스페
 
 - Rust `russh` 기반 SSH 터미널 접속
 - 비밀번호 인증 및 SSH Private Key 인증
+- SSH Agent 인증(OpenSSH Agent/Pageant)
 - Tauri 백엔드 credential store를 통한 비밀번호/passphrase 보안 저장
+- username/password 누락 시 터미널 패널 내부 입력 카드 제공
+- SSH known_hosts 저장, 조회, 삭제 및 host key 변경 감지
 - 백엔드 세션 레지스트리 저장 및 로컬 fallback
 - 그룹 접기/펼치기, 그룹 선택 표시, 컨텍스트 메뉴, 그룹/세션 드래그 앤 드롭
 - 그룹 내부 세션 순서 변경 및 그룹 간 세션 이동
@@ -25,6 +28,8 @@ ShellPilot은 접속 메타데이터와 secret material을 분리해서 관리�
 - 세션 데이터에는 host, port, username, tag, group, auth method, credential reference만 저장합니다.
 - 비밀번호와 SSH key passphrase는 session JSON이나 localStorage에 저장하지 않습니다.
 - secret은 Tauri 백엔드 credential command를 통해 저장/조회합니다.
+- SSH host key는 앱 로컬 데이터 디렉터리의 known_hosts 저장소에서 관리합니다.
+- 최초 접속 호스트는 fingerprint 확인 후 신뢰 저장하며, 변경된 host key는 차단합니다.
 - 세션 삭제 또는 인증 정보 변경 시 가능한 범위에서 고아 credential을 정리합니다.
 - 세션 복제 시 credential reference는 기본적으로 복사하지 않습니다.
 
@@ -127,6 +132,8 @@ scripts/
   - 세션 생성/수정 폼 입력을 `SessionItem`과 pending credential payload로 변환합니다.
 - `src/features/terminal/sshTerminalBridge.ts`
   - xterm 컴포넌트와 Tauri SSH command 호출을 분리합니다.
+- `src-tauri/src/commands/ssh.rs`
+  - SSH 접속, 인증, PTY I/O, known_hosts 검증 및 SSH Agent 연동을 담당합니다.
 - `src/features/workspace/workspaceLayoutActions.ts`
   - FlexLayout 탭 선택, 이동, 닫기 정책을 담당합니다.
 - `src/features/workspace/WorkspaceTabMenu.tsx`
@@ -138,18 +145,24 @@ scripts/
 
 - SSH password 인증
 - SSH private key 인증
+- SSH Agent 인증
 - key passphrase 저장
+- username/password 입력 프롬프트 및 저장
+- known_hosts 기반 host key 검증
+- unknown host key 승인 후 재접속
+- host key mismatch 차단 및 신뢰 초기화
+- SSH 접속 실패 메시지 분류
 - 세션/그룹 저장
 - 세션/그룹 드래그 앤 드롭
 - 워크스페이스 탭 분할
 - 탭 clone/duplicate/reconnect/close 메뉴
+- Settings 탭 기반 SSH Known Hosts 관리
 - private key 파일 선택 dialog
 - Windows Cargo PATH 래퍼
 
 ### 예정
 
-- SSH Agent 인증
-- SSH key validation 및 오류 메시지 개선
+- SSH key validation 추가 고도화
 - 세션 import/export
 - 워크스페이스 layout reset/preset
 - 테마 토큰 정리 및 light/high-contrast 테마 확장

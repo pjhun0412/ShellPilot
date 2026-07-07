@@ -34,8 +34,8 @@ export function SessionAuthFields({
 
   if (authMethod === 'agent') {
     return (
-      <div className="rounded-md border bg-background/70 p-3 text-xs text-muted-foreground">
-        SSH Agent will provide credentials at connection time.
+      <div className="rounded-md border border-slate-800 bg-background/70 p-3 text-xs font-medium leading-5 text-slate-300">
+        SSH Agent will provide identities at connection time. Make sure OpenSSH Agent or Pageant is running and has a key loaded.
       </div>
     );
   }
@@ -51,7 +51,6 @@ export function SessionAuthFields({
             <input
               className="session-input bg-black/55"
               {...form.register('privateKeyPath')}
-              placeholder="C:\\Users\\me\\.ssh\\id_rsa"
             />
             <Button
               type="button"
@@ -71,9 +70,11 @@ export function SessionAuthFields({
             type="password"
             autoComplete="new-password"
             {...form.register('passphrase')}
-            placeholder="Optional"
           />
         </SessionField>
+        <p className="col-span-2 text-xs font-medium leading-5 text-slate-400">
+          The private key file path is stored in session metadata. The passphrase is stored only in the backend credential store when saving is enabled.
+        </p>
         <SaveCredentialField form={form} label="Save key passphrase" />
       </div>
     );

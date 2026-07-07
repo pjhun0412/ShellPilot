@@ -1,4 +1,4 @@
-import { Bot, Folder, History, Server, Settings } from 'lucide-react';
+import { Bot, Folder, History, Server } from 'lucide-react';
 
 import type { ActivityId } from '@/types/workspace';
 
@@ -7,7 +7,6 @@ export const activities: Array<{ id: ActivityId; label: string; icon: typeof Ser
   { id: 'files', label: 'SFTP', icon: Folder },
   { id: 'ai', label: 'AI', icon: Bot },
   { id: 'logs', label: 'Logs', icon: History },
-  { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export function getActivityTitle(activityId: ActivityId) {
@@ -31,5 +30,5 @@ export function getActivityDescription(activityId: ActivityId) {
     return 'History and diagnostics';
   }
 
-  return 'Application preferences';
+  return 'ShellPilot';
 }

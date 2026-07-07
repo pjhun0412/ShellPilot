@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { SessionGroup, SessionItem } from '@/types/workspace';
 
 const SESSION_STORAGE_KEY = 'shellpilot.sessions.v1';
+const SESSION_UI_STORAGE_KEY = 'shellpilot.sessions.ui.v1';
 const SESSION_PATCH_EVENT_NAME = 'shellpilot:sessions:patch';
 
 export const UNGROUPED_GROUP_ID = 'ungrouped';
@@ -11,6 +12,11 @@ export const UNGROUPED_GROUP_NAME = 'Ungrouped';
 interface StoredSessionRegistry {
   version: 1;
   groups: SessionGroup[];
+}
+
+interface StoredSessionUiState {
+  collapsedGroupIds: string[];
+  version: 1;
 }
 
 export interface SessionPatchDetail {
@@ -66,6 +72,53 @@ export function saveSessionGroups(groups: SessionGroup[]) {
   };
 
   window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(registry));
+}
+
+export function loadSessionUiState() {
+  if (typeof window === 'undefined') {
+    return {
+      collapsedGroupIds: [],
+    };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SESSION_UI_STORAGE_KEY);
+
+    if (!raw) {
+      return {
+        collapsedGroupIds: [],
+      };
+    }
+
+    const state = JSON.parse(raw) as Partial<StoredSessionUiState>;
+
+    if (state.version !== 1 || !Array.isArray(state.collapsedGroupIds)) {
+      return {
+        collapsedGroupIds: [],
+      };
+    }
+
+    return {
+      collapsedGroupIds: state.collapsedGroupIds.filter((id): id is string => typeof id === 'string'),
+    };
+  } catch {
+    return {
+      collapsedGroupIds: [],
+    };
+  }
+}
+
+export function saveSessionUiState(state: { collapsedGroupIds: string[] }) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const storedState: StoredSessionUiState = {
+    collapsedGroupIds: state.collapsedGroupIds,
+    version: 1,
+  };
+
+  window.localStorage.setItem(SESSION_UI_STORAGE_KEY, JSON.stringify(storedState));
 }
 
 export async function loadSessionGroupsFromBackend(): Promise<SessionGroup[]> {

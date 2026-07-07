@@ -21,9 +21,15 @@ export interface SshTerminalEvent {
 export type SshTerminalErrorCode =
   | 'auth_failed'
   | 'auth_missing'
+  | 'agent_failed'
+  | 'connection_refused'
+  | 'connection_timeout'
   | 'connection_failed'
+  | 'dns_failed'
   | 'host_key_mismatch'
+  | 'host_key_unknown'
   | 'host_key_trusted'
+  | 'network_unreachable'
   | 'session_failed'
   | 'username_missing'
   | string;
@@ -53,6 +59,7 @@ export class SshShellOpenError extends Error {
 }
 
 export interface SshShellOpenOptions {
+  acceptNewHostKey?: boolean;
   password?: string;
   username?: string;
 }
@@ -97,6 +104,7 @@ export async function openSshShell(
 
   await invoke('ssh_open_shell', {
     target: {
+      acceptNewHostKey: options.acceptNewHostKey ?? false,
       authMethod: session.authMethod ?? 'password',
       credentialId: usesPasswordCredential && !options.password ? passwordCredentialRef.id : null,
       host: session.host,

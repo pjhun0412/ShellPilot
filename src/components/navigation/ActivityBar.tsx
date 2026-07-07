@@ -1,4 +1,4 @@
-import { Boxes } from 'lucide-react';
+import { Settings } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -9,9 +9,11 @@ export function ActivityBar({
   activeActivity,
   isSidebarCollapsed,
   onSelectActivity,
+  onOpenSettings,
 }: {
   activeActivity: ActivityId;
   isSidebarCollapsed: boolean;
+  onOpenSettings: () => void;
   onSelectActivity: (activityId: ActivityId) => void;
 }) {
   return (
@@ -42,10 +44,11 @@ export function ActivityBar({
         variant="ghost"
         size="icon"
         type="button"
-        title="Extensions"
-        aria-label="Extensions"
+        title="Settings"
+        aria-label="Settings"
+        onClick={onOpenSettings}
       >
-        <Boxes />
+        <Settings />
       </Button>
     </aside>
   );
