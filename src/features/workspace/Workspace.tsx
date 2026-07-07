@@ -20,10 +20,12 @@ export function Workspace({
   lastAddedPanelId,
   model,
   onModelChange,
+  onOpenSftp,
 }: {
   lastAddedPanelId?: string;
   model: Model;
   onModelChange: (model: Model) => void;
+  onOpenSftp?: Parameters<typeof createPanelFactory>[0]['onOpenSftp'];
 }) {
   const [activePanelId, setActivePanelId] = useState<string | undefined>();
   const [closingPanelIds] = useState(() => new Set<string>());
@@ -36,8 +38,9 @@ export function Workspace({
       createPanelFactory({
         activePanelId: effectiveActivePanelId,
         onActivatePanel: setActivePanelId,
+        onOpenSftp,
       }),
-    [effectiveActivePanelId],
+    [effectiveActivePanelId, onOpenSftp],
   );
   const {
     closeOtherTabs,
@@ -156,6 +159,10 @@ export function Workspace({
               }}
               onDisconnect={() => {
                 notifyTerminalClosing(tabMenu.node.getId());
+                setTabMenu(undefined);
+              }}
+              onOpenSftp={(session) => {
+                onOpenSftp?.(session);
                 setTabMenu(undefined);
               }}
               onReconnect={() => {

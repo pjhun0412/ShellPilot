@@ -7,9 +7,11 @@ import type { WorkspacePanel, WorkspacePanelType } from '@/types/workspace';
 export function createPanelFactory({
   activePanelId,
   onActivatePanel,
+  onOpenSftp,
 }: {
   activePanelId?: string;
   onActivatePanel: (panelId: string) => void;
+  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>) => void;
 }) {
   return function panelFactory(node: TabNode) {
     const panelId = node.getId();
@@ -36,7 +38,7 @@ export function createPanelFactory({
         type: panelType,
       } satisfies WorkspacePanel);
 
-    return <PanelBody isActive={isActive} onActivate={activatePanel} panel={panel} />;
+    return <PanelBody isActive={isActive} onActivate={activatePanel} panel={panel} onOpenSftp={onOpenSftp} />;
   };
 }
 

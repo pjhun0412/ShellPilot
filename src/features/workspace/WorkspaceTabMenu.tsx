@@ -16,6 +16,7 @@ export function WorkspaceTabMenu({
   onCloseOthers,
   onCloseRight,
   onDisconnect,
+  onOpenSftp,
   onReconnect,
 }: {
   menu: WorkspaceTabMenuState;
@@ -24,6 +25,7 @@ export function WorkspaceTabMenu({
   onCloseOthers: () => void;
   onCloseRight: () => void;
   onDisconnect: () => void;
+  onOpenSftp?: (session: SessionItem) => void;
   onReconnect: () => void;
 }) {
   const { node, session, x, y } = menu;
@@ -50,6 +52,9 @@ export function WorkspaceTabMenu({
       <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground">{node.getName()}</div>
       <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onClone}>
         Clone Channel
+      </WorkspaceTabMenuButton>
+      <WorkspaceTabMenuButton disabled={session?.kind !== 'ssh' || !onOpenSftp} onClick={() => session && onOpenSftp?.(session)}>
+        Open SFTP
       </WorkspaceTabMenuButton>
       <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onReconnect}>
         Reconnect

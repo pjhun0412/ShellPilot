@@ -11,17 +11,24 @@ import type { WorkspacePanel } from '@/types/workspace';
 export function PanelBody({
   isActive,
   onActivate,
+  onOpenSftp,
   panel,
 }: {
   isActive?: boolean;
   onActivate?: () => void;
+  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>) => void;
   panel: WorkspacePanel;
 }) {
   if (panel.type === 'terminal') {
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         {panel.session?.kind === 'ssh' ? (
-          <SshTerminal autoConnect={panel.autoConnect !== false} panelId={panel.id} session={panel.session} />
+          <SshTerminal
+            autoConnect={panel.autoConnect !== false}
+            panelId={panel.id}
+            session={panel.session}
+            onOpenSftp={onOpenSftp}
+          />
         ) : (
           <LocalTerminalPlaceholder />
         )}

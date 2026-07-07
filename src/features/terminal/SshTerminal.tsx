@@ -1,7 +1,7 @@
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Clipboard, Copy, Eraser, PlugZap, RotateCcw } from 'lucide-react';
+import { Clipboard, Copy, Eraser, FolderOpen, PlugZap, RotateCcw } from 'lucide-react';
 import { useRef, useState } from 'react';
 
 import {
@@ -12,6 +12,7 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { Button } from '@/components/ui/button';
 import type { SessionItem } from '@/types/workspace';
 import { pasteClipboardToSsh } from './sshTerminalBridge';
 import { SshClosedCard, SshFailureCard, SshRestoredCard } from './SshTerminalStatusCards';
@@ -30,10 +31,12 @@ import { useSshTerminalLifecycle } from './useSshTerminalLifecycle';
 
 export function SshTerminal({
   autoConnect = true,
+  onOpenSftp,
   panelId,
   session,
 }: {
   autoConnect?: boolean;
+  onOpenSftp?: (session: SessionItem) => void;
   panelId: string;
   session: SessionItem;
 }) {
@@ -124,6 +127,23 @@ export function SshTerminal({
           }}
         >
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
+          {onOpenSftp && (
+            <Button
+              className="absolute right-3 top-3 h-7 px-2 text-[11px] opacity-80 shadow-lg hover:opacity-100"
+              size="sm"
+              title="Open SFTP"
+              type="button"
+              variant="secondary"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenSftp(session);
+              }}
+            >
+              <FolderOpen className="size-3.5" />
+              SFTP
+            </Button>
+          )}
           {status === 'restored' && (
             <SshRestoredCard onReconnect={() => void reconnectSession()} />
           )}
@@ -173,6 +193,10 @@ export function SshTerminal({
           Clear
         </ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem disabled={!onOpenSftp} onSelect={() => onOpenSftp?.(session)}>
+          <FolderOpen className="size-3.5" />
+          Open SFTP
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => void reconnectSession()}>
           <RotateCcw className="size-3.5" />
           Reconnect

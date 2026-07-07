@@ -112,6 +112,19 @@ export function App() {
     setLastAddedPanelId(tabId);
     setLayoutVersion((version) => version + 1);
   };
+  const openSftpForSession = (session: NonNullable<WorkspacePanel['session']>) => {
+    if (session.kind !== 'ssh') {
+      return;
+    }
+
+    addPanel({
+      id: `sftp-${session.id}`,
+      session,
+      title: `SFTP - ${session.name}`,
+      type: 'sftp',
+    });
+    setActiveActivity('files');
+  };
   const openSettings = () => {
     const settingsPanel = panelCatalog.find((panel) => panel.type === 'settings');
 
@@ -165,6 +178,7 @@ export function App() {
             modelRef.current = nextModel;
             setLayoutVersion((version) => version + 1);
           }}
+          onOpenSftp={openSftpForSession}
         />
       </section>
       <AppDialogProvider />

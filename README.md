@@ -139,6 +139,10 @@ scripts/
 - `src/features/workspace/WorkspaceTabMenu.tsx`
   - 워크스페이스 탭 우클릭 메뉴를 렌더링합니다.
 
+## 설계 문서
+
+- [SFTP 구현 설계](docs/sftp-design.md)
+
 ## 현재 지원 상태
 
 ### 구현됨

@@ -10,7 +10,13 @@ import { SshShellOpenError, type SshShellOpenOptions } from '@/features/terminal
 
 export interface SftpEntry {
   filename: string;
+  isDirectory: boolean;
+  kind: 'directory' | 'file' | 'symlink' | 'other';
+  modifiedAt?: number;
+  owner?: string;
   path: string;
+  permissions?: string;
+  size?: number;
 }
 
 export interface SftpListResult {
