@@ -8,6 +8,29 @@ export interface SshTerminalFailure {
   retryable: boolean;
 }
 
+export function getSshEndpointLabel(session: SessionItem) {
+  const username = session.username?.trim();
+  const userPrefix = username ? `${username}@` : '';
+
+  return `${userPrefix}${session.host}:${session.port ?? 22}`;
+}
+
+export function getSshSecretLabel(session: SessionItem) {
+  if (session.authMethod === 'key') {
+    return 'key passphrase';
+  }
+
+  if (session.authMethod === 'interactive') {
+    return 'interactive response';
+  }
+
+  return 'password';
+}
+
+export function isSshHostKeyFailure(code?: string) {
+  return code === 'host_key_unknown' || code === 'host_key_mismatch';
+}
+
 export function getSshOpenFailure(error: unknown): SshTerminalFailure {
   if (error instanceof SshShellOpenError) {
     return {
