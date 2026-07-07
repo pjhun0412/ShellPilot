@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { appAlert, appConfirm, appPrompt } from '@/components/ui/app-dialog';
 import { deleteStoredCredential, savePendingCredentialSecret } from '@/features/sessions/credentialStore';
 import {
   appendSessionToRegistry,
@@ -7,6 +8,7 @@ import {
   loadSessionGroups,
   loadSessionGroupsWithMigration,
   persistSessionGroups,
+  subscribeSessionPatch,
   UNGROUPED_GROUP_ID,
 } from '@/features/sessions/sessionStorage';
 import type { CredentialRef, SessionGroup, SessionItem } from '@/types/workspace';
@@ -53,9 +55,31 @@ export function useSessionRegistry({
 
     void persistSessionGroups(groups).catch((error: unknown) => {
       console.error('Failed to persist session registry', error);
-      window.alert(`Failed to save sessions.\n\n${error instanceof Error ? error.message : String(error)}`);
+      void appAlert({
+        title: 'Failed to Save Sessions',
+        message: `Failed to save sessions.\n\n${error instanceof Error ? error.message : String(error)}`,
+      });
     });
   }, [groups, isRegistryLoaded]);
+
+  useEffect(() => {
+    return subscribeSessionPatch(({ patch, sessionId }) => {
+      setGroups((current) =>
+        current.map((group) => ({
+          ...group,
+          sessions: group.sessions.map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  ...patch,
+                  updatedAt: Date.now(),
+                }
+              : session,
+          ),
+        })),
+      );
+    });
+  }, []);
 
   const createFolder = () => {
     const nextIndex = groups.length + 1;
@@ -100,8 +124,14 @@ export function useSessionRegistry({
     });
   };
 
-  const renameFolder = (group: SessionGroup) => {
-    const nextName = window.prompt('Rename folder', group.name)?.trim();
+  const renameFolder = async (group: SessionGroup) => {
+    const nextName = (
+      await appPrompt({
+        defaultValue: group.name,
+        message: 'Enter a new folder name.',
+        title: 'Rename Folder',
+      })
+    )?.trim();
 
     if (!nextName || nextName === group.name) {
       return;
@@ -118,7 +148,14 @@ export function useSessionRegistry({
       ? `Delete "${group.name}" and ${group.sessions.length} session(s)?`
       : `Delete "${group.name}"?`;
 
-    if (!window.confirm(message)) {
+    if (
+      !(await appConfirm({
+        confirmLabel: 'Delete',
+        message,
+        title: 'Delete Folder',
+        tone: 'danger',
+      }))
+    ) {
       return;
     }
 
@@ -132,7 +169,14 @@ export function useSessionRegistry({
   };
 
   const deleteSession = async (session: SessionItem) => {
-    if (!window.confirm(`Delete "${session.name}"?`)) {
+    if (
+      !(await appConfirm({
+        confirmLabel: 'Delete',
+        message: `Delete "${session.name}"?`,
+        title: 'Delete Session',
+        tone: 'danger',
+      }))
+    ) {
       return;
     }
 
@@ -283,7 +327,10 @@ async function queueCredentialForBackend(secret: CreateSessionResult['secret']) 
     const message = error instanceof Error ? error.message : String(error);
 
     console.error('Failed to save credential', error);
-    window.alert(`Failed to save password in secure storage. The session was not saved.\n\n${message}`);
+    await appAlert({
+      title: 'Credential Save Failed',
+      message: `Failed to save password in secure storage. The session was not saved.\n\n${message}`,
+    });
     return false;
   }
 }
@@ -318,7 +365,10 @@ async function cleanupOrphanedCredentialRefs({
   }
 
   if (failures.length > 0) {
-    window.alert(`Session metadata was updated, but secure credential cleanup failed.\n\n${failures.join('\n')}`);
+    await appAlert({
+      title: 'Credential Cleanup Failed',
+      message: `Session metadata was updated, but secure credential cleanup failed.\n\n${failures.join('\n')}`,
+    });
   }
 }
 

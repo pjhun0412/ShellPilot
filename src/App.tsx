@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import { ActivityBar } from '@/components/navigation/ActivityBar';
 import { SidebarShell } from '@/components/navigation/SidebarShell';
+import { AppDialogProvider } from '@/components/ui/app-dialog';
 import { MenuBar } from '@/components/shell/MenuBar';
 import { StatusBar } from '@/components/shell/StatusBar';
 import { Workspace } from '@/features/workspace/Workspace';
@@ -123,6 +124,7 @@ export function App() {
       </section>
 
       <StatusBar savedLayoutAt={savedLayoutAt} onSaveLayout={saveLayout} />
+      <AppDialogProvider />
     </main>
   );
 }

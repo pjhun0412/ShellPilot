@@ -113,6 +113,10 @@ export function rememberCredentialPassword(credentialId: string, password: strin
   passwordMemoryCache.set(credentialId, password);
 }
 
+export function hasRememberedCredentialPassword(credentialId: string) {
+  return passwordMemoryCache.has(credentialId);
+}
+
 export function forgetCredentialPassword(credentialId: string) {
   passwordMemoryCache.delete(credentialId);
 }

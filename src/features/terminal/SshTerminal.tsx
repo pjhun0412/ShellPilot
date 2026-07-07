@@ -14,8 +14,15 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Button } from '@/components/ui/button';
+import { appConfirm } from '@/components/ui/app-dialog';
 import { publishConnectionStatus } from '@/features/connections/connectionStatus';
-import { saveSshSessionKeyPassphrase, saveSshSessionPassword } from '@/features/connections/sshConnection';
+import {
+  resolveKeyCredentialRef,
+  resolvePasswordCredentialRef,
+  saveSshSessionKeyPassphrase,
+  saveSshSessionPassword,
+} from '@/features/connections/sshConnection';
+import { requestSessionPatch } from '@/features/sessions/sessionStorage';
 import type { SessionItem } from '@/types/workspace';
 import { subscribeTerminalClosing, subscribeTerminalReconnect } from './terminalLifecycle';
 import {
@@ -24,6 +31,7 @@ import {
   openSshShell,
   pasteClipboardToSsh,
   resizeSshPty,
+  SshShellOpenError,
   writeSshData,
   type SshTerminalEvent,
 } from './sshTerminalBridge';
@@ -38,7 +46,9 @@ export function SshTerminal({
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon>();
   const pendingPasswordRef = useRef<string>();
+  const pendingUsernameRef = useRef<string>();
   const shouldRememberPasswordRef = useRef(true);
+  const shouldRememberUsernameRef = useRef(true);
   const terminalRef = useRef<Terminal>();
   const [failure, setFailure] = useState<{
     authPrompt: boolean;
@@ -47,7 +57,9 @@ export function SshTerminal({
     retryable: boolean;
   }>();
   const [manualPassword, setManualPassword] = useState('');
+  const [manualUsername, setManualUsername] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
+  const [shouldRememberUsername, setShouldRememberUsername] = useState(true);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
   const secretLabel =
     session.authMethod === 'key'
@@ -194,13 +206,33 @@ export function SshTerminal({
         if (pendingPasswordRef.current && shouldRememberPasswordRef.current) {
           const saveSecret =
             session.authMethod === 'key' ? saveSshSessionKeyPassphrase : saveSshSessionPassword;
+          const credentialRef =
+            session.authMethod === 'key'
+              ? resolveKeyCredentialRef(session)
+              : resolvePasswordCredentialRef(session);
 
-          void saveSecret(session, pendingPasswordRef.current).finally(() => {
-            pendingPasswordRef.current = undefined;
-          });
+          void saveSecret(session, pendingPasswordRef.current)
+            .then(() => {
+              requestSessionPatch({
+                sessionId: session.id,
+                patch: { credentialRef },
+              });
+            })
+            .finally(() => {
+              pendingPasswordRef.current = undefined;
+            });
         } else {
           pendingPasswordRef.current = undefined;
         }
+        if (pendingUsernameRef.current && shouldRememberUsernameRef.current) {
+          requestSessionPatch({
+            sessionId: session.id,
+            patch: {
+              username: pendingUsernameRef.current,
+            },
+          });
+        }
+        pendingUsernameRef.current = undefined;
         void resizeSshPty(panelId, terminal);
         fitTerminal(panelId, terminal, fitAddon);
         return;
@@ -231,7 +263,6 @@ export function SshTerminal({
           retryable: event.payload.retryable,
         });
         publishConnectionStatus({ panelId, status: 'failed' });
-        terminal.writeln(`\r\n${message}`);
         return;
       }
 
@@ -250,9 +281,11 @@ export function SshTerminal({
 
     void startShellAfterListenerReady().catch((error: unknown) => {
       if (!isDisposed) {
+        const failure = getSshOpenFailure(error);
+
         setStatus('failed');
+        setFailure(failure);
         publishConnectionStatus({ panelId, status: 'failed' });
-        terminal.writeln(`\r\n${error instanceof Error ? error.message : String(error)}`);
       }
     });
 
@@ -293,17 +326,12 @@ export function SshTerminal({
     terminal?.writeln(`Reconnecting to ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}...`);
     await closeSshShell(panelId).catch(() => undefined);
     await openSshShell(panelId, session).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
+      const failure = getSshOpenFailure(error);
 
       setStatus('failed');
-      setFailure({
-        authPrompt: false,
-        message,
-        retryable: true,
-      });
+      setFailure(failure);
       publishConnectionStatus({ panelId, status: 'failed' });
-        terminal?.writeln(`\r\n${message}`);
-      });
+    });
     terminal?.focus();
   };
 
@@ -325,32 +353,43 @@ export function SshTerminal({
   const connectWithPassword = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!manualPassword) {
+    const needsUsername = shouldPromptUsername(failure?.code, session);
+    const needsSecret = shouldPromptSecret(failure?.code, session);
+    const username = manualUsername.trim();
+
+    if ((needsUsername && !username) || (needsSecret && !manualPassword)) {
       return;
     }
 
     setStatus('connecting');
     setFailure(undefined);
-    pendingPasswordRef.current = manualPassword;
+    pendingPasswordRef.current = manualPassword || undefined;
+    pendingUsernameRef.current = username || undefined;
     terminalRef.current?.writeln(`\r\nRetrying with typed ${secretLabel}...`);
-    await openSshShell(panelId, session, manualPassword).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
+    await openSshShell(panelId, session, {
+      password: manualPassword || undefined,
+      username: username || undefined,
+    }).catch((error: unknown) => {
+      const failure = getSshOpenFailure(error);
 
       setStatus('failed');
       setFailure({
+        ...failure,
         authPrompt: true,
-        message,
-        retryable: true,
       });
-      terminalRef.current?.writeln(`\r\n${message}`);
     });
     setManualPassword('');
+    setManualUsername('');
   };
 
   const resetKnownHostAndReconnect = async () => {
-    const confirmed = window.confirm(
-      'Reset the stored SSH host key for this server? Only continue if you verified the server was rebuilt or its SSH host key changed intentionally.',
-    );
+    const confirmed = await appConfirm({
+      confirmLabel: 'Reset Host Key',
+      message:
+        'Reset the stored SSH host key for this server?\n\nOnly continue if you verified the server was rebuilt or its SSH host key changed intentionally.',
+      title: 'Reset SSH Host Key',
+      tone: 'danger',
+    });
 
     if (!confirmed) {
       return;
@@ -377,46 +416,83 @@ export function SshTerminal({
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
           {status === 'failed' && failure && (
             <form
-              className="absolute left-4 top-4 grid w-[min(28rem,calc(100%-2rem))] gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg"
+              className="absolute left-1/2 top-1/2 grid w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg"
               onSubmit={connectWithPassword}
             >
               <span className="font-medium text-slate-100">
-                {failure.code === 'host_key_mismatch' ? 'SSH host key blocked' : 'SSH connection failed'}
+                {getSshFailureTitle(failure.code)}
               </span>
               <span className="text-slate-300">{failure.message}</span>
               {failure.authPrompt ? (
                 <>
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                    <input
-                      className="session-input h-8"
-                      type="password"
-                      autoComplete="current-password"
-                      placeholder={
-                        session.authMethod === 'key'
-                          ? 'SSH key passphrase'
-                          : session.authMethod === 'interactive'
-                            ? 'Interactive response'
-                            : 'SSH password'
+                  <div className="grid gap-2">
+                    {shouldPromptUsername(failure.code, session) && (
+                      <input
+                        className="session-input h-8"
+                        type="text"
+                        autoComplete="username"
+                        placeholder="SSH username"
+                        value={manualUsername}
+                        onChange={(event) => setManualUsername(event.target.value)}
+                      />
+                    )}
+                    {shouldPromptSecret(failure.code, session) && (
+                      <input
+                        className="session-input h-8"
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder={
+                          session.authMethod === 'key'
+                            ? 'SSH key passphrase'
+                            : session.authMethod === 'interactive'
+                              ? 'Interactive response'
+                              : 'SSH password'
+                        }
+                        value={manualPassword}
+                        onChange={(event) => setManualPassword(event.target.value)}
+                      />
+                    )}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      type="submit"
+                      disabled={
+                        (shouldPromptUsername(failure.code, session) && !manualUsername.trim()) ||
+                        (shouldPromptSecret(failure.code, session) && !manualPassword)
                       }
-                      value={manualPassword}
-                      onChange={(event) => setManualPassword(event.target.value)}
-                    />
-                    <Button size="sm" type="submit" disabled={!manualPassword}>
+                    >
                       Connect
                     </Button>
                   </div>
-                  <label className="flex items-center gap-2 text-muted-foreground">
-                    <input
-                      className="accent-primary"
-                      type="checkbox"
-                      checked={shouldRememberPassword}
-                      onChange={(event) => {
-                        shouldRememberPasswordRef.current = event.target.checked;
-                        setShouldRememberPassword(event.target.checked);
-                      }}
-                    />
-                    Remember {secretLabel} securely
-                  </label>
+                  {shouldPromptUsername(failure.code, session) && (
+                    <label className="flex items-center gap-2 text-muted-foreground">
+                      <input
+                        className="accent-primary"
+                        type="checkbox"
+                        checked={shouldRememberUsername}
+                        onChange={(event) => {
+                          shouldRememberUsernameRef.current = event.target.checked;
+                          setShouldRememberUsername(event.target.checked);
+                        }}
+                      />
+                      Remember username for this session
+                    </label>
+                  )}
+                  {shouldPromptSecret(failure.code, session) && (
+                    <label className="flex items-center gap-2 text-muted-foreground">
+                      <input
+                        className="accent-primary"
+                        type="checkbox"
+                        checked={shouldRememberPassword}
+                        onChange={(event) => {
+                          shouldRememberPasswordRef.current = event.target.checked;
+                          setShouldRememberPassword(event.target.checked);
+                        }}
+                      />
+                      Remember {secretLabel} securely
+                    </label>
+                  )}
                 </>
               ) : (
                 <div className="flex justify-end gap-2">
@@ -478,4 +554,64 @@ function fitTerminal(panelId: string, terminal: Terminal, fitAddon: FitAddon) {
       // FlexLayout can briefly report zero-size panels while dragging splitters.
     }
   });
+}
+
+function getSshOpenFailure(error: unknown) {
+  if (error instanceof SshShellOpenError) {
+    return {
+      authPrompt: error.authPrompt,
+      code: error.code,
+      message: error.message,
+      retryable: error.retryable,
+    };
+  }
+
+  return {
+    authPrompt: false,
+    code: 'connection_failed',
+    message: error instanceof Error ? error.message : String(error),
+    retryable: true,
+  };
+}
+
+function getSshFailureTitle(code?: string) {
+  if (code === 'username_missing') {
+    return 'SSH username required';
+  }
+
+  if (code === 'auth_missing') {
+    return 'SSH credential required';
+  }
+
+  if (code === 'auth_failed') {
+    return 'SSH authentication failed';
+  }
+
+  if (code === 'host_key_mismatch') {
+    return 'SSH host key blocked';
+  }
+
+  return 'SSH connection failed';
+}
+
+function shouldPromptUsername(code: string | undefined, session: SessionItem) {
+  return code === 'username_missing' || !session.username?.trim();
+}
+
+function shouldPromptSecret(code: string | undefined, session: SessionItem) {
+  const usesSecret =
+    session.authMethod === 'password' ||
+    session.authMethod === 'os-credential' ||
+    session.authMethod === 'interactive' ||
+    !session.authMethod;
+
+  if (!usesSecret) {
+    return code === 'auth_failed';
+  }
+
+  return (
+    code === 'auth_missing' ||
+    code === 'auth_failed' ||
+    (code === 'username_missing' && session.credentialRef?.kind !== 'password')
+  );
 }

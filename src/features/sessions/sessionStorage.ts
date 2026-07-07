@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { SessionGroup, SessionItem } from '@/types/workspace';
 
 const SESSION_STORAGE_KEY = 'shellpilot.sessions.v1';
+const SESSION_PATCH_EVENT_NAME = 'shellpilot:sessions:patch';
 
 export const UNGROUPED_GROUP_ID = 'ungrouped';
 export const UNGROUPED_GROUP_NAME = 'Ungrouped';
@@ -10,6 +11,24 @@ export const UNGROUPED_GROUP_NAME = 'Ungrouped';
 interface StoredSessionRegistry {
   version: 1;
   groups: SessionGroup[];
+}
+
+export interface SessionPatchDetail {
+  patch: Partial<Pick<SessionItem, 'credentialRef' | 'username'>>;
+  sessionId: string;
+}
+
+export function requestSessionPatch(detail: SessionPatchDetail) {
+  window.dispatchEvent(new CustomEvent<SessionPatchDetail>(SESSION_PATCH_EVENT_NAME, { detail }));
+}
+
+export function subscribeSessionPatch(listener: (detail: SessionPatchDetail) => void) {
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<SessionPatchDetail>).detail);
+  };
+
+  window.addEventListener(SESSION_PATCH_EVENT_NAME, handler);
+  return () => window.removeEventListener(SESSION_PATCH_EVENT_NAME, handler);
 }
 
 export function loadSessionGroups(): SessionGroup[] {

@@ -13,25 +13,9 @@ export const initialLayout: IJsonModel = {
     tabSetEnableDrag: true,
     tabSetEnableMaximize: true,
     tabSetEnableDrop: true,
-    borderSize: 220,
+    borderSize: 0,
   },
-  borders: [
-    {
-      type: 'border',
-      location: 'bottom',
-      size: 180,
-      selected: 0,
-      children: [
-        {
-          type: 'tab',
-          id: 'logs',
-          name: 'Logs',
-          component: 'logs',
-          config: { panelType: 'logs' },
-        },
-      ],
-    },
-  ],
+  borders: [],
   layout: {
     type: 'row',
     weight: 100,
@@ -51,20 +35,23 @@ export function loadSavedLayout(): IJsonModel {
   const savedLayout = localStorage.getItem(layoutStorageKey);
 
   if (!savedLayout) {
-    return ensureWorkspaceDragCapabilities(initialLayout);
+    return normalizeWorkspaceLayout(initialLayout);
   }
 
   try {
-    return ensureWorkspaceDragCapabilities(JSON.parse(savedLayout) as IJsonModel);
+    return normalizeWorkspaceLayout(JSON.parse(savedLayout) as IJsonModel);
   } catch {
     localStorage.removeItem(layoutStorageKey);
-    return ensureWorkspaceDragCapabilities(initialLayout);
+    return normalizeWorkspaceLayout(initialLayout);
   }
 }
 
-function ensureWorkspaceDragCapabilities(layout: IJsonModel): IJsonModel {
+function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
   return {
     ...layout,
+    borders: layout.borders?.filter((border) => {
+      return !border.children?.some((child) => child.id === 'logs' || child.config?.panelType === 'logs');
+    }),
     global: {
       ...layout.global,
       enableEdgeDock: true,
@@ -73,6 +60,7 @@ function ensureWorkspaceDragCapabilities(layout: IJsonModel): IJsonModel {
       tabSetEnableDivide: true,
       tabSetEnableDrag: true,
       tabSetEnableDrop: true,
+      borderSize: 0,
     },
   };
 }
