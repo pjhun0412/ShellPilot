@@ -98,6 +98,7 @@ export function App() {
           type: 'tab',
           id: tabId,
           name: panel.title,
+          enableClose: true,
           component: 'panel',
           config: { autoConnect: true, panelType: panel.type, session: panel.session },
         },

@@ -1,7 +1,6 @@
-import { Layout, Model, type BorderNode, type TabNode, type TabSetNode } from 'flexlayout-react';
+import { Layout, Model, type TabNode } from 'flexlayout-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { cn } from '@/lib/utils';
 import {
   subscribeConnectionStatus,
   type ConnectionStatus,
@@ -10,6 +9,12 @@ import { notifyTerminalClosing, notifyTerminalReconnect } from '@/features/termi
 import { createPanelFactory } from './panelFactory';
 import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
 import { createWorkspaceActionHandler, getSelectedPanelId } from './workspaceLayoutActions';
+import {
+  closeFlexLayoutTabOnMiddleClick,
+  closeLayoutNodeOnMiddleClick,
+  createWorkspaceTabRenderer,
+  renderWorkspaceDragPreview,
+} from './workspaceTabs';
 
 export function Workspace({
   lastAddedPanelId,
@@ -90,79 +95,27 @@ export function Workspace({
     };
   }, [tabMenu]);
 
-  const closeTabOnMiddleClick = (
-    node: TabNode | TabSetNode | BorderNode,
-    event: React.MouseEvent<HTMLElement, MouseEvent>,
-  ) => {
-    if (event.button !== 1 || node.getType() !== 'tab') {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    requestTabClose(node.getId());
-  };
-  const renderDragPreview = (content: React.ReactNode) => {
-    return (
-      <div className="rounded border border-primary/60 bg-card px-2 py-1 text-xs text-foreground shadow-lg">
-        {content}
-      </div>
-    );
-  };
-  const renderTab = (
-    node: TabNode,
-    renderValues: { content: React.ReactNode; leading: React.ReactNode },
-  ) => {
-    const config = node.getConfig() as { session?: unknown };
-    const isActive = effectiveActivePanelId === node.getId();
-
-    const closeOnMiddleClick = (event: React.MouseEvent<HTMLElement, MouseEvent>) => {
-      if (event.button !== 1) {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      requestTabClose(node.getId());
-    };
-
-    renderValues.content = (
-      <span
-        className={cn('shellpilot-tab-title', isActive && 'shellpilot-tab-title--active')}
-        onMouseDown={closeOnMiddleClick}
-        onAuxClick={closeOnMiddleClick}
-      >
-        {node.getName()}
-      </span>
-    );
-
-    if (!config.session) {
-      return;
-    }
-
-    renderValues.leading = (
-      <span
-        className={cn(
-          'size-2 rounded-full bg-muted-foreground/45',
-          isActive && 'shadow-[0_0_0_2px_hsl(var(--background))]',
-          connectionStatuses[node.getId()] === 'connecting' && 'animate-pulse bg-primary',
-          connectionStatuses[node.getId()] === 'connected' && 'bg-[hsl(var(--workspace-success))]',
-          connectionStatuses[node.getId()] === 'failed' && 'bg-destructive',
-          connectionStatuses[node.getId()] === 'closed' && 'bg-slate-500/60',
-          connectionStatuses[node.getId()] === 'restored' && 'bg-slate-500/60',
-        )}
-      />
-    );
-  };
+  const renderTab = useMemo(
+    () =>
+      createWorkspaceTabRenderer({
+        activePanelId: effectiveActivePanelId,
+        connectionStatuses,
+      }),
+    [connectionStatuses, effectiveActivePanelId],
+  );
   return (
     <section className="grid min-w-0 grid-rows-[minmax(0,1fr)] bg-background">
       <div className="min-h-0 min-w-0">
-        <div className="workspace-frame relative h-full overflow-hidden">
+        <div
+          className="workspace-frame relative h-full overflow-hidden"
+          onAuxClickCapture={(event) => closeFlexLayoutTabOnMiddleClick({ event, requestTabClose })}
+          onMouseDownCapture={(event) => closeFlexLayoutTabOnMiddleClick({ event, requestTabClose })}
+        >
           <Layout
             model={model}
             factory={factory}
             onAction={handleLayoutAction}
-            onAuxMouseClick={closeTabOnMiddleClick}
+            onAuxMouseClick={(node, event) => closeLayoutNodeOnMiddleClick({ event, node, requestTabClose })}
             onContextMenu={(node, event) => {
               if (node.getType() !== 'tab') {
                 return;
@@ -178,7 +131,7 @@ export function Workspace({
               });
             }}
             onModelChange={onModelChange}
-            onRenderDragRect={renderDragPreview}
+            onRenderDragRect={renderWorkspaceDragPreview}
             onRenderTab={renderTab}
             tabDragSpeed={0.12}
           />

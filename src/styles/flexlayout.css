@@ -152,7 +152,7 @@
     background-color: hsl(var(--workspace-panel)) !important;
     color: hsl(var(--foreground)) !important;
     box-shadow: inset 0 2px 0 hsl(var(--primary)), inset 0 -1px 0 hsl(var(--workspace-panel)) !important;
-    font-weight: 600 !important;
+    font-weight: 400 !important;
   }
 
   .workspace-frame .flexlayout__tab_button:has(.shellpilot-tab-title--active) .flexlayout__tab_button_content,
@@ -164,10 +164,12 @@
 
   .workspace-frame .shellpilot-tab-title {
     color: hsl(var(--muted-foreground) / 0.72);
+    font-weight: 400;
   }
 
   .workspace-frame .shellpilot-tab-title--active {
     color: hsl(var(--foreground));
+    font-weight: 400;
   }
 
   .workspace-frame .flexlayout__tab_button_content {

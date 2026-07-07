@@ -13,7 +13,6 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { Button } from '@/components/ui/button';
 import { appConfirm } from '@/components/ui/app-dialog';
 import { publishConnectionStatus } from '@/features/connections/connectionStatus';
 import {
@@ -31,10 +30,11 @@ import {
   openSshShell,
   pasteClipboardToSsh,
   resizeSshPty,
-  SshShellOpenError,
   writeSshData,
   type SshTerminalEvent,
 } from './sshTerminalBridge';
+import { SshClosedCard, SshFailureCard, SshRestoredCard } from './SshTerminalStatusCards';
+import { getSshOpenFailure, shouldPromptSecret, shouldPromptUsername, type SshTerminalFailure } from './sshTerminalUi';
 
 type SshTerminalUiStatus = 'closed' | 'connecting' | 'connected' | 'failed' | 'restored';
 
@@ -59,12 +59,7 @@ export function SshTerminal({
   const shouldRememberPasswordRef = useRef(true);
   const shouldRememberUsernameRef = useRef(true);
   const terminalRef = useRef<Terminal>();
-  const [failure, setFailure] = useState<{
-    authPrompt: boolean;
-    code?: string;
-    message: string;
-    retryable: boolean;
-  }>();
+  const [failure, setFailure] = useState<SshTerminalFailure>();
   const [manualPassword, setManualPassword] = useState('');
   const [manualUsername, setManualUsername] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
@@ -479,137 +474,35 @@ export function SshTerminal({
         >
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
           {status === 'restored' && (
-            <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
-              <span className="font-medium text-slate-100">Session restored</span>
-              <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
-                Terminal output was not restored. Reconnect to open a new SSH session.
-              </span>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button size="sm" type="button" onClick={() => void reconnectSession()}>
-                  Reconnect
-                </Button>
-              </div>
-            </div>
+            <SshRestoredCard onReconnect={() => void reconnectSession()} />
           )}
           {status === 'closed' && (
-            <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
-              <span className="font-medium text-slate-100">Session closed</span>
-              <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
-                The SSH connection is closed. Reconnect to open a new shell session.
-              </span>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button size="sm" type="button" onClick={() => void reconnectSession()}>
-                  Reconnect
-                </Button>
-              </div>
-            </div>
+            <SshClosedCard onReconnect={() => void reconnectSession()} />
           )}
           {status === 'failed' && failure && (
-            <form
-              className="absolute left-1/2 top-1/2 grid w-[min(28rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg"
+            <SshFailureCard
+              failure={failure}
+              manualPassword={manualPassword}
+              manualUsername={manualUsername}
+              secretLabel={secretLabel}
+              session={session}
+              shouldRememberPassword={shouldRememberPassword}
+              shouldRememberUsername={shouldRememberUsername}
+              onManualPasswordChange={setManualPassword}
+              onManualUsernameChange={setManualUsername}
+              onReconnect={() => void reconnectSession()}
+              onResetKnownHost={() => void resetKnownHostAndReconnect()}
               onSubmit={connectWithPassword}
-            >
-              <span className="font-medium text-slate-100">
-                {getSshFailureTitle(failure.code)}
-              </span>
-              <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
-                {failure.message}
-              </span>
-              {failure.authPrompt ? (
-                <>
-                  <div className="grid gap-2">
-                    {shouldPromptUsername(failure.code, session) && (
-                      <input
-                        className="session-input h-8"
-                        type="text"
-                        autoComplete="username"
-                        placeholder="SSH username"
-                        value={manualUsername}
-                        onChange={(event) => setManualUsername(event.target.value)}
-                      />
-                    )}
-                    {shouldPromptSecret(failure.code, session) && (
-                      <input
-                        className="session-input h-8"
-                        type="password"
-                        autoComplete="current-password"
-                        placeholder={
-                          session.authMethod === 'key'
-                            ? 'SSH key passphrase'
-                            : session.authMethod === 'interactive'
-                              ? 'Interactive response'
-                              : 'SSH password'
-                        }
-                        value={manualPassword}
-                        onChange={(event) => setManualPassword(event.target.value)}
-                      />
-                    )}
-                  </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                      size="sm"
-                      type="submit"
-                      disabled={
-                        (shouldPromptUsername(failure.code, session) && !manualUsername.trim()) ||
-                        (shouldPromptSecret(failure.code, session) && !manualPassword)
-                      }
-                    >
-                      Connect
-                    </Button>
-                  </div>
-                  {shouldPromptUsername(failure.code, session) && (
-                    <label className="flex items-center gap-2 text-muted-foreground">
-                      <input
-                        className="accent-primary"
-                        type="checkbox"
-                        checked={shouldRememberUsername}
-                        onChange={(event) => {
-                          shouldRememberUsernameRef.current = event.target.checked;
-                          setShouldRememberUsername(event.target.checked);
-                        }}
-                      />
-                      Remember username for this session
-                    </label>
-                  )}
-                  {shouldPromptSecret(failure.code, session) && (
-                    <label className="flex items-center gap-2 text-muted-foreground">
-                      <input
-                        className="accent-primary"
-                        type="checkbox"
-                        checked={shouldRememberPassword}
-                        onChange={(event) => {
-                          shouldRememberPasswordRef.current = event.target.checked;
-                          setShouldRememberPassword(event.target.checked);
-                        }}
-                      />
-                      Remember {secretLabel} securely
-                    </label>
-                  )}
-                </>
-              ) : (
-                <div className="flex flex-wrap justify-end gap-2">
-                  {failure.code === 'host_key_unknown' && (
-                    <Button size="sm" type="button" onClick={() => void trustHostKeyAndReconnect()}>
-                      Trust & Connect
-                    </Button>
-                  )}
-                  {failure.code === 'host_key_mismatch' && (
-                    <Button size="sm" type="button" variant="secondary" onClick={() => void resetKnownHostAndReconnect()}>
-                      Reset Host Key
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    type="button"
-                    variant={failure.retryable && failure.code !== 'host_key_unknown' ? 'default' : 'secondary'}
-                    onClick={() => void reconnectSession()}
-                    disabled={!failure.retryable || failure.code === 'host_key_unknown'}
-                  >
-                    Reconnect
-                  </Button>
-                </div>
-              )}
-            </form>
+              onToggleRememberPassword={(value) => {
+                shouldRememberPasswordRef.current = value;
+                setShouldRememberPassword(value);
+              }}
+              onToggleRememberUsername={(value) => {
+                shouldRememberUsernameRef.current = value;
+                setShouldRememberUsername(value);
+              }}
+              onTrustHostKey={() => void trustHostKeyAndReconnect()}
+            />
           )}
         </div>
       </ContextMenuTrigger>
@@ -651,88 +544,4 @@ function fitTerminal(panelId: string, terminal: Terminal, fitAddon: FitAddon) {
       // FlexLayout can briefly report zero-size panels while dragging splitters.
     }
   });
-}
-
-function getSshOpenFailure(error: unknown) {
-  if (error instanceof SshShellOpenError) {
-    return {
-      authPrompt: error.authPrompt,
-      code: error.code,
-      message: error.message,
-      retryable: error.retryable,
-    };
-  }
-
-  return {
-    authPrompt: false,
-    code: 'connection_failed',
-    message: error instanceof Error ? error.message : String(error),
-    retryable: true,
-  };
-}
-
-function getSshFailureTitle(code?: string) {
-  if (code === 'username_missing') {
-    return 'SSH username required';
-  }
-
-  if (code === 'auth_missing') {
-    return 'SSH credential required';
-  }
-
-  if (code === 'auth_failed') {
-    return 'SSH authentication failed';
-  }
-
-  if (code === 'agent_failed') {
-    return 'SSH agent unavailable';
-  }
-
-  if (code === 'host_key_mismatch') {
-    return 'SSH host key blocked';
-  }
-
-  if (code === 'host_key_unknown') {
-    return 'Unknown SSH host key';
-  }
-
-  if (code === 'connection_refused') {
-    return 'SSH connection refused';
-  }
-
-  if (code === 'connection_timeout') {
-    return 'SSH connection timeout';
-  }
-
-  if (code === 'dns_failed') {
-    return 'SSH host not resolved';
-  }
-
-  if (code === 'network_unreachable') {
-    return 'SSH network unreachable';
-  }
-
-  return 'SSH connection failed';
-}
-
-function shouldPromptUsername(code: string | undefined, session: SessionItem) {
-  return code === 'username_missing' || !session.username?.trim();
-}
-
-function shouldPromptSecret(code: string | undefined, session: SessionItem) {
-  const usesSecret =
-    session.authMethod === 'password' ||
-    session.authMethod === 'os-credential' ||
-    session.authMethod === 'interactive' ||
-    !session.authMethod;
-
-  if (!usesSecret) {
-    return code === 'auth_failed';
-  }
-
-  return (
-    code === 'auth_missing' ||
-    code === 'auth_failed' ||
-    (code === 'username_missing' && session.credentialRef?.kind !== 'password')
-  );
 }

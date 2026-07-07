@@ -30,15 +30,15 @@ export function createWorkspaceActionHandler({
   setActivePanelId: (panelId: string | undefined) => void;
 }) {
   const requestTabClose = (panelId: string) => {
-    if (closingPanelIds.has(panelId)) {
+    const closingNode = model.getNodeById(panelId);
+
+    if (!closingNode || closingNode.getType() !== 'tab') {
+      closingPanelIds.delete(panelId);
       return;
     }
 
     const nextActivePanelId = getNextActivePanelIdAfterClose(model, panelId, effectiveActivePanelId);
-
-    closingPanelIds.add(panelId);
-    notifyTerminalClosing(panelId);
-    window.setTimeout(() => {
+    const closeTab = () => {
       model.doAction(Actions.deleteTab(panelId));
       if (nextActivePanelId) {
         model.doAction(Actions.selectTab(nextActivePanelId));
@@ -46,7 +46,22 @@ export function createWorkspaceActionHandler({
       setActivePanelId(nextActivePanelId);
       onModelChange(model);
       onWorkspaceMutation();
-    }, 180);
+    };
+
+    if (closingPanelIds.has(panelId)) {
+      closeTab();
+      return;
+    }
+
+    closingPanelIds.add(panelId);
+
+    if (isTerminalTab(closingNode as TabNode)) {
+      notifyTerminalClosing(panelId);
+      window.setTimeout(closeTab, 180);
+      return;
+    }
+
+    closeTab();
   };
   const duplicateTab = (tabNode: TabNode) => {
     const tabJson = tabNode.toJson();
@@ -139,6 +154,12 @@ export function createWorkspaceActionHandler({
     handleLayoutAction,
     requestTabClose,
   };
+}
+
+function isTerminalTab(tabNode: TabNode) {
+  const config = tabNode.getConfig() as { panelType?: string; session?: unknown };
+
+  return config.panelType === 'terminal' || Boolean(config.session);
 }
 
 function getTabIds(model: Model) {

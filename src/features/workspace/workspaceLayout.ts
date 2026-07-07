@@ -59,15 +59,18 @@ function restoreWorkspaceLayout(layout: IJsonModel, sessionsById: Map<string, Se
 }
 
 function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
+  const normalizedLayout = forceClosableTabs(layout) as IJsonModel;
+
   return {
-    ...layout,
-    borders: layout.borders?.filter((border) => {
+    ...normalizedLayout,
+    borders: normalizedLayout.borders?.filter((border) => {
       return !border.children?.some((child) => child.id === 'logs' || child.config?.panelType === 'logs');
     }),
     global: {
-      ...layout.global,
+      ...normalizedLayout.global,
       enableEdgeDock: true,
       enableEdgeDockIndicators: true,
+      tabEnableClose: true,
       tabEnableDrag: true,
       tabSetEnableDivide: true,
       tabSetEnableDrag: true,
@@ -75,6 +78,29 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
       borderSize: 0,
     },
   };
+}
+
+function forceClosableTabs(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(forceClosableTabs);
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const node = value as Record<string, unknown>;
+  const nextNode: Record<string, unknown> = {};
+
+  for (const [key, childValue] of Object.entries(node)) {
+    nextNode[key] = forceClosableTabs(childValue);
+  }
+
+  if (node.type === 'tab') {
+    nextNode.enableClose = true;
+  }
+
+  return nextNode;
 }
 
 function prepareWorkspaceLayoutForStorage(layout: IJsonModel) {
