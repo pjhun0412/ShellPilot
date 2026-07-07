@@ -49,7 +49,12 @@ export function SshTerminal({
   const [manualPassword, setManualPassword] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
-  const secretLabel = session.authMethod === 'key' ? 'key passphrase' : 'password';
+  const secretLabel =
+    session.authMethod === 'key'
+      ? 'key passphrase'
+      : session.authMethod === 'interactive'
+        ? 'interactive response'
+        : 'password';
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -386,7 +391,13 @@ export function SshTerminal({
                       className="session-input h-8"
                       type="password"
                       autoComplete="current-password"
-                      placeholder={session.authMethod === 'key' ? 'SSH key passphrase' : 'SSH password'}
+                      placeholder={
+                        session.authMethod === 'key'
+                          ? 'SSH key passphrase'
+                          : session.authMethod === 'interactive'
+                            ? 'Interactive response'
+                            : 'SSH password'
+                      }
                       value={manualPassword}
                       onChange={(event) => setManualPassword(event.target.value)}
                     />

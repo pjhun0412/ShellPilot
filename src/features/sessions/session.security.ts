@@ -17,7 +17,7 @@ export type PendingCredentialSecret =
     };
 
 export function getCredentialKindForAuthMethod(authMethod: AuthMethod): CredentialKind | undefined {
-  if (authMethod === 'password' || authMethod === 'os-credential') {
+  if (authMethod === 'password' || authMethod === 'os-credential' || authMethod === 'interactive') {
     return 'password';
   }
 
@@ -59,7 +59,12 @@ export function createCredentialId(sessionId: string, kind: CredentialKind) {
 export function createCredentialLabel(input: Pick<CreateSessionInput, 'authMethod' | 'host' | 'kind' | 'name' | 'username'>) {
   const target = input.host?.trim() || input.name.trim() || 'session';
   const account = input.username?.trim();
-  const authName = input.authMethod === 'key' ? 'SSH key' : 'password';
+  const authName =
+    input.authMethod === 'key'
+      ? 'SSH key'
+      : input.authMethod === 'interactive'
+        ? 'interactive response'
+        : 'password';
 
   if (account) {
     return `${input.kind.toUpperCase()} ${account}@${target} ${authName}`;
@@ -85,7 +90,12 @@ export function createPendingCredentialSecret({
     return undefined;
   }
 
-  if ((input.authMethod === 'password' || input.authMethod === 'os-credential') && input.secret) {
+  if (
+    (input.authMethod === 'password' ||
+      input.authMethod === 'os-credential' ||
+      input.authMethod === 'interactive') &&
+    input.secret
+  ) {
     return {
       credentialRef,
       kind: 'password',

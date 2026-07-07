@@ -32,12 +32,10 @@ export function SessionAuthFields({
     }
   };
 
-  if (authMethod === 'agent' || authMethod === 'interactive') {
+  if (authMethod === 'agent') {
     return (
       <div className="rounded-md border bg-background/70 p-3 text-xs text-muted-foreground">
-        {authMethod === 'agent'
-          ? 'SSH Agent will provide credentials at connection time.'
-          : 'Interactive authentication will ask for credentials only when connecting.'}
+        SSH Agent will provide credentials at connection time.
       </div>
     );
   }
@@ -81,18 +79,25 @@ export function SessionAuthFields({
     );
   }
 
+  const passwordLabel = authMethod === 'interactive' ? 'Initial Response' : 'Password';
+  const saveLabel = authMethod === 'interactive' ? 'Save initial response' : 'Save password';
+  const placeholder =
+    authMethod === 'interactive'
+      ? 'Stored by backend credential store'
+      : 'Stored by backend credential store';
+
   return (
     <div className="grid grid-cols-2 gap-3 rounded-md border border-slate-800 bg-background/70 p-3 pb-4">
-      <SessionField label="Password" error={form.formState.errors.secret?.message}>
+      <SessionField label={passwordLabel} error={form.formState.errors.secret?.message}>
         <input
           className="session-input bg-black/55"
           type="password"
           autoComplete="new-password"
           {...form.register('secret')}
-          placeholder="Stored by backend credential store"
+          placeholder={placeholder}
         />
       </SessionField>
-      <SaveCredentialField form={form} label="Save password" />
+      <SaveCredentialField form={form} label={saveLabel} />
     </div>
   );
 }

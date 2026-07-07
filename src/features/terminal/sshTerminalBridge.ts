@@ -16,15 +16,19 @@ export interface SshTerminalEvent {
 
 export async function openSshShell(panelId: string, session: SessionItem, password?: string) {
   const privateKeyPath = typeof session.metadata?.privateKeyPath === 'string' ? session.metadata.privateKeyPath : null;
+  const usesPasswordCredential =
+    session.authMethod === 'password' ||
+    session.authMethod === 'os-credential' ||
+    session.authMethod === 'interactive' ||
+    !session.authMethod;
 
   await invoke('ssh_open_shell', {
     target: {
       authMethod: session.authMethod ?? 'password',
-      credentialId:
-        session.authMethod === 'key' || password ? null : resolvePasswordCredentialRef(session).id,
+      credentialId: usesPasswordCredential && !password ? resolvePasswordCredentialRef(session).id : null,
       host: session.host,
       panelId,
-      password: password ?? null,
+      password: usesPasswordCredential ? password ?? null : null,
       passphrase: session.authMethod === 'key' ? password ?? null : null,
       passphraseCredentialId:
         session.authMethod === 'key' && !password
