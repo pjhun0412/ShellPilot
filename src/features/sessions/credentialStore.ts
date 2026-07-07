@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import { rememberCredentialPassword } from '@/features/connections/sshConnection';
+import { forgetCredentialPassword, rememberCredentialPassword } from '@/features/connections/sshConnection';
+import type { CredentialRef } from '@/types/workspace';
 import type { PendingCredentialSecret } from './session.security';
 
 export async function savePendingCredentialSecret(secret: PendingCredentialSecret) {
@@ -23,4 +24,16 @@ export async function savePendingCredentialSecret(secret: PendingCredentialSecre
       secret: secret.passphrase,
     });
   }
+}
+
+export async function deleteStoredCredential(credentialRef?: CredentialRef) {
+  if (!credentialRef) {
+    return;
+  }
+
+  forgetCredentialPassword(credentialRef.id);
+
+  await invoke('delete_credential', {
+    id: credentialRef.id,
+  });
 }

@@ -1,0 +1,83 @@
+@layer components {
+  .workspace-bg {
+    background:
+      radial-gradient(circle at top left, hsl(var(--primary) / 0.045), transparent 24rem),
+      hsl(var(--background));
+  }
+
+  .workspace-frame {
+    border-color: hsl(var(--workspace-tab-border));
+    background: hsl(var(--workspace-frame));
+  }
+
+  .terminal-panel {
+    background: hsl(var(--workspace-terminal));
+    color: hsl(var(--workspace-success));
+  }
+
+  .ai-panel,
+  .file-panel {
+    background: hsl(var(--workspace-panel));
+  }
+
+  .session-input {
+    height: 34px;
+    width: 100%;
+    border-radius: 6px;
+    border: 1px solid hsl(var(--input));
+    background: hsl(var(--background) / 0.72);
+    padding: 0 10px;
+    color: hsl(var(--foreground));
+    outline: none;
+  }
+
+  .session-input:focus {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 2px hsl(var(--ring) / 0.16);
+  }
+
+  .session-input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  .session-input[type="number"]::-webkit-inner-spin-button,
+  .session-input[type="number"]::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .session-select {
+    color-scheme: dark;
+    appearance: auto;
+    background-color: hsl(var(--background) / 0.9);
+    border-color: hsl(217 24% 30%);
+    color: hsl(var(--foreground));
+    font-weight: 500;
+  }
+
+  .session-select:hover {
+    background-color: hsl(222 31% 8%);
+    border-color: hsl(217 24% 38%);
+  }
+
+  .session-select option {
+    background-color: hsl(222 31% 8%);
+    color: hsl(var(--foreground));
+  }
+
+  .session-select option:checked {
+    background-color: hsl(var(--primary) / 0.28);
+    color: hsl(var(--foreground));
+  }
+
+  .app-drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .app-no-drag,
+  .app-no-drag * {
+    -webkit-app-region: no-drag;
+  }
+}

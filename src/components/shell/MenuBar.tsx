@@ -9,7 +9,7 @@ export function MenuBar() {
 
   return (
     <div
-      className="app-drag-region grid h-9 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center border-b bg-background/90 text-xs text-muted-foreground"
+      className="app-drag-region grid h-9 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center border-b bg-background text-xs text-muted-foreground"
       data-tauri-drag-region
     >
       <div className="flex h-full items-center gap-2 px-2" data-tauri-drag-region>

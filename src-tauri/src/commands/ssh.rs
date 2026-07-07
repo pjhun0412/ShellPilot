@@ -8,7 +8,11 @@ use std::{
 };
 
 use crate::commands::credentials::read_credential_secret;
-use russh::{client, ChannelMsg, Disconnect};
+use russh::{
+    client,
+    keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg},
+    ChannelMsg, Disconnect,
+};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{mpsc, Mutex};
 
@@ -25,6 +29,42 @@ enum SshSessionCommand {
     Close,
     Resize { cols: u32, rows: u32 },
     Write(String),
+}
+
+enum SshAuthRequest {
+    Password {
+        credential_id: Option<String>,
+        password: Option<String>,
+    },
+    Key {
+        passphrase: Option<String>,
+        passphrase_credential_id: Option<String>,
+        private_key_path: Option<String>,
+    },
+}
+
+impl SshAuthRequest {
+    fn from_target(target: &SshShellTarget) -> Self {
+        if target.auth_method.as_deref() == Some("key") {
+            return Self::Key {
+                passphrase: target.passphrase.clone(),
+                passphrase_credential_id: target.passphrase_credential_id.clone(),
+                private_key_path: target.private_key_path.clone(),
+            };
+        }
+
+        Self::Password {
+            credential_id: target.credential_id.clone(),
+            password: target.password.clone(),
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Password { .. } => "password",
+            Self::Key { .. } => "public key",
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -51,11 +91,15 @@ pub struct SshConnectResult {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshShellTarget {
+    auth_method: Option<String>,
     credential_id: Option<String>,
     host: String,
     panel_id: String,
     password: Option<String>,
+    passphrase: Option<String>,
+    passphrase_credential_id: Option<String>,
     port: u16,
+    private_key_path: Option<String>,
     username: String,
 }
 
@@ -119,7 +163,10 @@ pub async fn connect_ssh_password(
     timeout_ms: Option<u64>,
 ) -> Result<SshConnectResult, String> {
     let started_at = Instant::now();
-    let secret = resolve_password(credential_id.as_deref(), password.as_deref())?;
+    let auth = SshAuthRequest::Password {
+        credential_id,
+        password,
+    };
     let timeout = Duration::from_millis(timeout_ms.unwrap_or(8000));
 
     let config = Arc::new(client::Config {
@@ -131,17 +178,7 @@ pub async fn connect_ssh_password(
         .await
         .map_err(|error| format!("ssh connect failed: {error}"))?;
 
-    let auth = session
-        .authenticate_password(username.clone(), secret)
-        .await
-        .map_err(|error| format!("ssh password authentication failed: {error}"))?;
-
-    if !auth.success() {
-        let _ = session
-            .disconnect(Disconnect::ByApplication, "authentication failed", "en")
-            .await;
-        return Err("ssh password authentication rejected by server".to_string());
-    }
+    authenticate_session(&mut session, &username, &auth).await?;
 
     session
         .disconnect(Disconnect::ByApplication, "validated", "en")
@@ -165,7 +202,7 @@ pub async fn ssh_open_shell(
 ) -> Result<(), String> {
     ssh_close(store.clone(), target.panel_id.clone()).await?;
 
-    let secret = resolve_password(target.credential_id.as_deref(), target.password.as_deref())?;
+    let auth = SshAuthRequest::from_target(&target);
     let (tx, rx) = mpsc::unbounded_channel();
     let panel_id = target.panel_id.clone();
 
@@ -176,7 +213,7 @@ pub async fn ssh_open_shell(
         },
     );
 
-    tauri::async_runtime::spawn(run_shell_session(app, target, secret, rx));
+    tauri::async_runtime::spawn(run_shell_session(app, target, auth, rx));
     Ok(())
 }
 
@@ -213,7 +250,7 @@ pub async fn ssh_close(store: State<'_, SshSessionStore>, panel_id: String) -> R
 async fn run_shell_session(
     app: AppHandle,
     target: SshShellTarget,
-    password: String,
+    auth: SshAuthRequest,
     mut rx: mpsc::UnboundedReceiver<SshSessionCommand>,
 ) {
     let panel_id = target.panel_id.clone();
@@ -244,16 +281,9 @@ async fn run_shell_session(
             &panel_id,
             SshTerminalStatus::Info,
             None,
-            Some("authenticating password".to_string()),
+            Some(format!("authenticating {}", auth.label())),
         );
-        let auth = session
-            .authenticate_password(target.username.clone(), password)
-            .await
-            .map_err(|error| format!("ssh password authentication failed: {error}"))?;
-
-        if !auth.success() {
-            return Err("ssh password authentication rejected by server".to_string());
-        }
+        authenticate_session(&mut session, &target.username, &auth).await?;
 
         let mut channel = session
             .channel_open_session()
@@ -284,7 +314,6 @@ async fn run_shell_session(
             .map_err(|error| format!("failed to request shell: {error}"))?;
 
         emit_terminal_event(&app, &panel_id, SshTerminalStatus::Connected, None, None);
-        let _ = channel.data_bytes("\r").await;
 
         loop {
             tokio::select! {
@@ -401,6 +430,61 @@ fn emit_terminal_event(
     );
 }
 
+async fn authenticate_session(
+    session: &mut client::Handle<ShellPilotSshClient>,
+    username: &str,
+    auth: &SshAuthRequest,
+) -> Result<(), String> {
+    let auth_result = match auth {
+        SshAuthRequest::Password {
+            credential_id,
+            password,
+        } => {
+            let secret = resolve_secret(credential_id.as_deref(), password.as_deref(), "password")?;
+
+            session
+                .authenticate_password(username.to_string(), secret)
+                .await
+                .map_err(|error| format!("ssh password authentication failed: {error}"))?
+        }
+        SshAuthRequest::Key {
+            passphrase,
+            passphrase_credential_id,
+            private_key_path,
+        } => {
+            let key_path = private_key_path
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "private key path is required".to_string())?;
+            let passphrase = resolve_optional_secret(
+                passphrase_credential_id.as_deref(),
+                passphrase.as_deref(),
+            )?;
+            let key = load_secret_key(key_path, passphrase.as_deref())
+                .map_err(|error| format!("failed to load ssh private key: {error}"))?;
+            let hash_alg = if key.algorithm().is_rsa() {
+                Some(HashAlg::Sha256)
+            } else {
+                None
+            };
+
+            session
+                .authenticate_publickey(
+                    username.to_string(),
+                    PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                )
+                .await
+                .map_err(|error| format!("ssh public key authentication failed: {error}"))?
+        }
+    };
+
+    if !auth_result.success() {
+        return Err(format!("ssh {} authentication rejected by server", auth.label()));
+    }
+
+    Ok(())
+}
+
 struct ShellPilotSshClient;
 
 impl client::Handler for ShellPilotSshClient {
@@ -414,13 +498,33 @@ impl client::Handler for ShellPilotSshClient {
     }
 }
 
-fn resolve_password(credential_id: Option<&str>, password: Option<&str>) -> Result<String, String> {
+fn resolve_secret(
+    credential_id: Option<&str>,
+    secret: Option<&str>,
+    secret_name: &str,
+) -> Result<String, String> {
     if let Some(id) = credential_id {
         return read_credential_secret(id);
     }
 
-    password
+    secret
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
-        .ok_or_else(|| "password credential is required".to_string())
+        .ok_or_else(|| format!("{secret_name} credential is required"))
+}
+
+fn resolve_optional_secret(
+    credential_id: Option<&str>,
+    secret: Option<&str>,
+) -> Result<Option<String>, String> {
+    if let Some(id) = credential_id {
+        return match read_credential_secret(id) {
+            Ok(value) if !value.is_empty() => Ok(Some(value)),
+            Ok(_) => Ok(None),
+            Err(_) if secret.is_none_or(str::is_empty) => Ok(None),
+            Err(error) => Err(error),
+        };
+    }
+
+    Ok(secret.filter(|value| !value.is_empty()).map(ToOwned::to_owned))
 }

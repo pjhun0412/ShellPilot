@@ -1,4 +1,4 @@
-import { Actions, Layout, Model, type Action, type BorderNode, type TabNode, type TabSetNode } from 'flexlayout-react';
+import { Layout, Model, type BorderNode, type TabNode, type TabSetNode } from 'flexlayout-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -6,8 +6,10 @@ import {
   subscribeConnectionStatus,
   type ConnectionStatus,
 } from '@/features/connections/connectionStatus';
-import { notifyTerminalClosing } from '@/features/terminal/terminalLifecycle';
+import { notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
 import { createPanelFactory } from './panelFactory';
+import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
+import { createWorkspaceActionHandler, getSelectedPanelId } from './workspaceLayoutActions';
 
 export function Workspace({
   lastAddedPanelId,
@@ -20,6 +22,8 @@ export function Workspace({
 }) {
   const [activePanelId, setActivePanelId] = useState<string | undefined>();
   const [closingPanelIds] = useState(() => new Set<string>());
+  const [, setWorkspaceVersion] = useState(0);
+  const [tabMenu, setTabMenu] = useState<WorkspaceTabMenuState>();
   const effectiveActivePanelId = activePanelId ?? getSelectedPanelId(model);
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const factory = useMemo(
@@ -29,6 +33,25 @@ export function Workspace({
         onActivatePanel: setActivePanelId,
       }),
     [effectiveActivePanelId],
+  );
+  const {
+    closeOtherTabs,
+    closeTabsToRight,
+    duplicateTab,
+    handleLayoutAction,
+    requestTabClose,
+  } = useMemo(
+    () =>
+      createWorkspaceActionHandler({
+        activePanelId,
+        closingPanelIds,
+        effectiveActivePanelId,
+        model,
+        onModelChange,
+        onWorkspaceMutation: () => setWorkspaceVersion((version) => version + 1),
+        setActivePanelId,
+      }),
+    [activePanelId, closingPanelIds, effectiveActivePanelId, model, onModelChange],
   );
 
   useEffect(() => {
@@ -45,6 +68,27 @@ export function Workspace({
       setActivePanelId(lastAddedPanelId);
     }
   }, [lastAddedPanelId]);
+
+  useEffect(() => {
+    if (!tabMenu) {
+      return;
+    }
+
+    const closeMenu = () => setTabMenu(undefined);
+    const closeMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu();
+      }
+    };
+
+    window.addEventListener('pointerdown', closeMenu);
+    window.addEventListener('keydown', closeMenuOnEscape);
+
+    return () => {
+      window.removeEventListener('pointerdown', closeMenu);
+      window.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, [tabMenu]);
 
   const closeTabOnMiddleClick = (
     node: TabNode | TabSetNode | BorderNode,
@@ -94,107 +138,61 @@ export function Workspace({
       />
     );
   };
-  const handleLayoutAction = (action: Action) => {
-    if (action.type === Actions.SELECT_TAB && typeof action.data.tabNode === 'string') {
-      setActivePanelId(action.data.tabNode);
-    }
-
-    if (action.type === Actions.ADD_TAB && typeof action.data.json?.id === 'string' && action.data.select) {
-      setActivePanelId(action.data.json.id);
-    }
-
-    if (action.type === Actions.DELETE_TAB && typeof action.data.node === 'string') {
-      if (closingPanelIds.has(action.data.node)) {
-        closingPanelIds.delete(action.data.node);
-
-        if (action.data.node === activePanelId) {
-          setActivePanelId(undefined);
-        }
-
-        return action;
-      }
-
-      requestTabClose(action.data.node);
-      return undefined;
-    }
-
-    return action;
-  };
-  const requestTabClose = (panelId: string) => {
-    if (closingPanelIds.has(panelId)) {
-      return;
-    }
-
-    const nextActivePanelId = getNextActivePanelIdAfterClose(model, panelId, effectiveActivePanelId);
-
-    closingPanelIds.add(panelId);
-    notifyTerminalClosing(panelId);
-    window.setTimeout(() => {
-      model.doAction(Actions.deleteTab(panelId));
-      if (nextActivePanelId) {
-        model.doAction(Actions.selectTab(nextActivePanelId));
-      }
-      setActivePanelId(nextActivePanelId);
-      onModelChange(model);
-    }, 180);
-  };
-
   return (
-    <section className="grid min-w-0 grid-rows-[minmax(0,1fr)] bg-background/60">
+    <section className="grid min-w-0 grid-rows-[minmax(0,1fr)] bg-background">
       <div className="min-h-0 min-w-0 p-3">
-        <div className="workspace-frame relative h-full overflow-hidden rounded-lg border bg-card shadow-workspace">
+        <div className="workspace-frame relative h-full overflow-hidden rounded-lg border shadow-workspace">
           <Layout
             model={model}
             factory={factory}
             onAction={handleLayoutAction}
             onAuxMouseClick={closeTabOnMiddleClick}
+            onContextMenu={(node, event) => {
+              if (node.getType() !== 'tab') {
+                return;
+              }
+
+              event.preventDefault();
+              event.stopPropagation();
+              setTabMenu({
+                node: node as TabNode,
+                session: readSessionConfig((node as TabNode).getConfig()?.session),
+                x: event.clientX,
+                y: event.clientY,
+              });
+            }}
             onModelChange={onModelChange}
             onRenderDragRect={renderDragPreview}
             onRenderTab={renderTab}
+            tabDragSpeed={0.12}
           />
+          {tabMenu && (
+            <WorkspaceTabMenu
+              menu={tabMenu}
+              onClone={() => {
+                duplicateTab(tabMenu.node);
+                setTabMenu(undefined);
+              }}
+              onClose={() => {
+                requestTabClose(tabMenu.node.getId());
+                setTabMenu(undefined);
+              }}
+              onCloseOthers={() => {
+                closeOtherTabs(tabMenu.node.getId());
+                setTabMenu(undefined);
+              }}
+              onCloseRight={() => {
+                closeTabsToRight(tabMenu.node);
+                setTabMenu(undefined);
+              }}
+              onReconnect={() => {
+                notifyTerminalReconnect(tabMenu.node.getId());
+                setTabMenu(undefined);
+              }}
+            />
+          )}
         </div>
       </div>
     </section>
   );
-}
-
-function getSelectedPanelId(model: Model) {
-  const selectedNode = model.getActiveTabset()?.getSelectedNode();
-
-  if (selectedNode?.getType() !== 'tab') {
-    return undefined;
-  }
-
-  return selectedNode.getId();
-}
-
-function getNextActivePanelIdAfterClose(
-  model: Model,
-  closingPanelId: string,
-  currentActivePanelId: string | undefined,
-) {
-  if (currentActivePanelId && currentActivePanelId !== closingPanelId) {
-    return currentActivePanelId;
-  }
-
-  const closingNode = model.getNodeById(closingPanelId);
-  const siblingNodes = closingNode?.getParent()?.getChildren() ?? [];
-  const closingIndex = siblingNodes.findIndex((node) => node.getId() === closingPanelId);
-
-  if (closingIndex < 0) {
-    return undefined;
-  }
-
-  const previousNode = siblingNodes[closingIndex - 1];
-  const nextNode = siblingNodes[closingIndex + 1];
-
-  if (previousNode?.getType() === 'tab') {
-    return previousNode.getId();
-  }
-
-  if (nextNode?.getType() === 'tab') {
-    return nextNode.getId();
-  }
-
-  return undefined;
 }

@@ -23,7 +23,7 @@ export const SessionButton = forwardRef<
       {...props}
     >
       <span className="relative">
-        <Icon className={cn('size-3.5 text-muted-foreground', isSelected && 'text-primary')} />
+        <Icon className={cn('size-3.5 text-slate-400', isSelected && 'text-primary')} />
         <span
           className={cn(
             'absolute -right-0.5 -top-0.5 size-1.5 rounded-full ring-1 ring-card',
@@ -33,14 +33,14 @@ export const SessionButton = forwardRef<
           )}
         />
       </span>
-      <span className={cn('truncate text-foreground', isSelected && 'font-medium text-primary')}>
+      <span className={cn('truncate font-medium text-white', isSelected && 'font-semibold text-primary')}>
         {session.name}
       </span>
-      <span className={cn('truncate text-[11px] text-muted-foreground', isSelected && 'text-primary/80')}>
+      <span className={cn('truncate text-xs font-normal text-slate-400', isSelected && 'text-primary/85')}>
         {session.host ?? getSessionKindLabel(session.kind)}
       </span>
       {session.favorite && <Star className="size-3 fill-primary text-primary" />}
-      <span className={cn('text-[10px] text-muted-foreground', isSelected && 'text-primary/80')}>
+      <span className={cn('font-mono text-[11px] font-bold text-slate-400', isSelected && 'text-primary/85')}>
         {getSessionKindLabel(session.kind)}
       </span>
     </button>

@@ -102,7 +102,7 @@ function PanelFocusFrame({
     <div
       className={cn(
         'relative h-full min-h-0 outline-none transition-[box-shadow,filter] duration-150',
-        !isActive && 'brightness-[0.92]',
+        !isActive && 'brightness-[0.97]',
         isActive &&
           'shadow-[inset_0_0_0_2px_hsl(var(--primary)),inset_0_3px_0_0_hsl(var(--primary)),0_0_0_1px_hsl(var(--primary)/0.28)]',
       )}

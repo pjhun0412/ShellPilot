@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
@@ -15,16 +14,17 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { publishConnectionStatus } from '@/features/connections/connectionStatus';
-import { resolvePasswordCredentialRef, saveSshSessionPassword } from '@/features/connections/sshConnection';
+import { saveSshSessionKeyPassphrase, saveSshSessionPassword } from '@/features/connections/sshConnection';
 import type { SessionItem } from '@/types/workspace';
-import { subscribeTerminalClosing } from './terminalLifecycle';
-
-interface SshTerminalEvent {
-  data?: string;
-  message?: string;
-  panelId: string;
-  status: 'closed' | 'connected' | 'data' | 'failed' | 'info';
-}
+import { subscribeTerminalClosing, subscribeTerminalReconnect } from './terminalLifecycle';
+import {
+  closeSshShell,
+  openSshShell,
+  pasteClipboardToSsh,
+  resizeSshPty,
+  writeSshData,
+  type SshTerminalEvent,
+} from './sshTerminalBridge';
 
 export function SshTerminal({
   panelId,
@@ -41,6 +41,7 @@ export function SshTerminal({
   const [manualPassword, setManualPassword] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
+  const secretLabel = session.authMethod === 'key' ? 'key passphrase' : 'password';
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -52,7 +53,7 @@ export function SshTerminal({
       convertEol: true,
       cursorBlink: true,
       cursorStyle: 'block',
-      fontFamily: 'Cascadia Mono, Consolas, monospace',
+      fontFamily: 'Cascadia Mono, D2Coding, Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.35,
       scrollback: 5000,
@@ -69,11 +70,12 @@ export function SshTerminal({
         brightWhite: '#f8fafc',
         brightYellow: '#fde68a',
         cyan: '#22d3ee',
-        foreground: '#d6deeb',
+        cursor: '#2dd4bf',
+        foreground: '#f8fafc',
         green: '#34d399',
         magenta: '#a78bfa',
         red: '#fb7185',
-        white: '#d1d5db',
+        white: '#e5e7eb',
         yellow: '#fbbf24',
       },
     });
@@ -88,7 +90,7 @@ export function SshTerminal({
     publishConnectionStatus({ panelId, status: 'connecting' });
 
     const dataDisposable = terminal.onData((data) => {
-      void invoke('ssh_write', { data, panelId });
+      void writeSshData(panelId, data);
     });
     const selectionDisposable = terminal.onSelectionChange(() => {
       const selectedText = terminal.getSelection();
@@ -119,7 +121,7 @@ export function SshTerminal({
       if (event.code === 'KeyV') {
         event.preventDefault();
         event.stopPropagation();
-        void pasteClipboard(panelId);
+        void pasteClipboardToSsh(panelId);
       }
     };
     window.addEventListener('keydown', shortcutHandler, true);
@@ -139,7 +141,7 @@ export function SshTerminal({
       if (event.code === 'KeyV') {
         void navigator.clipboard.readText().then((text) => {
           if (text) {
-            void invoke('ssh_write', { data: text, panelId });
+            void writeSshData(panelId, text);
           }
         }).catch(() => undefined);
         return false;
@@ -157,7 +159,7 @@ export function SshTerminal({
       }
 
       terminal.writeln('\r\n[closing ssh session...]');
-      void invoke('ssh_close', { panelId });
+      void closeSshShell(panelId);
       publishConnectionStatus({ panelId, status: 'idle' });
     });
 
@@ -175,13 +177,16 @@ export function SshTerminal({
         terminal.clear();
         terminal.focus();
         if (pendingPasswordRef.current && shouldRememberPasswordRef.current) {
-          void saveSshSessionPassword(session, pendingPasswordRef.current).finally(() => {
+          const saveSecret =
+            session.authMethod === 'key' ? saveSshSessionKeyPassphrase : saveSshSessionPassword;
+
+          void saveSecret(session, pendingPasswordRef.current).finally(() => {
             pendingPasswordRef.current = undefined;
           });
         } else {
           pendingPasswordRef.current = undefined;
         }
-        void resizeRemotePty(panelId, terminal);
+        void resizeSshPty(panelId, terminal);
         fitTerminal(panelId, terminal, fitAddon);
         return;
       }
@@ -212,7 +217,7 @@ export function SshTerminal({
         return;
       }
 
-      await openShell(panelId, session);
+      await openSshShell(panelId, session);
     };
 
     void startShellAfterListenerReady().catch((error: unknown) => {
@@ -225,7 +230,7 @@ export function SshTerminal({
 
     return () => {
       isDisposed = true;
-      void invoke('ssh_close', { panelId });
+      void closeSshShell(panelId);
       dataDisposable.dispose();
       selectionDisposable.dispose();
       resizeObserver.disconnect();
@@ -257,18 +262,26 @@ export function SshTerminal({
     publishConnectionStatus({ panelId, status: 'connecting' });
     terminal?.clear();
     terminal?.writeln(`Reconnecting to ${session.username ? `${session.username}@` : ''}${session.host}:${session.port ?? 22}...`);
-    await invoke('ssh_close', { panelId }).catch(() => undefined);
-    await openShell(panelId, session).catch((error: unknown) => {
+    await closeSshShell(panelId).catch(() => undefined);
+    await openSshShell(panelId, session).catch((error: unknown) => {
       setStatus('failed');
       publishConnectionStatus({ panelId, status: 'failed' });
-      terminal?.writeln(`\r\n${error instanceof Error ? error.message : String(error)}`);
-    });
+        terminal?.writeln(`\r\n${error instanceof Error ? error.message : String(error)}`);
+      });
     terminal?.focus();
   };
 
+  useEffect(() => {
+    return subscribeTerminalReconnect((reconnectPanelId) => {
+      if (reconnectPanelId === panelId) {
+        void reconnectSession();
+      }
+    });
+  });
+
   const closeSession = async () => {
     terminalRef.current?.writeln('\r\n[closing ssh session...]');
-    await invoke('ssh_close', { panelId }).catch(() => undefined);
+    await closeSshShell(panelId).catch(() => undefined);
     setStatus('failed');
     publishConnectionStatus({ panelId, status: 'idle' });
   };
@@ -282,8 +295,8 @@ export function SshTerminal({
 
     setStatus('connecting');
     pendingPasswordRef.current = manualPassword;
-    terminalRef.current?.writeln('\r\nRetrying with typed password...');
-    await openShell(panelId, session, manualPassword).catch((error: unknown) => {
+    terminalRef.current?.writeln(`\r\nRetrying with typed ${secretLabel}...`);
+    await openSshShell(panelId, session, manualPassword).catch((error: unknown) => {
       setStatus('failed');
       terminalRef.current?.writeln(`\r\n${error instanceof Error ? error.message : String(error)}`);
     });
@@ -301,7 +314,7 @@ export function SshTerminal({
             }
 
             event.preventDefault();
-            void pasteClipboard(panelId);
+            void pasteClipboardToSsh(panelId);
           }}
         >
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
@@ -310,13 +323,17 @@ export function SshTerminal({
               className="absolute left-4 top-4 grid w-[min(28rem,calc(100%-2rem))] gap-2 rounded-md border bg-card/95 p-3 text-xs shadow-lg"
               onSubmit={connectWithPassword}
             >
-              <span className="text-muted-foreground">Password was not available. Enter it to retry.</span>
+              <span className="text-muted-foreground">
+                {session.authMethod === 'key'
+                  ? 'Key passphrase was not available. Enter it to retry.'
+                  : 'Password was not available. Enter it to retry.'}
+              </span>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <input
                   className="session-input h-8"
                   type="password"
                   autoComplete="current-password"
-                  placeholder="SSH password"
+                  placeholder={session.authMethod === 'key' ? 'SSH key passphrase' : 'SSH password'}
                   value={manualPassword}
                   onChange={(event) => setManualPassword(event.target.value)}
                 />
@@ -338,7 +355,7 @@ export function SshTerminal({
                     setShouldRememberPassword(event.target.checked);
                   }}
                 />
-                Remember password securely
+                Remember {secretLabel} securely
               </label>
             </form>
           )}
@@ -350,7 +367,7 @@ export function SshTerminal({
           Copy
           <ContextMenuShortcut>select</ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void pasteClipboard(panelId)}>
+        <ContextMenuItem onSelect={() => void pasteClipboardToSsh(panelId)}>
           <Clipboard className="size-3.5" />
           Paste
           <ContextMenuShortcut>middle</ContextMenuShortcut>
@@ -377,44 +394,9 @@ function fitTerminal(panelId: string, terminal: Terminal, fitAddon: FitAddon) {
   window.requestAnimationFrame(() => {
     try {
       fitAddon.fit();
-      void resizeRemotePty(panelId, terminal);
+      void resizeSshPty(panelId, terminal);
     } catch {
       // FlexLayout can briefly report zero-size panels while dragging splitters.
     }
   });
-}
-
-async function openShell(panelId: string, session: SessionItem, password?: string) {
-  await invoke('ssh_open_shell', {
-    target: {
-      credentialId: password ? null : resolvePasswordCredentialRef(session).id,
-      host: session.host,
-      panelId,
-      password: password ?? null,
-      port: session.port ?? 22,
-      username: session.username ?? '',
-    },
-  });
-}
-
-async function resizeRemotePty(panelId: string, terminal: Terminal) {
-  if (!terminal.cols || !terminal.rows) {
-    return;
-  }
-
-  await invoke('ssh_resize', {
-    cols: terminal.cols,
-    panelId,
-    rows: terminal.rows,
-  }).catch(() => undefined);
-}
-
-async function pasteClipboard(panelId: string) {
-  const text = await navigator.clipboard.readText().catch(() => '');
-
-  if (!text) {
-    return;
-  }
-
-  await invoke('ssh_write', { data: text, panelId }).catch(() => undefined);
 }

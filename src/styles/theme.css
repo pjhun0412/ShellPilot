@@ -1,0 +1,53 @@
+@layer base {
+  :root {
+    --background: 222 47% 4%;
+    --foreground: 210 40% 98%;
+    --card: 222 34% 8%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 34% 8%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 174 72% 42%;
+    --primary-foreground: 180 100% 97%;
+    --secondary: 217 28% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 28% 13%;
+    --muted-foreground: 215 20% 76%;
+    --accent: 217 28% 15%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 349 89% 60%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 217 24% 24%;
+    --input: 217 24% 24%;
+    --ring: 174 72% 42%;
+    --radius: 0.5rem;
+
+    --workspace-frame: 222 42% 5%;
+    --workspace-panel: 222 38% 6%;
+    --workspace-panel-muted: 222 30% 9%;
+    --workspace-terminal: 222 47% 3%;
+    --workspace-success: 151 70% 55%;
+    --workspace-info: 203 89% 70%;
+
+    --workspace-tabbar: 0 0% 9%;
+    --workspace-tab: 0 0% 9%;
+    --workspace-tab-hover: 0 0% 12%;
+    --workspace-tab-active: 0 0% 12%;
+    --workspace-tab-border: 215 18% 25%;
+    --workspace-tab-text: 215 20% 76%;
+    --workspace-tab-text-active: 210 40% 98%;
+  }
+
+  * {
+    @apply border-border;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    font-family:
+      "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+}

@@ -2,7 +2,7 @@ import { Actions, DockLocation, Model } from 'flexlayout-react';
 import { useMemo, useRef, useState } from 'react';
 
 import { ActivityBar } from '@/components/navigation/ActivityBar';
-import { Sidebar } from '@/components/navigation/Sidebar';
+import { SidebarShell } from '@/components/navigation/SidebarShell';
 import { MenuBar } from '@/components/shell/MenuBar';
 import { StatusBar } from '@/components/shell/StatusBar';
 import { Workspace } from '@/features/workspace/Workspace';
@@ -98,7 +98,7 @@ export function App() {
             setIsSidebarCollapsed(false);
           }}
         />
-        <Sidebar
+        <SidebarShell
           activeActivity={activeActivity}
           isCollapsed={isSidebarCollapsed}
           onAddPanel={addPanel}

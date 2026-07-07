@@ -96,12 +96,25 @@ export async function saveSshSessionPassword(session: SessionItem, password: str
   rememberCredentialPassword(credentialId, password);
 }
 
+export async function saveSshSessionKeyPassphrase(session: SessionItem, passphrase: string) {
+  const credentialId = resolveKeyCredentialRef(session).id;
+
+  await invoke('save_credential', {
+    id: credentialId,
+    secret: passphrase,
+  });
+}
+
 export function rememberSshSessionPassword(session: SessionItem, password: string) {
   rememberCredentialPassword(resolvePasswordCredentialRef(session).id, password);
 }
 
 export function rememberCredentialPassword(credentialId: string, password: string) {
   passwordMemoryCache.set(credentialId, password);
+}
+
+export function forgetCredentialPassword(credentialId: string) {
+  passwordMemoryCache.delete(credentialId);
 }
 
 export function resolvePasswordCredentialRef(session: SessionItem): CredentialRef {
@@ -113,6 +126,18 @@ export function resolvePasswordCredentialRef(session: SessionItem): CredentialRe
     id: createCredentialId(session.id, 'password'),
     kind: 'password',
     label: `SSH ${session.username ? `${session.username}@` : ''}${session.host ?? session.name} password`,
+  };
+}
+
+export function resolveKeyCredentialRef(session: SessionItem): CredentialRef {
+  if (session.credentialRef?.kind === 'key') {
+    return session.credentialRef;
+  }
+
+  return {
+    id: createCredentialId(session.id, 'key'),
+    kind: 'key',
+    label: `SSH ${session.username ? `${session.username}@` : ''}${session.host ?? session.name} key passphrase`,
   };
 }
 
