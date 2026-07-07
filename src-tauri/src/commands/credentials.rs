@@ -33,6 +33,17 @@ pub fn read_credential_secret(id: &str) -> Result<String, String> {
         .map_err(|error| format!("password is not saved in secure storage: {error}"))
 }
 
+pub fn read_optional_credential_secret(id: &str) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(SERVICE_NAME, &id)
+        .map_err(|error| format!("failed to open credential entry: {error}"))?;
+
+    match entry.get_password() {
+        Ok(secret) => Ok(Some(secret)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("failed to read credential from secure storage: {error}")),
+    }
+}
+
 pub fn delete_credential_secret(id: &str) -> Result<(), String> {
     let entry = keyring::Entry::new(SERVICE_NAME, &id)
         .map_err(|error| format!("failed to open credential entry: {error}"))?;

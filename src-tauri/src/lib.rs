@@ -1,5 +1,6 @@
 mod commands;
 
+use commands::sftp::SftpSessionStore;
 use commands::ssh::SshSessionStore;
 
 #[tauri::command]
@@ -10,6 +11,7 @@ fn app_ready() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(SftpSessionStore::default())
         .manage(SshSessionStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -28,7 +30,14 @@ pub fn run() {
             commands::ssh::ssh_close,
             commands::ssh::ssh_open_shell,
             commands::ssh::ssh_resize,
-            commands::ssh::ssh_write
+            commands::ssh::ssh_write,
+            commands::sftp::sftp_close,
+            commands::sftp::sftp_list,
+            commands::sftp::sftp_mkdir,
+            commands::sftp::sftp_open,
+            commands::sftp::sftp_remove_dir,
+            commands::sftp::sftp_remove_file,
+            commands::sftp::sftp_rename
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShellPilot");

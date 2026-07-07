@@ -127,6 +127,20 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
     setSelectedSessionId(session.id);
     openPanelForSession(session);
   };
+  const openSftpSession = (session: SessionItem) => {
+    if (session.kind !== 'ssh') {
+      return;
+    }
+
+    setSelectedGroupId(undefined);
+    setSelectedSessionId(session.id);
+    onAddPanel({
+      id: `sftp-${session.id}`,
+      session,
+      title: `SFTP - ${session.name}`,
+      type: 'sftp',
+    });
+  };
   const selectSession = (sessionId: string) => {
     setSelectedGroupId(undefined);
     setSelectedSessionId(sessionId);
@@ -204,6 +218,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
         onMoveGroup={moveGroup}
         onMoveSession={moveSession}
         onOpenSession={openSession}
+        onOpenSftpSession={openSftpSession}
         onRenameFolder={renameFolder}
         onSelectGroup={setSelectedGroupId}
         onSelectSession={selectSession}

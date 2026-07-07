@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::commands::credentials::read_credential_secret;
+use crate::commands::credentials::{read_credential_secret, read_optional_credential_secret};
 use russh::{
     client::{self, KeyboardInteractiveAuthResponse},
     keys::{
@@ -49,7 +49,7 @@ enum SshSessionCommand {
     Write(String),
 }
 
-enum SshAuthRequest {
+pub(crate) enum SshAuthRequest {
     Agent,
     Interactive {
         credential_id: Option<String>,
@@ -67,7 +67,7 @@ enum SshAuthRequest {
 }
 
 impl SshAuthRequest {
-    fn from_target(target: &SshShellTarget) -> Self {
+    pub(crate) fn from_target(target: &SshShellTarget) -> Self {
         match target.auth_method.as_deref() {
             Some("agent") => Self::Agent,
             Some("interactive") => Self::Interactive {
@@ -86,7 +86,7 @@ impl SshAuthRequest {
         }
     }
 
-    fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Agent => "SSH agent",
             Self::Interactive { .. } => "keyboard-interactive",
@@ -129,17 +129,17 @@ pub struct SshKnownHostRecord {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshShellTarget {
-    accept_new_host_key: Option<bool>,
-    auth_method: Option<String>,
-    credential_id: Option<String>,
-    host: String,
-    panel_id: String,
-    password: Option<String>,
-    passphrase: Option<String>,
-    passphrase_credential_id: Option<String>,
-    port: u16,
-    private_key_path: Option<String>,
-    username: String,
+    pub(crate) accept_new_host_key: Option<bool>,
+    pub(crate) auth_method: Option<String>,
+    pub(crate) credential_id: Option<String>,
+    pub(crate) host: String,
+    pub(crate) panel_id: String,
+    pub(crate) password: Option<String>,
+    pub(crate) passphrase: Option<String>,
+    pub(crate) passphrase_credential_id: Option<String>,
+    pub(crate) port: u16,
+    pub(crate) private_key_path: Option<String>,
+    pub(crate) username: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -674,7 +674,7 @@ fn emit_terminal_warning(
     }
 }
 
-async fn authenticate_session(
+pub(crate) async fn authenticate_session(
     session: &mut client::Handle<ShellPilotSshClient>,
     username: &str,
     auth: &SshAuthRequest,
@@ -860,7 +860,7 @@ async fn connect_ssh_agent() -> Result<BoxedAgentClient, String> {
     Err("SSH agent authentication is not supported on this platform".to_string())
 }
 
-struct ShellPilotSshClient {
+pub(crate) struct ShellPilotSshClient {
     accept_new_host_key: bool,
     app: AppHandle,
     host: String,
@@ -869,7 +869,7 @@ struct ShellPilotSshClient {
 }
 
 impl ShellPilotSshClient {
-    fn new(
+    pub(crate) fn new(
         app: AppHandle,
         panel_id: Option<String>,
         host: &str,
@@ -1060,7 +1060,7 @@ fn classify_connect_error(error: String) -> SshFailure {
         return SshFailure::host_key(format!("SSH host key verification failed. {error}"));
     }
 
-    if lower.contains("key") || lower.contains("verify") {
+    if is_host_key_verification_error(&lower) {
         return SshFailure::host_key(format!("SSH host key verification failed. {error}"));
     }
 
@@ -1070,14 +1070,18 @@ fn classify_connect_error(error: String) -> SshFailure {
     {
         return SshFailure::connection_with_code(
             "connection_timeout",
-            format!("SSH connection timed out. Check network reachability and firewall rules. {error}"),
+            format!(
+                "SSH connection timed out. Check network reachability and firewall rules. {error}"
+            ),
         );
     }
 
     if lower.contains("refused") || lower.contains("10061") {
         return SshFailure::connection_with_code(
             "connection_refused",
-            format!("SSH connection was refused. Check that SSH is running on the target port. {error}"),
+            format!(
+                "SSH connection was refused. Check that SSH is running on the target port. {error}"
+            ),
         );
     }
 
@@ -1105,6 +1109,13 @@ fn classify_connect_error(error: String) -> SshFailure {
     SshFailure::connection(format!("SSH connection failed. {error}"))
 }
 
+fn is_host_key_verification_error(lower: &str) -> bool {
+    lower.contains("host key verification")
+        || lower.contains("server key verification")
+        || lower.contains("hostkey")
+        || lower.contains("keychanged")
+}
+
 fn resolve_secret(
     credential_id: Option<&str>,
     secret: Option<&str>,
@@ -1125,10 +1136,12 @@ fn resolve_optional_secret(
     secret: Option<&str>,
 ) -> Result<Option<String>, String> {
     if let Some(id) = credential_id {
-        return match read_credential_secret(id) {
-            Ok(value) if !value.is_empty() => Ok(Some(value)),
+        return match read_optional_credential_secret(id) {
+            Ok(Some(value)) if !value.is_empty() => Ok(Some(value)),
+            Ok(_) if secret.is_some_and(|value| !value.is_empty()) => {
+                Ok(secret.map(ToOwned::to_owned))
+            }
             Ok(_) => Ok(None),
-            Err(_) if secret.is_none_or(str::is_empty) => Ok(None),
             Err(error) => Err(error),
         };
     }
@@ -1136,4 +1149,45 @@ fn resolve_optional_secret(
     Ok(secret
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_key_exchange_failure_as_retryable_connection_error() {
+        let failure = classify_connect_error("Key exchange failed".to_string());
+
+        assert_eq!(failure.code, "connection_failed");
+        assert!(failure.retryable);
+        assert!(!failure.auth_prompt);
+    }
+
+    #[test]
+    fn classify_key_exchange_init_failure_as_retryable_connection_error() {
+        let failure = classify_connect_error("Key exchange init failed".to_string());
+
+        assert_eq!(failure.code, "connection_failed");
+        assert!(failure.retryable);
+        assert!(!failure.auth_prompt);
+    }
+
+    #[test]
+    fn classify_unknown_server_key_as_trust_prompt() {
+        let failure = classify_connect_error("unknown server key".to_string());
+
+        assert_eq!(failure.code, "host_key_unknown");
+        assert!(failure.retryable);
+        assert!(!failure.auth_prompt);
+    }
+
+    #[test]
+    fn classify_changed_host_key_as_blocking_host_key_error() {
+        let failure = classify_connect_error("key changed".to_string());
+
+        assert_eq!(failure.code, "host_key_mismatch");
+        assert!(!failure.retryable);
+        assert!(!failure.auth_prompt);
+    }
 }

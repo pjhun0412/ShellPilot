@@ -57,6 +57,7 @@ export function SessionTree({
   onMoveGroup,
   onMoveSession,
   onOpenSession,
+  onOpenSftpSession,
   onRenameFolder,
   onSelectGroup,
   onSelectSession,
@@ -81,6 +82,7 @@ export function SessionTree({
     overSessionPosition?: 'after' | 'before';
   }) => void;
   onOpenSession: (session: SessionItem) => void;
+  onOpenSftpSession: (session: SessionItem) => void;
   onRenameFolder: (group: SessionGroup) => void;
   onSelectGroup: (groupId: string) => void;
   onSelectSession: (sessionId: string) => void;
@@ -217,6 +219,7 @@ export function SessionTree({
               onDuplicateSession={onDuplicateSession}
               onEditSession={onEditSession}
               onOpenSession={onOpenSession}
+              onOpenSftpSession={onOpenSftpSession}
               onRenameFolder={onRenameFolder}
               onSelectGroup={onSelectGroup}
               onSelectSession={onSelectSession}
@@ -255,6 +258,7 @@ function SortableGroupSection({
   onDuplicateSession,
   onEditSession,
   onOpenSession,
+  onOpenSftpSession,
   onRenameFolder,
   onSelectGroup,
   onSelectSession,
@@ -274,6 +278,7 @@ function SortableGroupSection({
   onDuplicateSession: (session: SessionItem) => void;
   onEditSession: (session: SessionItem) => void;
   onOpenSession: (session: SessionItem) => void;
+  onOpenSftpSession: (session: SessionItem) => void;
   onRenameFolder: (group: SessionGroup) => void;
   onSelectGroup: (groupId: string) => void;
   onSelectSession: (sessionId: string) => void;
@@ -384,6 +389,7 @@ function SortableGroupSection({
                 onDuplicateSession={() => onDuplicateSession(session)}
                 onEditSession={() => onEditSession(session)}
                 onOpenSession={() => onOpenSession(session)}
+                onOpenSftpSession={() => onOpenSftpSession(session)}
                 onSelectSession={() => onSelectSession(session.id)}
               />
             ))}
@@ -402,6 +408,7 @@ function SortableSessionRow({
   onDuplicateSession,
   onEditSession,
   onOpenSession,
+  onOpenSftpSession,
   onSelectSession,
   session,
 }: {
@@ -412,6 +419,7 @@ function SortableSessionRow({
   onDuplicateSession: () => void;
   onEditSession: () => void;
   onOpenSession: () => void;
+  onOpenSftpSession: () => void;
   onSelectSession: () => void;
   session: SessionItem;
 }) {
@@ -450,6 +458,7 @@ function SortableSessionRow({
         onDuplicateSession={onDuplicateSession}
         onEditSession={onEditSession}
         onOpenSession={onOpenSession}
+        onOpenSftpSession={onOpenSftpSession}
       >
         <SessionButton
           className={cn(isDragging && 'bg-accent')}
@@ -496,6 +505,7 @@ function SessionContextMenu({
   onDuplicateSession,
   onEditSession,
   onOpenSession,
+  onOpenSftpSession,
   session,
 }: {
   children: ReactNode;
@@ -503,6 +513,7 @@ function SessionContextMenu({
   onDuplicateSession: () => void;
   onEditSession: () => void;
   onOpenSession: () => void;
+  onOpenSftpSession: () => void;
   session: SessionItem;
 }) {
   const copyHost = () => {
@@ -524,6 +535,9 @@ function SessionContextMenu({
       <ContextMenuContent>
         <ContextMenuLabel>{session.name}</ContextMenuLabel>
         <ContextMenuItem onSelect={onOpenSession}>Connect</ContextMenuItem>
+        <ContextMenuItem disabled={session.kind !== 'ssh'} onSelect={onOpenSftpSession}>
+          Open SFTP
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={!session.host} onSelect={copyHost}>Copy Host</ContextMenuItem>
         <ContextMenuItem disabled={!createSshCommand(session)} onSelect={copySshCommand}>

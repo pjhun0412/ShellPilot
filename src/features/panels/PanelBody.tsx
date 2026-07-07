@@ -2,6 +2,7 @@ import { Bot, Folder, Monitor } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
+import { SftpPanel } from '@/features/sftp/SftpPanel';
 import { SshTerminal } from '@/features/terminal/SshTerminal';
 import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -69,6 +70,14 @@ export function PanelBody({
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         <SettingsPanel />
+      </PanelFocusFrame>
+    );
+  }
+
+  if (panel.type === 'sftp' && panel.session) {
+    return (
+      <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
+        <SftpPanel panelId={panel.id} session={panel.session} />
       </PanelFocusFrame>
     );
   }
