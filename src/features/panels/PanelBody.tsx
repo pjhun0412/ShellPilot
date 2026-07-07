@@ -84,7 +84,11 @@ export function PanelBody({
   if (panel.type === 'sftp' && panel.session) {
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
-        <SftpPanel panelId={panel.id} session={panel.session} />
+        <SftpPanel
+          autoConnect={panel.autoConnect !== false}
+          panelId={panel.id}
+          session={panel.session}
+        />
       </PanelFocusFrame>
     );
   }

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -8,7 +9,7 @@ use std::{
 };
 
 use russh::{client, ChannelMsg, Disconnect};
-use russh_sftp::client::SftpSession;
+use russh_sftp::client::{fs::File as SftpRemoteFile, SftpSession};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::{
@@ -24,6 +25,7 @@ use crate::commands::ssh::{
 #[derive(Default)]
 pub struct SftpSessionStore {
     sessions: Mutex<HashMap<String, Arc<Mutex<SftpConnection>>>>,
+    stream_uploads: Mutex<HashMap<String, SftpUploadStream>>,
     transfers: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
 }
 
@@ -91,6 +93,15 @@ struct SftpTransferRequest {
     panel_id: String,
     remote_path: String,
     transfer_id: String,
+}
+
+struct SftpUploadStream {
+    cancel_flag: Arc<AtomicBool>,
+    file: SftpRemoteFile,
+    request: SftpTransferRequest,
+    temp_remote_path: String,
+    total_bytes: u64,
+    transferred_bytes: u64,
 }
 
 #[tauri::command]
@@ -247,11 +258,7 @@ pub async fn sftp_remove_dir(
     let connection = get_sftp_connection(&store, &panel_id).await?;
     let connection = connection.lock().await;
 
-    connection
-        .session
-        .remove_dir(path)
-        .await
-        .map_err(|error| format!("failed to remove remote directory: {error}"))
+    remove_remote_directory_recursive(&connection.session, path).await
 }
 
 #[tauri::command]
@@ -281,6 +288,121 @@ pub async fn sftp_upload(
     ));
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_upload_stream_open(
+    app: AppHandle,
+    store: State<'_, SftpSessionStore>,
+    panel_id: String,
+    local_path: String,
+    remote_path: String,
+    transfer_id: String,
+    total_bytes: u64,
+) -> Result<(), String> {
+    let connection = get_sftp_connection(&store, &panel_id).await?;
+    let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let request = SftpTransferRequest {
+        direction: SftpTransferDirection::Upload,
+        local_path,
+        panel_id,
+        remote_path,
+        transfer_id: transfer_id.clone(),
+    };
+    let temp_remote_path = format!("{}.tmp-shellpilot-{}", request.remote_path, transfer_id);
+    let file_result = {
+        let connection = connection.lock().await;
+        connection.session.create(temp_remote_path.clone()).await
+    };
+    let file = match file_result {
+        Ok(file) => file,
+        Err(error) => {
+            store.transfers.lock().await.remove(&transfer_id);
+            return Err(format!("failed to create remote file: {error}"));
+        }
+    };
+
+    emit_transfer_event(
+        &app,
+        &request,
+        SftpTransferStatus::Started,
+        None,
+        total_bytes,
+        0,
+    );
+
+    store.stream_uploads.lock().await.insert(
+        transfer_id,
+        SftpUploadStream {
+            cancel_flag,
+            file,
+            request,
+            temp_remote_path,
+            total_bytes,
+            transferred_bytes: 0,
+        },
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_upload_stream_chunk(
+    app: AppHandle,
+    store: State<'_, SftpSessionStore>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<(), String> {
+    let transfer_id = request
+        .headers()
+        .get("x-transfer-id")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "missing x-transfer-id header".to_string())?;
+    let tauri::ipc::InvokeBody::Raw(chunk) = request.body() else {
+        return Err("expected raw binary chunk body".to_string());
+    };
+
+    let mut uploads = store.stream_uploads.lock().await;
+    let upload = uploads
+        .get_mut(transfer_id)
+        .ok_or_else(|| "stream upload is not running".to_string())?;
+
+    if upload.cancel_flag.load(Ordering::Relaxed) {
+        return Err("transfer canceled".to_string());
+    }
+
+    upload
+        .file
+        .write_all(chunk)
+        .await
+        .map_err(|error| format!("failed to write remote file: {error}"))?;
+    upload.transferred_bytes += chunk.len() as u64;
+
+    emit_transfer_event(
+        &app,
+        &upload.request,
+        SftpTransferStatus::Progress,
+        None,
+        upload.total_bytes,
+        upload.transferred_bytes,
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_upload_stream_close(
+    app: AppHandle,
+    store: State<'_, SftpSessionStore>,
+    transfer_id: String,
+) -> Result<(), String> {
+    let upload = store
+        .stream_uploads
+        .lock()
+        .await
+        .remove(&transfer_id)
+        .ok_or_else(|| "stream upload is not running".to_string())?;
+
+    finish_stream_upload(app, store, upload, SftpTransferStatus::Completed, None).await
 }
 
 #[tauri::command]
@@ -314,16 +436,45 @@ pub async fn sftp_download(
 
 #[tauri::command]
 pub async fn sftp_cancel_transfer(
+    app: AppHandle,
     store: State<'_, SftpSessionStore>,
     transfer_id: String,
 ) -> Result<(), String> {
-    let transfers = store.transfers.lock().await;
-    let cancel_flag = transfers
-        .get(&transfer_id)
-        .ok_or_else(|| "transfer is not running".to_string())?;
+    let cancel_flag = {
+        let transfers = store.transfers.lock().await;
+        transfers
+            .get(&transfer_id)
+            .cloned()
+            .ok_or_else(|| "transfer is not running".to_string())?
+    };
 
     cancel_flag.store(true, Ordering::Relaxed);
+
+    let stream_upload = { store.stream_uploads.lock().await.remove(&transfer_id) };
+
+    if let Some(upload) = stream_upload {
+        finish_stream_upload(
+            app,
+            store,
+            upload,
+            SftpTransferStatus::Canceled,
+            Some("transfer canceled".to_string()),
+        )
+        .await?;
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+pub async fn reveal_local_path(path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+
+    if !path.exists() {
+        return Err("local path does not exist".to_string());
+    }
+
+    reveal_path_in_file_manager(&path)
 }
 
 async fn register_transfer(
@@ -339,6 +490,159 @@ async fn register_transfer(
 
     transfers.insert(transfer_id.to_string(), cancel_flag.clone());
     Ok(cancel_flag)
+}
+
+async fn finish_stream_upload(
+    app: AppHandle,
+    store: State<'_, SftpSessionStore>,
+    mut upload: SftpUploadStream,
+    status: SftpTransferStatus,
+    message: Option<String>,
+) -> Result<(), String> {
+    let transfer_id = upload.request.transfer_id.clone();
+
+    let flush_result = if matches!(status, SftpTransferStatus::Completed) {
+        Some(upload.file.flush().await)
+    } else {
+        None
+    };
+    let shutdown_result = upload.file.shutdown().await;
+    store.transfers.lock().await.remove(&transfer_id);
+
+    if matches!(status, SftpTransferStatus::Completed) {
+        if let Some(result) = flush_result {
+            result.map_err(|error| format!("failed to flush remote file: {error}"))?;
+        }
+
+        shutdown_result.map_err(|error| format!("failed to close remote file: {error}"))?;
+
+        let connection = get_sftp_connection(&store, &upload.request.panel_id).await?;
+        let connection = connection.lock().await;
+        finalize_stream_upload_file(
+            &connection.session,
+            &upload.temp_remote_path,
+            &upload.request.remote_path,
+            &upload.request.transfer_id,
+        )
+        .await?;
+    } else if let Ok(connection) = get_sftp_connection(&store, &upload.request.panel_id).await {
+        let connection = connection.lock().await;
+        let _ = connection
+            .session
+            .remove_file(upload.temp_remote_path.clone())
+            .await;
+    }
+
+    emit_transfer_event(
+        &app,
+        &upload.request,
+        status,
+        message,
+        upload.total_bytes,
+        upload.transferred_bytes,
+    );
+
+    Ok(())
+}
+
+async fn finalize_stream_upload_file(
+    session: &SftpSession,
+    temp_remote_path: &str,
+    remote_path: &str,
+    transfer_id: &str,
+) -> Result<(), String> {
+    if session
+        .rename(temp_remote_path.to_string(), remote_path.to_string())
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    let backup_remote_path = format!("{remote_path}.bak-shellpilot-{transfer_id}");
+    let backup_result = session
+        .rename(remote_path.to_string(), backup_remote_path.clone())
+        .await;
+
+    if backup_result.is_err() {
+        session
+            .rename(temp_remote_path.to_string(), remote_path.to_string())
+            .await
+            .map_err(|error| format!("failed to finalize uploaded file: {error}"))?;
+        return Ok(());
+    }
+
+    match session
+        .rename(temp_remote_path.to_string(), remote_path.to_string())
+        .await
+    {
+        Ok(()) => {
+            let _ = session.remove_file(backup_remote_path).await;
+            Ok(())
+        }
+        Err(error) => {
+            let restore_result = session
+                .rename(backup_remote_path.clone(), remote_path.to_string())
+                .await;
+
+            if let Err(restore_error) = restore_result {
+                return Err(format!(
+                    "failed to finalize uploaded file: {error}; failed to restore backup: {restore_error}"
+                ));
+            }
+
+            Err(format!("failed to finalize uploaded file: {error}"))
+        }
+    }
+}
+
+async fn remove_remote_directory_recursive(
+    session: &SftpSession,
+    root_path: String,
+) -> Result<(), String> {
+    let mut stack = vec![(root_path, false)];
+
+    while let Some((current_path, visited)) = stack.pop() {
+        if visited {
+            session
+                .remove_dir(current_path.clone())
+                .await
+                .map_err(|error| {
+                    format!("failed to remove remote directory {current_path}: {error}")
+                })?;
+            continue;
+        }
+
+        let entries = session
+            .read_dir(current_path.clone())
+            .await
+            .map_err(|error| format!("failed to list remote directory {current_path}: {error}"))?;
+
+        stack.push((current_path.clone(), true));
+
+        for entry in entries {
+            let filename = entry.file_name();
+
+            if filename == "." || filename == ".." {
+                continue;
+            }
+
+            let child_path = join_remote_path(&current_path, &filename);
+
+            if entry.file_type().is_dir() {
+                stack.push((child_path, false));
+            } else {
+                session
+                    .remove_file(child_path.clone())
+                    .await
+                    .map_err(|error| {
+                        format!("failed to remove remote file {child_path}: {error}")
+                    })?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn run_sftp_transfer(
@@ -360,14 +664,7 @@ async fn run_sftp_transfer(
     transfers.lock().await.remove(&request.transfer_id);
 
     match result {
-        Ok(()) => emit_transfer_event(
-            &app,
-            &request,
-            SftpTransferStatus::Completed,
-            None,
-            0,
-            0,
-        ),
+        Ok(()) => emit_transfer_event(&app, &request, SftpTransferStatus::Completed, None, 0, 0),
         Err(message) if message == "transfer canceled" => emit_transfer_event(
             &app,
             &request,
@@ -393,21 +690,112 @@ async fn upload_file(
     request: &SftpTransferRequest,
     cancel_flag: &AtomicBool,
 ) -> Result<(), String> {
-    let total_bytes = fs::metadata(&request.local_path)
+    let metadata = fs::metadata(&request.local_path)
         .await
-        .map_err(|error| format!("failed to read local file metadata: {error}"))?
-        .len();
-    let mut local_file = fs::File::open(&request.local_path)
+        .map_err(|error| format!("failed to read local path metadata: {error}"))?;
+
+    if metadata.is_dir() {
+        upload_directory(app, connection, request, cancel_flag).await
+    } else {
+        upload_single_file(
+            app,
+            connection,
+            request,
+            &PathBuf::from(&request.local_path),
+            &request.remote_path,
+            metadata.len(),
+            0,
+            cancel_flag,
+        )
+        .await
+        .map(|_| ())
+    }
+}
+
+async fn upload_single_file(
+    app: &AppHandle,
+    connection: &Arc<Mutex<SftpConnection>>,
+    request: &SftpTransferRequest,
+    local_path: &Path,
+    remote_path: &str,
+    total_bytes: u64,
+    initial_transferred_bytes: u64,
+    cancel_flag: &AtomicBool,
+) -> Result<u64, String> {
+    let mut local_file = fs::File::open(local_path)
         .await
         .map_err(|error| format!("failed to open local file: {error}"))?;
     let connection = connection.lock().await;
+    let temp_remote_path = format!("{}.tmp-shellpilot-{}", remote_path, request.transfer_id);
     let mut remote_file = connection
         .session
-        .create(request.remote_path.clone())
+        .create(temp_remote_path.clone())
         .await
         .map_err(|error| format!("failed to create remote file: {error}"))?;
+
+    let transfer_result = write_local_file_to_remote(
+        app,
+        request,
+        &mut local_file,
+        &mut remote_file,
+        total_bytes,
+        initial_transferred_bytes,
+        cancel_flag,
+    )
+    .await;
+
+    if let Err(message) = transfer_result {
+        let _ = remote_file.shutdown().await;
+        let _ = connection.session.remove_file(temp_remote_path).await;
+        return Err(message);
+    }
+
+    let transferred_bytes = transfer_result?;
+
+    if let Err(error) = remote_file.flush().await {
+        let _ = remote_file.shutdown().await;
+        let _ = connection.session.remove_file(temp_remote_path).await;
+        return Err(format!("failed to flush remote file: {error}"));
+    }
+
+    if let Err(error) = remote_file.shutdown().await {
+        let _ = connection.session.remove_file(temp_remote_path).await;
+        return Err(format!("failed to close remote file: {error}"));
+    }
+
+    if let Err(message) = finalize_stream_upload_file(
+        &connection.session,
+        &temp_remote_path,
+        remote_path,
+        &request.transfer_id,
+    )
+    .await
+    {
+        return Err(message);
+    }
+
+    emit_transfer_event(
+        app,
+        request,
+        SftpTransferStatus::Progress,
+        None,
+        total_bytes,
+        transferred_bytes,
+    );
+    Ok(transferred_bytes)
+}
+
+async fn write_local_file_to_remote(
+    app: &AppHandle,
+    request: &SftpTransferRequest,
+    local_file: &mut fs::File,
+    remote_file: &mut SftpRemoteFile,
+    total_bytes: u64,
+    initial_transferred_bytes: u64,
+    cancel_flag: &AtomicBool,
+) -> Result<u64, String> {
     let mut buffer = vec![0_u8; 256 * 1024];
-    let mut transferred_bytes = 0_u64;
+    let mut transferred_bytes = initial_transferred_bytes;
     let mut last_emit = Instant::now();
 
     emit_transfer_event(
@@ -416,7 +804,7 @@ async fn upload_file(
         SftpTransferStatus::Started,
         None,
         total_bytes,
-        transferred_bytes,
+        initial_transferred_bytes,
     );
 
     loop {
@@ -451,14 +839,57 @@ async fn upload_file(
         }
     }
 
-    remote_file
-        .flush()
-        .await
-        .map_err(|error| format!("failed to flush remote file: {error}"))?;
-    remote_file
-        .shutdown()
-        .await
-        .map_err(|error| format!("failed to close remote file: {error}"))?;
+    Ok(transferred_bytes)
+}
+
+async fn upload_directory(
+    app: &AppHandle,
+    connection: &Arc<Mutex<SftpConnection>>,
+    request: &SftpTransferRequest,
+    cancel_flag: &AtomicBool,
+) -> Result<(), String> {
+    let local_root = PathBuf::from(&request.local_path);
+    let root_name = local_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "failed to resolve local directory name".to_string())?;
+    let remote_root = if request.remote_path.ends_with(root_name) {
+        request.remote_path.clone()
+    } else {
+        join_remote_path(&request.remote_path, root_name)
+    };
+    let upload_plan = collect_upload_directory_plan(&local_root, &remote_root).await?;
+    let total_bytes = upload_plan.files.iter().map(|file| file.size).sum();
+    let mut transferred_bytes = 0_u64;
+
+    emit_transfer_event(
+        app,
+        request,
+        SftpTransferStatus::Started,
+        Some(format!("Preparing {} files", upload_plan.files.len())),
+        total_bytes,
+        transferred_bytes,
+    );
+
+    for remote_dir in upload_plan.directories {
+        ensure_transfer_active(cancel_flag)?;
+        create_remote_dir_if_missing(connection, &remote_dir).await?;
+    }
+
+    for file in upload_plan.files {
+        ensure_transfer_active(cancel_flag)?;
+        transferred_bytes = upload_single_file(
+            app,
+            connection,
+            request,
+            &file.local_path,
+            &file.remote_path,
+            total_bytes,
+            transferred_bytes,
+            cancel_flag,
+        )
+        .await?;
+    }
 
     emit_transfer_event(
         app,
@@ -471,6 +902,85 @@ async fn upload_file(
     Ok(())
 }
 
+struct UploadDirectoryPlan {
+    directories: Vec<String>,
+    files: Vec<UploadFilePlan>,
+}
+
+struct UploadFilePlan {
+    local_path: PathBuf,
+    remote_path: String,
+    size: u64,
+}
+
+async fn collect_upload_directory_plan(
+    local_root: &Path,
+    remote_root: &str,
+) -> Result<UploadDirectoryPlan, String> {
+    let mut directories = vec![remote_root.to_string()];
+    let mut files = Vec::new();
+    let mut stack = vec![(local_root.to_path_buf(), remote_root.to_string())];
+
+    while let Some((local_dir, remote_dir)) = stack.pop() {
+        let mut entries = fs::read_dir(&local_dir)
+            .await
+            .map_err(|error| format!("failed to read local directory: {error}"))?;
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|error| format!("failed to read local directory entry: {error}"))?
+        {
+            let metadata = entry
+                .metadata()
+                .await
+                .map_err(|error| format!("failed to read local entry metadata: {error}"))?;
+            let filename = entry.file_name().to_string_lossy().to_string();
+            let local_path = entry.path();
+            let remote_path = join_remote_path(&remote_dir, &filename);
+
+            if metadata.is_dir() {
+                directories.push(remote_path.clone());
+                stack.push((local_path, remote_path));
+            } else if metadata.is_file() {
+                files.push(UploadFilePlan {
+                    local_path,
+                    remote_path,
+                    size: metadata.len(),
+                });
+            }
+        }
+    }
+
+    Ok(UploadDirectoryPlan { directories, files })
+}
+
+async fn create_remote_dir_if_missing(
+    connection: &Arc<Mutex<SftpConnection>>,
+    remote_path: &str,
+) -> Result<(), String> {
+    let connection = connection.lock().await;
+
+    match connection.session.create_dir(remote_path.to_string()).await {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            let metadata = connection
+                .session
+                .metadata(remote_path.to_string())
+                .await
+                .map_err(|error| format!("failed to create remote directory: {error}"))?;
+
+            if metadata.is_dir() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "remote path exists and is not a directory: {remote_path}"
+                ))
+            }
+        }
+    }
+}
+
 async fn download_file(
     app: &AppHandle,
     connection: &Arc<Mutex<SftpConnection>>,
@@ -478,22 +988,51 @@ async fn download_file(
     cancel_flag: &AtomicBool,
 ) -> Result<(), String> {
     let connection = connection.lock().await;
-    let mut remote_file = connection
+    let metadata = connection
         .session
-        .open(request.remote_path.clone())
+        .metadata(request.remote_path.clone())
+        .await
+        .map_err(|error| format!("failed to read remote path metadata: {error}"))?;
+
+    if metadata.is_dir() {
+        download_directory(app, &connection.session, request, cancel_flag).await
+    } else {
+        download_single_file(
+            app,
+            &connection.session,
+            request,
+            &request.remote_path,
+            &PathBuf::from(&request.local_path),
+            metadata.size.unwrap_or(0),
+            0,
+            cancel_flag,
+        )
+        .await
+        .map(|_| ())
+    }
+}
+
+async fn download_single_file(
+    app: &AppHandle,
+    session: &SftpSession,
+    request: &SftpTransferRequest,
+    remote_path: &str,
+    local_path: &Path,
+    total_bytes: u64,
+    initial_transferred_bytes: u64,
+    cancel_flag: &AtomicBool,
+) -> Result<u64, String> {
+    let mut remote_file = session
+        .open(remote_path.to_string())
         .await
         .map_err(|error| format!("failed to open remote file: {error}"))?;
-    let total_bytes = remote_file
-        .metadata()
-        .await
-        .ok()
-        .and_then(|metadata| metadata.size)
-        .unwrap_or(0);
-    let mut local_file = fs::File::create(&request.local_path)
+    let temp_local_path =
+        make_local_sidecar_path(&local_path, "tmp-shellpilot", &request.transfer_id);
+    let mut local_file = fs::File::create(&temp_local_path)
         .await
         .map_err(|error| format!("failed to create local file: {error}"))?;
     let mut buffer = vec![0_u8; 256 * 1024];
-    let mut transferred_bytes = 0_u64;
+    let mut transferred_bytes = initial_transferred_bytes;
     let mut last_emit = Instant::now();
 
     emit_transfer_event(
@@ -502,45 +1041,58 @@ async fn download_file(
         SftpTransferStatus::Started,
         None,
         total_bytes,
-        transferred_bytes,
+        initial_transferred_bytes,
     );
 
-    loop {
-        ensure_transfer_active(cancel_flag)?;
+    let transfer_result: Result<(), String> = async {
+        loop {
+            ensure_transfer_active(cancel_flag)?;
 
-        let read_size = remote_file
-            .read(&mut buffer)
-            .await
-            .map_err(|error| format!("failed to read remote file: {error}"))?;
+            let read_size = remote_file
+                .read(&mut buffer)
+                .await
+                .map_err(|error| format!("failed to read remote file: {error}"))?;
 
-        if read_size == 0 {
-            break;
+            if read_size == 0 {
+                break;
+            }
+
+            local_file
+                .write_all(&buffer[..read_size])
+                .await
+                .map_err(|error| format!("failed to write local file: {error}"))?;
+
+            transferred_bytes += read_size as u64;
+
+            if last_emit.elapsed() >= Duration::from_millis(150) {
+                emit_transfer_event(
+                    app,
+                    request,
+                    SftpTransferStatus::Progress,
+                    None,
+                    total_bytes,
+                    transferred_bytes,
+                );
+                last_emit = Instant::now();
+            }
         }
 
         local_file
-            .write_all(&buffer[..read_size])
+            .flush()
             .await
-            .map_err(|error| format!("failed to write local file: {error}"))?;
+            .map_err(|error| format!("failed to flush local file: {error}"))?;
+        Ok(())
+    }
+    .await;
 
-        transferred_bytes += read_size as u64;
+    drop(local_file);
 
-        if last_emit.elapsed() >= Duration::from_millis(150) {
-            emit_transfer_event(
-                app,
-                request,
-                SftpTransferStatus::Progress,
-                None,
-                total_bytes,
-                transferred_bytes,
-            );
-            last_emit = Instant::now();
-        }
+    if let Err(message) = transfer_result {
+        let _ = fs::remove_file(&temp_local_path).await;
+        return Err(message);
     }
 
-    local_file
-        .flush()
-        .await
-        .map_err(|error| format!("failed to flush local file: {error}"))?;
+    finalize_local_download_file(&temp_local_path, &local_path, &request.transfer_id).await?;
 
     emit_transfer_event(
         app,
@@ -550,6 +1102,208 @@ async fn download_file(
         total_bytes,
         transferred_bytes,
     );
+    Ok(transferred_bytes)
+}
+
+async fn download_directory(
+    app: &AppHandle,
+    session: &SftpSession,
+    request: &SftpTransferRequest,
+    cancel_flag: &AtomicBool,
+) -> Result<(), String> {
+    let local_root = PathBuf::from(&request.local_path);
+    let download_plan =
+        collect_download_directory_plan(session, &request.remote_path, &local_root).await?;
+    let total_bytes = download_plan.files.iter().map(|file| file.size).sum();
+    let mut transferred_bytes = 0_u64;
+
+    emit_transfer_event(
+        app,
+        request,
+        SftpTransferStatus::Started,
+        Some(format!("Preparing {} files", download_plan.files.len())),
+        total_bytes,
+        transferred_bytes,
+    );
+
+    for local_dir in download_plan.directories {
+        ensure_transfer_active(cancel_flag)?;
+        fs::create_dir_all(&local_dir)
+            .await
+            .map_err(|error| format!("failed to create local directory: {error}"))?;
+    }
+
+    for file in download_plan.files {
+        ensure_transfer_active(cancel_flag)?;
+
+        if let Some(parent) = file.local_path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|error| format!("failed to create local directory: {error}"))?;
+        }
+
+        transferred_bytes = download_single_file(
+            app,
+            session,
+            request,
+            &file.remote_path,
+            &file.local_path,
+            total_bytes,
+            transferred_bytes,
+            cancel_flag,
+        )
+        .await?;
+    }
+
+    emit_transfer_event(
+        app,
+        request,
+        SftpTransferStatus::Progress,
+        None,
+        total_bytes,
+        transferred_bytes,
+    );
+    Ok(())
+}
+
+struct DownloadDirectoryPlan {
+    directories: Vec<PathBuf>,
+    files: Vec<DownloadFilePlan>,
+}
+
+struct DownloadFilePlan {
+    local_path: PathBuf,
+    remote_path: String,
+    size: u64,
+}
+
+async fn collect_download_directory_plan(
+    session: &SftpSession,
+    remote_root: &str,
+    local_root: &Path,
+) -> Result<DownloadDirectoryPlan, String> {
+    let mut directories = vec![local_root.to_path_buf()];
+    let mut files = Vec::new();
+    let mut stack = vec![(remote_root.to_string(), local_root.to_path_buf())];
+
+    while let Some((remote_dir, local_dir)) = stack.pop() {
+        let entries = session
+            .read_dir(remote_dir.clone())
+            .await
+            .map_err(|error| format!("failed to list remote directory {remote_dir}: {error}"))?;
+
+        for entry in entries {
+            let filename = entry.file_name();
+
+            if filename == "." || filename == ".." {
+                continue;
+            }
+
+            let remote_path = join_remote_path(&remote_dir, &filename);
+            let local_path = local_dir.join(filename);
+
+            if entry.file_type().is_dir() {
+                directories.push(local_path.clone());
+                stack.push((remote_path, local_path));
+            } else if entry.file_type().is_file() {
+                files.push(DownloadFilePlan {
+                    local_path,
+                    remote_path,
+                    size: entry.metadata().size.unwrap_or(0),
+                });
+            }
+        }
+    }
+
+    Ok(DownloadDirectoryPlan { directories, files })
+}
+
+async fn finalize_local_download_file(
+    temp_local_path: &Path,
+    local_path: &Path,
+    transfer_id: &str,
+) -> Result<(), String> {
+    if fs::rename(temp_local_path, local_path).await.is_ok() {
+        return Ok(());
+    }
+
+    let backup_local_path = make_local_sidecar_path(local_path, "bak-shellpilot", transfer_id);
+    let backup_result = fs::rename(local_path, &backup_local_path).await;
+
+    if backup_result.is_err() {
+        fs::rename(temp_local_path, local_path)
+            .await
+            .map_err(|error| format!("failed to finalize downloaded file: {error}"))?;
+        return Ok(());
+    }
+
+    match fs::rename(temp_local_path, local_path).await {
+        Ok(()) => {
+            let _ = fs::remove_file(backup_local_path).await;
+            Ok(())
+        }
+        Err(error) => {
+            let restore_result = fs::rename(&backup_local_path, local_path).await;
+
+            if let Err(restore_error) = restore_result {
+                return Err(format!(
+                    "failed to finalize downloaded file: {error}; failed to restore backup: {restore_error}"
+                ));
+            }
+
+            Err(format!("failed to finalize downloaded file: {error}"))
+        }
+    }
+}
+
+fn make_local_sidecar_path(local_path: &Path, marker: &str, transfer_id: &str) -> PathBuf {
+    PathBuf::from(format!(
+        "{}.{marker}-{transfer_id}",
+        local_path.to_string_lossy()
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn reveal_path_in_file_manager(path: &Path) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve local path: {error}"))?;
+    let mut command = std::process::Command::new("explorer.exe");
+
+    if path.is_file() {
+        command.arg(format!("/select,{}", path.to_string_lossy()));
+    } else {
+        command.arg(path);
+    }
+
+    command
+        .spawn()
+        .map_err(|error| format!("failed to open Explorer: {error}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_path_in_file_manager(path: &Path) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg("-R")
+        .arg(path)
+        .spawn()
+        .map_err(|error| format!("failed to reveal local path: {error}"))?;
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn reveal_path_in_file_manager(path: &Path) -> Result<(), String> {
+    let target = if path.is_file() {
+        path.parent().unwrap_or(path)
+    } else {
+        path
+    };
+
+    std::process::Command::new("xdg-open")
+        .arg(target)
+        .spawn()
+        .map_err(|error| format!("failed to open file manager: {error}"))?;
     Ok(())
 }
 
@@ -591,6 +1345,33 @@ pub async fn sftp_close(
     panel_id: String,
 ) -> Result<(), String> {
     let connection = store.sessions.lock().await.remove(&panel_id);
+    let stream_transfer_ids: Vec<String> = {
+        let uploads = store.stream_uploads.lock().await;
+        uploads
+            .iter()
+            .filter_map(|(transfer_id, upload)| {
+                if upload.request.panel_id == panel_id {
+                    Some(transfer_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
+    for transfer_id in stream_transfer_ids {
+        if let Some(mut upload) = store.stream_uploads.lock().await.remove(&transfer_id) {
+            let _ = upload.file.shutdown().await;
+            if let Some(connection) = connection.as_ref() {
+                let connection = connection.lock().await;
+                let _ = connection
+                    .session
+                    .remove_file(upload.temp_remote_path.clone())
+                    .await;
+            }
+            store.transfers.lock().await.remove(&transfer_id);
+        }
+    }
 
     if let Some(connection) = connection {
         let connection = connection.lock().await;
@@ -773,14 +1554,8 @@ fn format_owner(
     match (uid, gid) {
         (Some(uid), Some(gid)) => Some(format!(
             "{}:{}",
-            users
-                .get(&uid)
-                .cloned()
-                .unwrap_or_else(|| uid.to_string()),
-            groups
-                .get(&gid)
-                .cloned()
-                .unwrap_or_else(|| gid.to_string()),
+            users.get(&uid).cloned().unwrap_or_else(|| uid.to_string()),
+            groups.get(&gid).cloned().unwrap_or_else(|| gid.to_string()),
         )),
         (Some(uid), None) => Some(users.get(&uid).cloned().unwrap_or_else(|| uid.to_string())),
         (None, Some(gid)) => Some(format!(
@@ -807,9 +1582,20 @@ fn permission_triplet(
     special_bit: u32,
     special_execute: char,
 ) -> String {
-    let read = if permissions & read_bit != 0 { 'r' } else { '-' };
-    let write = if permissions & write_bit != 0 { 'w' } else { '-' };
-    let execute = match (permissions & execute_bit != 0, permissions & special_bit != 0) {
+    let read = if permissions & read_bit != 0 {
+        'r'
+    } else {
+        '-'
+    };
+    let write = if permissions & write_bit != 0 {
+        'w'
+    } else {
+        '-'
+    };
+    let execute = match (
+        permissions & execute_bit != 0,
+        permissions & special_bit != 0,
+    ) {
         (true, true) => special_execute,
         (false, true) => special_execute.to_ascii_uppercase(),
         (true, false) => 'x',

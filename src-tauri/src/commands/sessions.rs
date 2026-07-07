@@ -72,7 +72,10 @@ pub fn load_session_registry(app: AppHandle) -> Result<SessionRegistry, String> 
         .map_err(|error| format!("failed to parse session registry: {error}"))?;
 
     if registry.version != 1 {
-        return Err(format!("unsupported session registry version: {}", registry.version));
+        return Err(format!(
+            "unsupported session registry version: {}",
+            registry.version
+        ));
     }
 
     Ok(registry)

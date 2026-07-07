@@ -33,6 +33,7 @@ pub fn run() {
             commands::ssh::ssh_write,
             commands::sftp::sftp_close,
             commands::sftp::sftp_cancel_transfer,
+            commands::sftp::reveal_local_path,
             commands::sftp::sftp_download,
             commands::sftp::sftp_list,
             commands::sftp::sftp_mkdir,
@@ -40,7 +41,10 @@ pub fn run() {
             commands::sftp::sftp_remove_dir,
             commands::sftp::sftp_remove_file,
             commands::sftp::sftp_rename,
-            commands::sftp::sftp_upload
+            commands::sftp::sftp_upload,
+            commands::sftp::sftp_upload_stream_chunk,
+            commands::sftp::sftp_upload_stream_close,
+            commands::sftp::sftp_upload_stream_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShellPilot");

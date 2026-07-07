@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import {
   hasRememberedCredentialPassword,
@@ -22,6 +23,21 @@ export interface SftpEntry {
 export interface SftpListResult {
   entries: SftpEntry[];
   path: string;
+}
+
+export type SftpTransferDirection = 'download' | 'upload';
+export type SftpTransferStatus = 'canceled' | 'completed' | 'failed' | 'progress' | 'started';
+
+export interface SftpTransferEvent {
+  direction: SftpTransferDirection;
+  localPath: string;
+  message?: string;
+  panelId: string;
+  remotePath: string;
+  status: SftpTransferStatus;
+  totalBytes: number;
+  transferredBytes: number;
+  transferId: string;
 }
 
 export async function openSftpSession(
@@ -56,6 +72,58 @@ export async function removeSftpFile(panelId: string, path: string) {
 
 export async function removeSftpDirectory(panelId: string, path: string) {
   await invoke('sftp_remove_dir', { panelId, path });
+}
+
+export async function uploadSftpFile(
+  panelId: string,
+  localPath: string,
+  remotePath: string,
+  transferId: string,
+) {
+  await invoke('sftp_upload', { localPath, panelId, remotePath, transferId });
+}
+
+export async function openSftpUploadStream(
+  panelId: string,
+  localPath: string,
+  remotePath: string,
+  transferId: string,
+  totalBytes: number,
+) {
+  await invoke('sftp_upload_stream_open', { localPath, panelId, remotePath, totalBytes, transferId });
+}
+
+export async function writeSftpUploadStreamChunk(transferId: string, chunk: Uint8Array) {
+  await invoke('sftp_upload_stream_chunk', chunk, {
+    headers: { 'x-transfer-id': transferId },
+  });
+}
+
+export async function closeSftpUploadStream(transferId: string) {
+  await invoke('sftp_upload_stream_close', { transferId });
+}
+
+export async function downloadSftpFile(
+  panelId: string,
+  remotePath: string,
+  localPath: string,
+  transferId: string,
+) {
+  await invoke('sftp_download', { localPath, panelId, remotePath, transferId });
+}
+
+export async function cancelSftpTransfer(transferId: string) {
+  await invoke('sftp_cancel_transfer', { transferId });
+}
+
+export async function revealLocalPath(path: string) {
+  await invoke('reveal_local_path', { path });
+}
+
+export async function listenSftpTransferEvents(
+  listener: (event: SftpTransferEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SftpTransferEvent>('shellpilot-sftp-transfer', (event) => listener(event.payload));
 }
 
 function createSftpTarget(panelId: string, session: SessionItem, options: SshShellOpenOptions) {

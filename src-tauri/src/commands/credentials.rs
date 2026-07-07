@@ -40,7 +40,9 @@ pub fn read_optional_credential_secret(id: &str) -> Result<Option<String>, Strin
     match entry.get_password() {
         Ok(secret) => Ok(Some(secret)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("failed to read credential from secure storage: {error}")),
+        Err(error) => Err(format!(
+            "failed to read credential from secure storage: {error}"
+        )),
     }
 }
 

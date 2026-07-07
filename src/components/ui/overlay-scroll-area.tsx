@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type HTMLAttributes } from 'react';
 
 import { cn } from '@/lib/utils';
 
@@ -8,10 +8,8 @@ const overlayScrollbarMinThumbSize = 32;
 export function OverlayScrollArea({
   children,
   className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState({
     height: 0,
@@ -70,6 +68,7 @@ export function OverlayScrollArea({
   return (
     <div className="group/scroll relative h-full min-h-0 overflow-hidden">
       <div
+        {...props}
         className={cn('app-scrollbar-native-hidden h-full min-h-0 overflow-auto', className)}
         ref={scrollRef}
         onScroll={syncThumb}

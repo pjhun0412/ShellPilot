@@ -9,7 +9,7 @@ import {
 
 export function SshRestoredCard({ onReconnect }: { onReconnect: () => void }) {
   return (
-    <TerminalOverlayCard title="Session restored">
+    <TerminalOverlayCard title="SSH session restored">
       <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
         Terminal output was not restored. Reconnect to open a new SSH session.
       </span>
