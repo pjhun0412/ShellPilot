@@ -2,7 +2,7 @@
 
 ShellPilot은 SSH 중심의 원격 작업을 하나의 데스크톱 워크스페이스에서 관리하기 위한 Tauri 기반 애플리케이션입니다.
 
-현재 구현은 세션 그룹 관리, 보안 credential 저장, SSH 터미널, 분할 워크스페이스, 탭 조작, 드래그 앤 드롭 UX를 중심으로 구성되어 있습니다.
+현재 구현은 세션 그룹 관리, 보안 credential 저장, SSH 터미널, SFTP 원격 탐색기/전송, 분할 워크스페이스, 탭 조작, 드래그 앤 드롭 UX를 중심으로 구성되어 있습니다.
 
 ## 주요 기능
 
@@ -20,6 +20,15 @@ ShellPilot은 SSH 중심의 원격 작업을 하나의 데스크톱 워크스페
 - 탭 우클릭 메뉴: Clone, Duplicate, Reconnect, Copy Host, Copy SSH Command, Close 계열 액션
 - xterm.js 기반 고대비 다크 터미널 테마
 - Tauri dialog 기반 SSH private key 파일 선택
+- SSH 세션 기반 SFTP 탭 열기
+- SFTP 원격 파일 탐색, 경로 이동, 정렬, 다중 선택, 키보드 탐색
+- 원격 폴더 생성, 이름 변경, 파일/폴더 삭제
+- 파일/폴더 업로드 및 다운로드
+- 드래그 앤 드롭 파일/폴더 업로드
+- 전송 충돌 처리: 덮어쓰기, 모두 덮어쓰기, 건너뛰기, 모두 건너뛰기, 취소
+- 전송 큐, 진행률, 속도/ETA, 취소, 실패 재시도, 완료 항목 정리
+- 다운로드 완료 항목의 로컬 폴더 열기
+- SFTP 전송 중 temp/backup 기반 안전한 파일 교체
 
 ## 보안 정책
 
@@ -52,6 +61,7 @@ ShellPilot은 접속 메타데이터와 secret material을 분리해서 관리�
 - Rust
 - Tokio
 - russh
+- russh-sftp
 - keyring
 
 ## 개발 환경
@@ -105,6 +115,7 @@ src/
   features/
     connections/
     panels/
+    sftp/
     sessions/
     terminal/
     workspace/
@@ -132,8 +143,14 @@ scripts/
   - 세션 생성/수정 폼 입력을 `SessionItem`과 pending credential payload로 변환합니다.
 - `src/features/terminal/sshTerminalBridge.ts`
   - xterm 컴포넌트와 Tauri SSH command 호출을 분리합니다.
+- `src/features/sftp/SftpPanel.tsx`
+  - SFTP 원격 탐색기, 경로 이동, 다중 선택, 업로드/다운로드, 전송 큐 UI를 담당합니다.
+- `src/features/sftp/sftpBridge.ts`
+  - SFTP Tauri command와 프론트엔드 호출부를 분리합니다.
 - `src-tauri/src/commands/ssh.rs`
   - SSH 접속, 인증, PTY I/O, known_hosts 검증 및 SSH Agent 연동을 담당합니다.
+- `src-tauri/src/commands/sftp.rs`
+  - SFTP 연결, 원격 파일 작업, 재귀 업로드/다운로드, 진행률 이벤트, 안전한 temp/backup 교체를 담당합니다.
 - `src/features/workspace/workspaceLayoutActions.ts`
   - FlexLayout 탭 선택, 이동, 닫기 정책을 담당합니다.
 - `src/features/workspace/WorkspaceTabMenu.tsx`
@@ -163,6 +180,18 @@ scripts/
 - Settings 탭 기반 SSH Known Hosts 관리
 - private key 파일 선택 dialog
 - Windows Cargo PATH 래퍼
+- SSH 탭에서 SFTP 탭 열기
+- SFTP 원격 파일 목록 조회 및 경로 이동
+- breadcrumb 경로 편집, 복사, 키보드 단축키
+- SFTP 그리드 정렬, 컬럼 리사이즈, 반응형 컬럼 표시
+- 다중 선택, 범위 선택, Ctrl+A 전체 선택
+- 원격 폴더 생성, 이름 변경, 삭제
+- 파일/폴더 업로드, 드래그 앤 드롭 업로드
+- 파일/폴더 다운로드
+- 전송 큐, 진행률, 속도/ETA, 취소, 재시도, 완료 항목 정리
+- 다운로드 완료 후 로컬 폴더 열기
+- 파일 충돌 처리 및 안전한 temp/backup 교체
+- 잔여 temp/backup 파일 감지 및 정리
 
 ### 예정
 
@@ -170,7 +199,9 @@ scripts/
 - 세션 import/export
 - 워크스페이스 layout reset/preset
 - 테마 토큰 정리 및 light/high-contrast 테마 확장
-- SFTP 브라우저
+- SFTP Commander 모드
+- SFTP pinned/recent remote paths
+- SFTP 전송 일시정지/이어받기
 - RDP 패널
 - 로컬 터미널 profile
 - AI assistant 패널

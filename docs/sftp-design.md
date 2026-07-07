@@ -1,147 +1,181 @@
 # SFTP 구현 설계
 
-이 문서는 ShellPilot의 SFTP 기능을 앞으로 확장하기 위한 기준 설계입니다.
+이 문서는 ShellPilot SFTP 탭의 현재 구현 기준과 앞으로 확장할 방향을 정리합니다.
 
-SFTP는 SSH 터미널의 보조 기능이면서도, 파일 전송 작업에서는 독립적인 작업 공간이 되어야 합니다. 따라서 기본은 가볍게 열리는 원격 파일 패널로 시작하고, 필요할 때 WinSCP 스타일의 좌/우 Commander 모드로 확장합니다.
+SFTP는 SSH 터미널의 보조 기능이지만 파일 작업 중에는 독립적인 원격 파일 탐색기처럼 동작해야 합니다. 현재는 Remote Only 탐색기와 전송 큐를 우선 구현했고, Commander 모드는 이후 확장 항목으로 남겨둡니다.
 
-## 목표
+## 현재 목표
 
-- SSH 세션에서 바로 SFTP 탭을 열 수 있어야 합니다.
-- 동일 서버에 여러 SFTP 탭을 열어도 각 탭의 경로와 상태가 섞이면 안 됩니다.
-- 기본 SFTP 탭은 터미널 옆에서 빠르게 쓰는 원격 파일 탐색기 역할을 합니다.
-- 파일 업로드/다운로드가 필요한 사용자는 Commander 모드에서 로컬/원격을 나란히 볼 수 있어야 합니다.
-- 비밀번호, passphrase, host key 검증은 기존 SSH 보안 정책을 그대로 재사용합니다.
+- SSH 세션에서 바로 SFTP 탭을 열 수 있습니다.
+- 같은 서버에 여러 SFTP 탭을 열어도 각 탭의 경로, 선택 상태, 전송 상태가 섞이지 않아야 합니다.
+- 초기 조회는 서버의 home directory에서 시작합니다.
+- 사용자는 home 위로 이동할 수 있으며 `/`, `/data` 같은 상위 경로도 직접 탐색할 수 있습니다.
+- 비밀번호, passphrase, known_hosts 검증은 SSH 보안 정책을 그대로 재사용합니다.
+- 대용량 전송 중 기존 원격/로컬 파일을 가능한 한 안전하게 보호합니다.
 
 ## 탭 모델
 
-SFTP 탭은 워크스페이스의 일반 패널과 동일하게 FlexLayout 탭으로 관리합니다.
+SFTP 탭은 FlexLayout의 일반 패널과 동일하게 관리합니다.
 
 - `panelId`는 SFTP 백엔드 연결의 기준 키입니다.
 - 같은 `sessionId`에서 여러 SFTP 탭을 열 수 있습니다.
-- 각 SFTP 탭은 독립적인 current remote path, selection, transfer state를 가집니다.
-- SFTP 탭을 닫으면 해당 `panelId`의 백엔드 SFTP 세션도 정리합니다.
-
-예시:
-
-```text
-SSH - 운영서버
-SFTP - 운영서버            panelId: sftp-session-a
-SFTP - 운영서버 /var/log   panelId: sftp-session-a-log
-```
+- 각 SFTP 탭은 독립적인 current remote path, selection, transfer queue를 가집니다.
+- SFTP 탭을 닫으면 해당 `panelId`의 백엔드 SFTP 세션을 정리합니다.
+- 앱 재시작 후 복원된 SFTP 탭은 파일 목록을 즉시 복원하지 않고 reconnect 안내를 표시합니다.
 
 ## 액티브 SSH 탭에서 SFTP 열기
 
-액티브 SSH 터미널에서 SFTP 버튼을 누르면 해당 SSH 세션 정보를 기반으로 SFTP 탭을 생성합니다.
+액티브 SSH 터미널의 SFTP 버튼을 누르면 해당 SSH 세션 정보를 기반으로 SFTP 탭을 생성합니다.
 
 기본 동작:
 
-1. 현재 활성 SSH 패널의 `sessionId`를 확인합니다.
+1. 현재 활성 SSH 패널의 세션 정보를 확인합니다.
 2. 같은 host, port, username, auth method, credential ref를 사용합니다.
-3. 새 SFTP 패널을 활성 탭 옆에 엽니다.
-4. 기본 remote path는 서버의 home directory 또는 `/`로 시작합니다.
-5. 이미 같은 SSH 세션에서 열린 SFTP 탭이 있으면 새로 열지 않고 기존 탭으로 이동하는 옵션을 나중에 둘 수 있습니다.
+3. 새 SFTP 패널을 워크스페이스 탭으로 엽니다.
+4. 연결 성공 후 서버 home directory를 조회합니다.
+5. 탭 복원 상태에서는 reconnect 버튼으로 새 SFTP 세션을 엽니다.
 
-SFTP 탭에서 표출할 기본 정보:
+## Remote Only 탐색기
 
-- 연결 상태: connecting, connected, failed, closed
-- 현재 원격 경로
-- 원격 파일/폴더 목록
-- 이름, 타입, 크기, 수정일, 권한
-- 선택된 항목 정보
-- 새로고침, 상위 폴더, 폴더 생성, 이름 변경, 삭제
-- 업로드, 다운로드
-- known_hosts 확인 필요, 인증 필요, 연결 실패 메시지
-
-## 기본 모드: Remote Only
-
-초기 SFTP 탭은 Remote Only 모드로 구현합니다.
-
-이 모드는 터미널 앱에 가장 자연스럽습니다. 사용자가 SSH 작업 중 서버 파일을 빠르게 확인하거나 삭제, 다운로드, 업로드할 수 있습니다.
+현재 구현된 기본 모드는 Remote Only입니다.
 
 구성:
 
 ```text
 SFTP 탭
-  Toolbar
-    - current path breadcrumb
+  Header
+    - connection target
+    - back / forward navigation
     - refresh
-    - up
     - new folder
-    - upload
+    - upload menu
     - download
-  Remote file list
-  Selection/action bar
-  Transfer mini status
+    - rename
+    - delete
+  Path bar
+    - breadcrumb
+    - path edit
+    - copy path
+  Remote file grid
+    - parent directory row
+    - name / type / modified / permissions / owner / size
+  Transfer queue
 ```
 
-Remote Only 모드에서 지원할 1차 기능:
+지원 기능:
 
 - 원격 경로 이동
+- breadcrumb 기반 경로 탐색
+- 더블클릭 또는 `Ctrl+L` 경로 편집
+- 현재 경로 복사
+- 뒤로/앞으로 이동
 - 파일/폴더 목록 조회
+- parent directory 행을 통한 상위 이동
+- 이름, 타입, 수정일, 권한, 소유자, 크기 표시
+- 정렬 및 컬럼 리사이즈
+- 좁은 패널에서 컬럼 축약 표시
+- 마우스 선택, 범위 선택, 다중 선택, `Ctrl+A`
+- 키보드 위/아래 이동 및 스크롤 추적
 - 새 폴더 생성
 - 이름 변경
 - 파일 삭제
-- 빈 폴더 삭제
-- 파일 다운로드
+- 폴더 재귀 삭제
+- 잔여 temp/backup 파일 감지 및 수동 정리
+
+## 파일 전송
+
+지원 범위:
+
 - 파일 업로드
+- 폴더 업로드
+- 드래그 앤 드롭 파일 업로드
+- 드래그 앤 드롭 폴더 업로드
+- 파일 다운로드
+- 폴더 다운로드
+- 다중 선택 업로드/다운로드
+- 전송 취소
+- 실패 항목 재시도
+- 완료 항목 정리
+- 다운로드 완료 후 로컬 폴더 열기
 
-## 확장 모드: Commander
+전송 큐에는 다음 정보를 표시합니다.
 
-사용자가 WinSCP처럼 좌측 로컬, 우측 서버를 보고 싶을 때는 SFTP 탭 내부에서 Commander 모드로 전환합니다.
+- 방향: upload / download
+- 파일명과 대상 경로
+- 상태: queued, running, completed, failed, canceled
+- 진행률
+- 전송 속도
+- ETA
+- retry / cancel / reveal in explorer
 
-구성:
+현재 프론트엔드는 전송 작업을 최대 2개까지 병렬 실행합니다. 병렬 수는 네트워크와 서버 부하를 고려해 보수적으로 시작한 값입니다.
+
+## 업로드 방식
+
+업로드는 두 가지 경로를 사용합니다.
+
+### OS 경로 기반 업로드
+
+업로드 버튼에서 파일 또는 폴더를 선택하면 로컬 OS 경로를 Rust 백엔드에 넘깁니다.
+
+- 백엔드가 로컬 파일을 직접 읽습니다.
+- 대용량 파일에 적합합니다.
+- 폴더 업로드는 로컬 디렉터리를 재귀 순회합니다.
+- 각 파일은 원격 temp 파일에 먼저 기록한 뒤 finalize 단계에서 교체합니다.
+
+### 드래그 앤 드롭 업로드
+
+Tauri/WebView 환경에서는 표준 HTML5 drop의 `File` 객체에 OS 경로가 없습니다. 따라서 드래그 앤 드롭은 프론트엔드가 `File`을 청크로 읽고, Rust 백엔드의 SFTP stream command로 직접 전달합니다.
+
+- `dataTransfer.items`와 `webkitGetAsEntry()`로 파일/폴더를 구분합니다.
+- 폴더는 재귀 순회해서 상대 경로를 유지합니다.
+- 파일 내용은 청크 단위로 읽어 Rust로 전달합니다.
+- 임시 로컬 파일은 만들지 않습니다.
+- 실패/취소 시 원격 temp 파일을 정리합니다.
+
+## 충돌 처리
+
+업로드 대상에 같은 이름의 원격 파일이 있을 때 사용자에게 처리 방식을 묻습니다.
+
+- Overwrite
+- Overwrite All
+- Skip
+- Skip All
+- Cancel
+
+폴더 업로드 중 같은 정책을 반복 적용할 수 있도록 `All` 옵션을 제공합니다. 실제 파일 교체는 파일 단위로 temp/backup finalize를 거치므로, 사용자가 덮어쓰기를 선택해도 전송 중 원본이 바로 truncate되지 않습니다.
+
+## 안전한 파일 교체
+
+전송 중 기존 파일 손상을 줄이기 위해 temp/backup 기반 finalize를 사용합니다.
+
+업로드 흐름:
 
 ```text
-SFTP Commander
-  Left: Local file browser
-  Right: Remote file browser
-  Bottom or side: Transfer queue
+remotePath.tmp-shellpilot-{transferId} 에 기록
+기록 성공
+기존 remotePath가 있으면 remotePath.bak-shellpilot-{transferId} 로 rename
+temp를 remotePath로 rename
+성공하면 backup 삭제
+실패하면 backup을 remotePath로 복구 시도
 ```
 
-Commander 모드의 방향:
+다운로드 흐름:
 
-- 좌측은 로컬 파일 시스템입니다.
-- 우측은 현재 SFTP 서버입니다.
-- 좌측에서 우측으로 복사하면 upload입니다.
-- 우측에서 좌측으로 복사하면 download입니다.
-- 드래그 앤 드롭은 2차 단계에서 넣습니다.
-- 1차는 버튼 기반 upload/download로 시작합니다.
-
-Commander 모드는 별도 탭 타입으로 나누지 않고, SFTP 탭의 view mode로 관리합니다.
-
-```ts
-type SftpViewMode = 'remote-only' | 'commander';
+```text
+localPath.tmp-shellpilot-{transferId} 에 기록
+기록 성공
+기존 localPath가 있으면 localPath.bak-shellpilot-{transferId} 로 rename
+temp를 localPath로 rename
+성공하면 backup 삭제
+실패하면 backup을 localPath로 복구 시도
 ```
 
-## 좌측 Activity Sidebar
+최악의 경우 복구까지 실패하면 temp 또는 backup이 남을 수 있습니다. SFTP 탐색기는 현재 디렉터리에서 `.tmp-shellpilot-*`, `.bak-shellpilot-*` 패턴을 감지하고 사용자가 직접 정리할 수 있게 합니다.
 
-좌측 액티브 아이콘에서 SFTP를 선택하면 사이드바는 세션 등록 목록이 아니라 파일 작업 허브 역할을 합니다.
+## 백엔드 명령
 
-표출 후보:
-
-- Open SFTP Sessions
-  - 현재 열린 SFTP 탭 목록
-  - 클릭 시 해당 SFTP 탭으로 이동
-- Transfers
-  - 업로드/다운로드 진행 중, 실패, 완료 항목
-  - 재시도, 취소, 목록 비우기
-- Pinned Paths
-  - 서버별 자주 쓰는 원격 경로
-  - 예: `/var/log`, `/opt/app`, `/home/deploy`
-- Recent Paths
-  - 최근 접근한 서버/경로
-
-1차 구현은 Open SFTP Sessions와 Transfers만 넣고, Pinned Paths와 Recent Paths는 사용 흐름이 잡힌 뒤 추가합니다.
-
-## 백엔드 명령 설계
-
-SFTP 명령은 `sessionId`가 아니라 `panelId` 중심으로 설계합니다.
-
-이유:
-
-- 같은 서버를 좌/우로 여러 개 열 수 있습니다.
-- 각 탭의 현재 경로와 연결 상태가 독립적이어야 합니다.
-- FlexLayout의 탭 생명주기와 SFTP 연결 생명주기를 맞추기 쉽습니다.
+SFTP 명령은 `sessionId`가 아니라 `panelId` 중심으로 동작합니다.
 
 기본 command:
 
@@ -160,16 +194,31 @@ sftp_close(panelId)
 ```text
 sftp_upload(panelId, localPath, remotePath, transferId)
 sftp_download(panelId, remotePath, localPath, transferId)
+sftp_download_dir(panelId, remotePath, localPath, transferId)
 sftp_cancel_transfer(transferId)
+```
+
+드래그 앤 드롭 stream upload command:
+
+```text
+sftp_upload_stream_open(panelId, remotePath, transferId, totalBytes)
+sftp_upload_stream_chunk(transferId, chunk)
+sftp_upload_stream_close(transferId)
+```
+
+로컬 편의 command:
+
+```text
+reveal_local_path(path)
 ```
 
 ## 진행률 이벤트
 
 업로드/다운로드는 Tauri command 응답만으로 처리하지 않습니다.
 
-대용량 파일은 몇 초에서 몇 분까지 걸릴 수 있으므로, command는 전송 작업을 시작한 뒤 빠르게 반환하고 백엔드에서 비동기 작업을 실행합니다. 진행률은 Tauri event로 프론트엔드에 전달합니다.
+대용량 파일은 오래 걸릴 수 있으므로 백엔드는 진행률을 Tauri event로 전달합니다.
 
-이벤트 예시:
+이벤트:
 
 ```text
 sftp-transfer-progress
@@ -178,7 +227,7 @@ sftp-transfer-failed
 sftp-transfer-canceled
 ```
 
-payload 예시:
+payload:
 
 ```ts
 interface SftpTransferProgress {
@@ -192,6 +241,8 @@ interface SftpTransferProgress {
 }
 ```
 
+프론트엔드는 이 이벤트를 전송 큐 상태와 병합하고, 전송 속도와 ETA는 클라이언트에서 계산합니다.
+
 ## 보안 정책
 
 SFTP는 SSH 보안 정책을 그대로 따릅니다.
@@ -203,50 +254,69 @@ SFTP는 SSH 보안 정책을 그대로 따릅니다.
 - host key mismatch는 차단합니다.
 - SFTP 연결 실패 메시지는 host key, 인증, 네트워크, 권한 문제를 구분해서 표시합니다.
 - 파일 전송 로그에는 secret, full credential id, private key passphrase를 남기지 않습니다.
+- Tauri dialog 권한은 파일/폴더 선택과 저장에 필요한 범위로만 사용합니다.
 
-## 구현 단계
+## 현재 구현 완료
 
-### 1단계: Remote Only MVP
-
-- SFTP 탭 생성
+- SSH 탭에서 SFTP 열기
 - SFTP 연결 열기/닫기
-- 원격 파일 목록 조회
-- 경로 이동
-- 새로고침
+- home directory 초기 조회
+- 원격 목록 조회
+- 경로 이동, breadcrumb, 경로 편집, 경로 복사
+- back/forward/refresh
+- parent directory row
+- 그리드 정렬, 컬럼 리사이즈, 반응형 컬럼
+- 다중 선택, 범위 선택, 키보드 탐색
 - 새 폴더 생성
 - 이름 변경
-- 삭제
-- 기본 에러 표시
+- 파일/폴더 삭제
+- 파일/폴더 업로드
+- 드래그 앤 드롭 파일/폴더 업로드
+- 파일/폴더 다운로드
+- 충돌 처리
+- 전송 큐, 속도/ETA, 취소, 재시도, 완료 정리
+- 다운로드 완료 후 로컬 폴더 열기
+- temp/backup 기반 안전 교체
+- 잔여 temp/backup 파일 감지 및 정리
 
-### 2단계: 파일 전송
+## 남은 확장 항목
 
-- 파일 업로드
-- 파일 다운로드
-- Tauri event 기반 진행률
-- 전송 취소
-- 실패 재시도
-- Transfer queue UI
+### 1. SFTP 탭 활성 상태 아이콘
 
-### 3단계: Commander 모드
+SSH 탭처럼 SFTP 탭에도 연결 상태를 나타내는 active dot을 일관되게 표시해야 합니다. 현재 SFTP 패널은 연결 상태를 publish하고 있으나, 워크스페이스 탭 렌더링 조건이 SSH 세션 중심이라 SFTP 탭에서 누락될 수 있습니다.
+
+### 2. Commander 모드
+
+WinSCP 스타일의 좌측 로컬, 우측 원격 패널입니다.
 
 - 로컬 파일 브라우저
-- 좌/우 패널 레이아웃
-- 버튼 기반 upload/download
-- 로컬/원격 경로 기억
-- 사이드바 Transfers 연동
+- 로컬/원격 양방향 복사
+- 로컬 경로 기억
+- 로컬 선택 항목과 원격 선택 항목의 전송 액션
 
-### 4단계: 사용성 고도화
+### 3. Pinned / Recent Paths
 
-- 드래그 앤 드롭 업로드/다운로드
+서버별 자주 쓰는 원격 경로와 최근 경로를 저장합니다.
+
 - Pinned Paths
 - Recent Paths
-- 다중 선택 작업
-- 충돌 처리: 덮어쓰기, 건너뛰기, 이름 변경
-- 권한/소유자 표시 개선
+- 사이드바 또는 path bar 메뉴 연동
+
+### 4. 전송 고도화
+
+- 일시정지
+- 이어받기
+- 연결 끊김 후 부분 재시도
+- 병렬 전송 수 설정
+- 대용량 전송 프로파일
+
+### 5. 권한/소유자 고도화
+
+현재는 SFTP attrs 기반 권한과 uid/gid 정보를 표시합니다. 서버별 `uid -> username`, `gid -> groupname` 치환은 추가 명령 또는 캐시 전략이 필요합니다.
 
 ## 열어둔 결정 사항
 
-- SFTP 버튼은 SSH 탭 툴바에 둘지, 탭 우클릭 메뉴에 둘지, 둘 다 둘지 결정이 필요합니다.
 - 같은 SSH 세션의 SFTP 탭이 이미 있을 때 기존 탭을 활성화할지, 항상 새 탭을 만들지 결정이 필요합니다.
 - Commander 모드에서 로컬 패널의 기본 경로를 어디로 둘지 결정이 필요합니다.
 - transfer history를 앱 재시작 후에도 남길지, 실행 중 메모리에만 둘지 결정이 필요합니다.
+- SFTP 전송 병렬 수를 고정값으로 둘지 설정값으로 노출할지 결정이 필요합니다.

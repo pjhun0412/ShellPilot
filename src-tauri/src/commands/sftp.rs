@@ -1,8 +1,9 @@
 use std::{
     collections::HashMap,
+    io::SeekFrom,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -14,8 +15,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::{
     fs,
-    io::{AsyncReadExt, AsyncWriteExt},
-    sync::Mutex,
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
+    sync::{mpsc, Mutex},
+    task::JoinSet,
 };
 
 use crate::commands::ssh::{
@@ -31,7 +33,7 @@ pub struct SftpSessionStore {
 
 struct SftpConnection {
     groups: HashMap<u32, String>,
-    session: SftpSession,
+    session: Arc<SftpSession>,
     ssh: client::Handle<ShellPilotSshClient>,
     users: HashMap<u32, String>,
 }
@@ -103,6 +105,9 @@ struct SftpUploadStream {
     total_bytes: u64,
     transferred_bytes: u64,
 }
+
+const DOWNLOAD_CHUNK_SIZE: u64 = 256 * 1024;
+const DOWNLOAD_READ_WORKERS: usize = 8;
 
 #[tauri::command]
 pub async fn sftp_open(
@@ -985,25 +990,30 @@ async fn download_file(
     app: &AppHandle,
     connection: &Arc<Mutex<SftpConnection>>,
     request: &SftpTransferRequest,
-    cancel_flag: &AtomicBool,
+    cancel_flag: &Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let connection = connection.lock().await;
-    let metadata = connection
-        .session
-        .metadata(request.remote_path.clone())
-        .await
-        .map_err(|error| format!("failed to read remote path metadata: {error}"))?;
+    let (session, metadata) = {
+        let connection = connection.lock().await;
+        let metadata = connection
+            .session
+            .metadata(request.remote_path.clone())
+            .await
+            .map_err(|error| format!("failed to read remote path metadata: {error}"))?;
+        (connection.session.clone(), metadata)
+    };
 
     if metadata.is_dir() {
-        download_directory(app, &connection.session, request, cancel_flag).await
+        download_directory(app, &session, request, cancel_flag).await
     } else {
+        let file_size = metadata.size.unwrap_or(0);
         download_single_file(
             app,
-            &connection.session,
+            session,
             request,
             &request.remote_path,
             &PathBuf::from(&request.local_path),
             metadata.size.unwrap_or(0),
+            file_size,
             0,
             cancel_flag,
         )
@@ -1014,24 +1024,20 @@ async fn download_file(
 
 async fn download_single_file(
     app: &AppHandle,
-    session: &SftpSession,
+    session: Arc<SftpSession>,
     request: &SftpTransferRequest,
     remote_path: &str,
     local_path: &Path,
     total_bytes: u64,
+    file_size: u64,
     initial_transferred_bytes: u64,
-    cancel_flag: &AtomicBool,
+    cancel_flag: &Arc<AtomicBool>,
 ) -> Result<u64, String> {
-    let mut remote_file = session
-        .open(remote_path.to_string())
-        .await
-        .map_err(|error| format!("failed to open remote file: {error}"))?;
     let temp_local_path =
         make_local_sidecar_path(&local_path, "tmp-shellpilot", &request.transfer_id);
     let mut local_file = fs::File::create(&temp_local_path)
         .await
         .map_err(|error| format!("failed to create local file: {error}"))?;
-    let mut buffer = vec![0_u8; 256 * 1024];
     let mut transferred_bytes = initial_transferred_bytes;
     let mut last_emit = Instant::now();
 
@@ -1045,35 +1051,125 @@ async fn download_single_file(
     );
 
     let transfer_result: Result<(), String> = async {
-        loop {
-            ensure_transfer_active(cancel_flag)?;
+        if file_size > 0 {
+            let next_offset = Arc::new(AtomicU64::new(0));
+            let chunk_count =
+                file_size.saturating_add(DOWNLOAD_CHUNK_SIZE - 1) / DOWNLOAD_CHUNK_SIZE;
+            let worker_count = usize::min(DOWNLOAD_READ_WORKERS, chunk_count as usize).max(1);
+            let (chunk_tx, mut chunk_rx) =
+                mpsc::channel::<Result<(u64, Vec<u8>), String>>(worker_count * 2);
+            let mut workers = JoinSet::new();
 
-            let read_size = remote_file
-                .read(&mut buffer)
-                .await
-                .map_err(|error| format!("failed to read remote file: {error}"))?;
+            for _ in 0..worker_count {
+                let worker_session = session.clone();
+                let worker_remote_path = remote_path.to_string();
+                let worker_next_offset = next_offset.clone();
+                let worker_cancel_flag = cancel_flag.clone();
+                let worker_chunk_tx = chunk_tx.clone();
 
-            if read_size == 0 {
-                break;
+                workers.spawn(async move {
+                    let mut remote_file = worker_session
+                        .open(worker_remote_path.clone())
+                        .await
+                        .map_err(|error| format!("failed to open remote file: {error}"))?;
+                    let mut buffer = vec![0_u8; DOWNLOAD_CHUNK_SIZE as usize];
+
+                    loop {
+                        ensure_transfer_active(&worker_cancel_flag)?;
+
+                        let chunk_offset =
+                            worker_next_offset.fetch_add(DOWNLOAD_CHUNK_SIZE, Ordering::Relaxed);
+
+                        if chunk_offset >= file_size {
+                            break;
+                        }
+
+                        remote_file
+                            .seek(SeekFrom::Start(chunk_offset))
+                            .await
+                            .map_err(|error| format!("failed to seek remote file: {error}"))?;
+
+                        let mut bytes_remaining =
+                            u64::min(DOWNLOAD_CHUNK_SIZE, file_size - chunk_offset) as usize;
+                        let mut offset = chunk_offset;
+
+                        while bytes_remaining > 0 {
+                            ensure_transfer_active(&worker_cancel_flag)?;
+
+                            let read_size = remote_file
+                                .read(&mut buffer[..bytes_remaining])
+                                .await
+                                .map_err(|error| format!("failed to read remote file: {error}"))?;
+
+                            if read_size == 0 {
+                                break;
+                            }
+
+                            let data = buffer[..read_size].to_vec();
+                            worker_chunk_tx
+                                .send(Ok((offset, data)))
+                                .await
+                                .map_err(|_| "download writer stopped".to_string())?;
+
+                            offset += read_size as u64;
+                            bytes_remaining -= read_size;
+                        }
+                    }
+
+                    Ok::<(), String>(())
+                });
             }
 
-            local_file
-                .write_all(&buffer[..read_size])
-                .await
-                .map_err(|error| format!("failed to write local file: {error}"))?;
+            drop(chunk_tx);
 
-            transferred_bytes += read_size as u64;
+            while let Some(chunk_result) = chunk_rx.recv().await {
+                let (offset, data) = match chunk_result {
+                    Ok(chunk) => chunk,
+                    Err(message) => {
+                        workers.abort_all();
+                        return Err(message);
+                    }
+                };
 
-            if last_emit.elapsed() >= Duration::from_millis(150) {
-                emit_transfer_event(
-                    app,
-                    request,
-                    SftpTransferStatus::Progress,
-                    None,
-                    total_bytes,
-                    transferred_bytes,
-                );
-                last_emit = Instant::now();
+                ensure_transfer_active(cancel_flag)?;
+
+                local_file
+                    .seek(SeekFrom::Start(offset))
+                    .await
+                    .map_err(|error| format!("failed to seek local file: {error}"))?;
+                local_file
+                    .write_all(&data)
+                    .await
+                    .map_err(|error| format!("failed to write local file: {error}"))?;
+
+                transferred_bytes += data.len() as u64;
+
+                if last_emit.elapsed() >= Duration::from_millis(150) {
+                    emit_transfer_event(
+                        app,
+                        request,
+                        SftpTransferStatus::Progress,
+                        None,
+                        total_bytes,
+                        transferred_bytes,
+                    );
+                    last_emit = Instant::now();
+                }
+            }
+
+            while let Some(worker_result) = workers.join_next().await {
+                match worker_result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(message)) => return Err(message),
+                    Err(error) => return Err(format!("download worker failed: {error}")),
+                }
+            }
+
+            let downloaded_file_bytes = transferred_bytes.saturating_sub(initial_transferred_bytes);
+            if downloaded_file_bytes != file_size {
+                return Err(format!(
+                    "downloaded file size mismatch: expected {file_size} bytes, received {downloaded_file_bytes} bytes"
+                ));
             }
         }
 
@@ -1107,9 +1203,9 @@ async fn download_single_file(
 
 async fn download_directory(
     app: &AppHandle,
-    session: &SftpSession,
+    session: &Arc<SftpSession>,
     request: &SftpTransferRequest,
-    cancel_flag: &AtomicBool,
+    cancel_flag: &Arc<AtomicBool>,
 ) -> Result<(), String> {
     let local_root = PathBuf::from(&request.local_path);
     let download_plan =
@@ -1144,11 +1240,12 @@ async fn download_directory(
 
         transferred_bytes = download_single_file(
             app,
-            session,
+            session.clone(),
             request,
             &file.remote_path,
             &file.local_path,
             total_bytes,
+            file.size,
             transferred_bytes,
             cancel_flag,
         )
@@ -1435,7 +1532,7 @@ async fn open_sftp_connection(
 
     Ok(SftpConnection {
         groups,
-        session,
+        session: Arc::new(session),
         ssh,
         users,
     })
