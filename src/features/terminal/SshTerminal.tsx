@@ -55,7 +55,7 @@ export function SshTerminal({
   const [shouldRememberUsername, setShouldRememberUsername] = useState(true);
   const {
     failure,
-    publishIdleStatus,
+    publishClosedStatus,
     setTerminalStatus,
     status,
   } = useSshTerminalStatus(panelId, autoConnect ? 'connecting' : 'restored');
@@ -95,7 +95,7 @@ export function SshTerminal({
     panelId,
     pendingPasswordRef,
     pendingUsernameRef,
-    publishIdleStatus,
+    publishClosedStatus,
     session,
     setTerminalStatus,
     shouldRememberPasswordRef,

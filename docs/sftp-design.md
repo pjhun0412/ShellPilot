@@ -22,6 +22,30 @@ SFTP 탭은 FlexLayout의 일반 패널과 동일하게 관리합니다.
 - 각 SFTP 탭은 독립적인 current remote path, selection, transfer queue를 가집니다.
 - SFTP 탭을 닫으면 해당 `panelId`의 백엔드 SFTP 세션을 정리합니다.
 - 앱 재시작 후 복원된 SFTP 탭은 파일 목록을 즉시 복원하지 않고 reconnect 안내를 표시합니다.
+- SFTP disconnect는 탭을 유지하되 백엔드 세션을 닫고 원격 파일 목록, 선택 상태, 이동 히스토리를 비웁니다.
+
+## 워크스페이스 네비게이션
+
+ShellPilot은 SFTP 전용 사이드바와 공통 Open Tabs 사이드바를 함께 사용합니다.
+
+SFTP 사이드바:
+
+- 열린 SFTP 탐색기를 현재 경로 중심으로 표시합니다.
+- 같은 서버/경로 탐색기는 중복 수를 함께 표시합니다.
+- 원격 북마크를 저장하고 더블클릭 또는 Enter로 열린 SFTP 탭에 적용합니다.
+- Transfer Queue 하단 패널로 진입할 수 있습니다.
+- 탐색기 항목 우클릭 메뉴에서 open, reconnect, clone explorer, add bookmark, copy path, close를 제공합니다.
+- 북마크 항목 우클릭 메뉴에서 open, copy path, remove bookmark를 제공합니다.
+
+Open Tabs 사이드바:
+
+- SSH, SFTP, Settings 등 워크스페이스 탭을 서버별 그룹 트리로 표시합니다.
+- 서버 그룹명은 세션 등록 이름을 우선 사용하고, 접속 정보는 보조 정보로 표시합니다.
+- SSH/SFTP 자식 탭은 그룹 아래에 들여쓰기하여 표시하고, 자식 항목에는 중복 서버 정보를 반복하지 않습니다.
+- 각 탭과 그룹은 connected, connecting, failed, closed, restored, reconnect queued 상태 점을 표시합니다.
+- 개별 탭 우클릭 메뉴는 reconnect, disconnect, clone, counterpart open, close others, close를 제공합니다.
+- 그룹 우클릭 메뉴는 reconnect group, disconnect group, close group을 제공합니다.
+- mount되지 않은 탭에 reconnect를 요청하면 pending 상태로 저장하고, 사용자는 노란 상태 점과 `Reconnect queued` 툴팁으로 대기 상태를 확인할 수 있습니다.
 
 ## 액티브 SSH 탭에서 SFTP 열기
 
@@ -278,14 +302,13 @@ SFTP는 SSH 보안 정책을 그대로 따릅니다.
 - 다운로드 완료 후 로컬 폴더 열기
 - temp/backup 기반 안전 교체
 - 잔여 temp/backup 파일 감지 및 정리
+- SFTP 탭 연결 상태 publish 및 Open Tabs/SFTP 사이드바 상태 표시
+- SFTP 사이드바 열린 탐색기, 원격 북마크, 경로 복사, clone/reconnect/disconnect 메뉴
+- Open Tabs 서버별 그룹, 연결 상태 replay, reconnect queued, 그룹 reconnect/disconnect/close 메뉴
 
 ## 남은 확장 항목
 
-### 1. SFTP 탭 활성 상태 아이콘
-
-SSH 탭처럼 SFTP 탭에도 연결 상태를 나타내는 active dot을 일관되게 표시해야 합니다. 현재 SFTP 패널은 연결 상태를 publish하고 있으나, 워크스페이스 탭 렌더링 조건이 SSH 세션 중심이라 SFTP 탭에서 누락될 수 있습니다.
-
-### 2. Commander 모드
+### 1. Commander 모드
 
 WinSCP 스타일의 좌측 로컬, 우측 원격 패널입니다.
 
@@ -294,7 +317,7 @@ WinSCP 스타일의 좌측 로컬, 우측 원격 패널입니다.
 - 로컬 경로 기억
 - 로컬 선택 항목과 원격 선택 항목의 전송 액션
 
-### 3. Pinned / Recent Paths
+### 2. Pinned / Recent Paths
 
 서버별 자주 쓰는 원격 경로와 최근 경로를 저장합니다.
 
@@ -302,7 +325,7 @@ WinSCP 스타일의 좌측 로컬, 우측 원격 패널입니다.
 - Recent Paths
 - 사이드바 또는 path bar 메뉴 연동
 
-### 4. 전송 고도화
+### 3. 전송 고도화
 
 - 일시정지
 - 이어받기
@@ -310,7 +333,7 @@ WinSCP 스타일의 좌측 로컬, 우측 원격 패널입니다.
 - 병렬 전송 수 설정
 - 대용량 전송 프로파일
 
-### 5. 권한/소유자 고도화
+### 4. 권한/소유자 고도화
 
 현재는 SFTP attrs 기반 권한과 uid/gid 정보를 표시합니다. 서버별 `uid -> username`, `gid -> groupname` 치환은 추가 명령 또는 캐시 전략이 필요합니다.
 

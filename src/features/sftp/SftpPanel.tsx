@@ -44,6 +44,13 @@ import {
 import { publishConnectionStatus } from '@/features/connections/connectionStatus';
 import type { SessionItem } from '@/types/workspace';
 import {
+  publishSftpSidebarPanelState,
+  removeSftpSidebarPanelState,
+  subscribeSftpSidebarDisconnect,
+  subscribeSftpSidebarReconnect,
+  subscribeSftpSidebarNavigation,
+} from './sftpSidebarState';
+import {
   cancelSftpTransfer,
   closeSftpSession,
   closeSftpUploadStream,
@@ -173,6 +180,16 @@ export function SftpPanel({
   const downloadableEntries = selectedEntries;
   const canDownload = downloadableEntries.length > 0;
   const isRemoteReady = connectionState === 'connected';
+  const transferSummary = useMemo(
+    () => ({
+      canceled: transfers.filter((item) => item.status === 'canceled').length,
+      completed: transfers.filter((item) => item.status === 'completed').length,
+      failed: transfers.filter((item) => item.status === 'failed').length,
+      running: transfers.filter((item) => item.status === 'progress' || item.status === 'started').length,
+      total: transfers.length,
+    }),
+    [transfers],
+  );
   const isMeasured = panelWidth > 0;
   const isCompact = isMeasured && panelWidth < 720;
   const isNarrow = isMeasured && panelWidth < 520;
@@ -404,6 +421,58 @@ export function SftpPanel({
   }, [path]);
 
   useEffect(() => {
+    publishSftpSidebarPanelState(panelId, {
+      host: session.host,
+      path,
+      status: mapSftpConnectionStateToStatus(connectionState),
+      title: session.name,
+      transferSummary,
+      username: session.username,
+    });
+  }, [connectionState, panelId, path, session.host, session.name, session.username, transferSummary]);
+
+  useEffect(() => {
+    return subscribeSftpSidebarNavigation(({ panelId: targetPanelId, path: targetPath }) => {
+      if (targetPanelId !== panelId) {
+        return;
+      }
+
+      void loadDirectory(targetPath);
+    });
+  }, [panelId]);
+
+  useEffect(() => {
+    return subscribeSftpSidebarReconnect(({ panelId: targetPanelId }) => {
+      if (targetPanelId !== panelId) {
+        return false;
+      }
+
+      if (connectionState === 'connecting') {
+        return true;
+      }
+
+      void connectSftp();
+      return true;
+    });
+  }, [connectionState, panelId, sessionConnectionKey]);
+
+  useEffect(() => {
+    return subscribeSftpSidebarDisconnect(({ panelId: targetPanelId }) => {
+      if (targetPanelId !== panelId) {
+        return;
+      }
+
+      hasOpenedSessionRef.current = false;
+      clearRemoteBrowserState();
+      setConnectionState('closed');
+      setIsLoading(false);
+      setError(undefined);
+      publishConnectionStatus({ panelId, status: 'closed' });
+      void closeSftpSession(panelId);
+    });
+  }, [panelId]);
+
+  useEffect(() => {
     if (!selectedEntryPath) {
       return;
     }
@@ -499,6 +568,16 @@ export function SftpPanel({
       setIsLoading(false);
     }
   };
+  const clearRemoteBrowserState = () => {
+    setEntries([]);
+    setSelectedEntryPath(undefined);
+    setSelectedEntryPaths([]);
+    setSelectionAnchorPath(undefined);
+    setBackStack([]);
+    setForwardStack([]);
+    setIsPathEditing(false);
+    setPathInputError(undefined);
+  };
   const connectSftp = async () => {
     setConnectionState('connecting');
     setIsLoading(true);
@@ -569,6 +648,7 @@ export function SftpPanel({
     return () => {
       disposed = true;
       publishConnectionStatus({ panelId, status: 'closed' });
+      removeSftpSidebarPanelState(panelId);
       if (hasOpenedSessionRef.current) {
         hasOpenedSessionRef.current = false;
         void closeSftpSession(panelId);
@@ -1890,6 +1970,8 @@ export function SftpPanel({
 
       {connectionState === 'restored' ? (
         <SftpRestoredCard onReconnect={() => void connectSftp()} />
+      ) : connectionState === 'closed' ? (
+        <SftpClosedCard onReconnect={() => void connectSftp()} />
       ) : error ? (
         <div className="m-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive-foreground">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2132,19 +2214,6 @@ export function SftpPanel({
               </div>
             </>
           )}
-          {transfers.length > 0 && (
-            <SftpTransferQueue
-              transfers={transfers}
-              onCancel={(transferId) => void cancelSftpTransfer(transferId)}
-              onClearFinished={() =>
-                setTransfers((items) =>
-                  items.filter((item) => item.status === 'progress' || item.status === 'started'),
-                )
-              }
-              onRetry={(transfer) => void retryTransfer(transfer)}
-              onReveal={(transfer) => void revealDownloadedTransfer(transfer)}
-            />
-          )}
         </div>
       )}
     </div>
@@ -2307,6 +2376,22 @@ function SftpRestoredCard({ onReconnect }: { onReconnect: () => void }) {
       <span className="font-medium text-slate-100">SFTP session restored</span>
       <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
         Remote file listing was not restored. Reconnect to open a new SFTP session.
+      </span>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" type="button" onClick={onReconnect}>
+          Reconnect
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SftpClosedCard({ onReconnect }: { onReconnect: () => void }) {
+  return (
+    <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
+      <span className="font-medium text-slate-100">SFTP session disconnected</span>
+      <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+        Remote file listing was cleared. Reconnect to browse this server again.
       </span>
       <div className="flex flex-wrap justify-end gap-2">
         <Button size="sm" type="button" onClick={onReconnect}>
@@ -2754,6 +2839,26 @@ function formatTransferStatus(transfer: SftpTransferItem) {
   }
 
   return `${getTransferProgress(transfer)}%`;
+}
+
+function mapSftpConnectionStateToStatus(state: SftpConnectionState) {
+  if (state === 'closed') {
+    return 'closed';
+  }
+
+  if (state === 'connected') {
+    return 'connected';
+  }
+
+  if (state === 'connecting') {
+    return 'connecting';
+  }
+
+  if (state === 'failed') {
+    return 'failed';
+  }
+
+  return 'restored';
 }
 
 function getTransferStatusStyle(transfer: SftpTransferItem) {

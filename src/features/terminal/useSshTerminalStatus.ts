@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   publishConnectionStatus,
@@ -28,13 +28,20 @@ export function useSshTerminalStatus(panelId: string, initialStatus: SshTerminal
     [publishStatus],
   );
 
-  const publishIdleStatus = useCallback(() => {
-    publishStatus('idle');
+  const publishClosedStatus = useCallback((updateState = true) => {
+    if (updateState) {
+      setStatus('closed');
+    }
+    publishStatus('closed');
   }, [publishStatus]);
+
+  useEffect(() => {
+    publishStatus(status);
+  }, [publishStatus, status]);
 
   return {
     failure,
-    publishIdleStatus,
+    publishClosedStatus,
     setFailure,
     setTerminalStatus,
     status,

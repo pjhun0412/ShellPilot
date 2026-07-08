@@ -16,9 +16,26 @@ export const initialLayout: IJsonModel = {
     tabSetEnableDrag: true,
     tabSetEnableMaximize: true,
     tabSetEnableDrop: true,
-    borderSize: 0,
+    borderSize: 180,
   },
-  borders: [],
+  borders: [
+    {
+      type: 'border',
+      location: 'bottom',
+      size: 190,
+      selected: 0,
+      children: [
+        {
+          type: 'tab',
+          id: 'sftp-transfer-queue',
+          name: 'Transfer Queue',
+          enableClose: false,
+          component: 'panel',
+          config: { panelType: 'sftp-transfer-queue' },
+        },
+      ],
+    },
+  ],
   layout: {
     type: 'row',
     weight: 100,
@@ -63,9 +80,11 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
 
   return {
     ...normalizedLayout,
-    borders: normalizedLayout.borders?.filter((border) => {
-      return !border.children?.some((child) => child.id === 'logs' || child.config?.panelType === 'logs');
-    }),
+    borders: ensureSftpTransferQueueBorder(
+      normalizedLayout.borders?.filter((border) => {
+        return !border.children?.some((child) => child.id === 'logs' || child.config?.panelType === 'logs');
+      }) ?? [],
+    ),
     global: {
       ...normalizedLayout.global,
       enableEdgeDock: true,
@@ -75,9 +94,55 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
       tabSetEnableDivide: true,
       tabSetEnableDrag: true,
       tabSetEnableDrop: true,
-      borderSize: 0,
+      borderSize: 180,
     },
   };
+}
+
+function ensureSftpTransferQueueBorder(borders: NonNullable<IJsonModel['borders']>) {
+  const hasTransferQueue = borders.some((border) =>
+    border.children?.some((child) => child.id === 'sftp-transfer-queue' || child.config?.panelType === 'sftp-transfer-queue'),
+  );
+
+  if (hasTransferQueue) {
+    return borders;
+  }
+
+  const transferQueueTab = {
+    type: 'tab' as const,
+    id: 'sftp-transfer-queue',
+    name: 'Transfer Queue',
+    enableClose: false,
+    component: 'panel',
+    config: { panelType: 'sftp-transfer-queue' },
+  };
+  const bottomBorderIndex = borders.findIndex((border) => border.location === 'bottom');
+
+  if (bottomBorderIndex >= 0) {
+    return borders.map((border, index) => {
+      if (index !== bottomBorderIndex) {
+        return border;
+      }
+
+      return {
+        ...border,
+        children: [...(border.children ?? []), transferQueueTab],
+        selected: border.selected ?? 0,
+        size: border.size ?? 190,
+      };
+    });
+  }
+
+  return [
+    ...borders,
+    {
+      type: 'border' as const,
+      location: 'bottom' as const,
+      size: 190,
+      selected: 0,
+      children: [transferQueueTab],
+    },
+  ];
 }
 
 function forceClosableTabs(value: unknown): unknown {
@@ -97,7 +162,11 @@ function forceClosableTabs(value: unknown): unknown {
   }
 
   if (node.type === 'tab') {
-    nextNode.enableClose = true;
+    const config = node.config as Record<string, unknown> | undefined;
+    const isPinnedBorderTab =
+      node.id === 'sftp-transfer-queue' || config?.panelType === 'sftp-transfer-queue';
+
+    nextNode.enableClose = !isPinnedBorderTab;
   }
 
   return nextNode;

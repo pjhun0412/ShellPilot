@@ -18,6 +18,7 @@ ShellPilot은 SSH 중심의 원격 작업을 하나의 데스크톱 워크스페
 - FlexLayout 기반 워크스페이스 탭/분할 레이아웃
 - 탭 드래그로 좌/우/상/하/중앙 분할
 - 탭 우클릭 메뉴: Clone, Duplicate, Reconnect, Copy Host, Copy SSH Command, Close 계열 액션
+- Open Tabs 사이드바: 서버별 탭 그룹, 연결 상태 표시, clone/reconnect/disconnect/close 그룹 액션
 - xterm.js 기반 고대비 다크 터미널 테마
 - Tauri dialog 기반 SSH private key 파일 선택
 - SSH 세션 기반 SFTP 탭 열기
@@ -29,6 +30,7 @@ ShellPilot은 SSH 중심의 원격 작업을 하나의 데스크톱 워크스페
 - 전송 큐, 진행률, 속도/ETA, 취소, 실패 재시도, 완료 항목 정리
 - 다운로드 완료 항목의 로컬 폴더 열기
 - SFTP 전송 중 temp/backup 기반 안전한 파일 교체
+- SFTP 사이드바: 열린 탐색기, 원격 북마크, 전송 큐 진입, 경로 복사/clone/reconnect/disconnect 액션
 
 ## 보안 정책
 
@@ -145,6 +147,14 @@ scripts/
   - xterm 컴포넌트와 Tauri SSH command 호출을 분리합니다.
 - `src/features/sftp/SftpPanel.tsx`
   - SFTP 원격 탐색기, 경로 이동, 다중 선택, 업로드/다운로드, 전송 큐 UI를 담당합니다.
+- `src/features/sftp/SftpTransferQueuePanel.tsx`
+  - 하단 도킹 전송 큐, 서버 라벨, 진행률, 속도, 취소 상태를 표시합니다.
+- `src/features/sftp/sftpSidebarState.ts`
+  - SFTP 사이드바 상태, 경로 이동, reconnect/disconnect 요청 이벤트를 관리합니다.
+- `src/components/navigation/SidebarShell.tsx`
+  - Sessions, Open Tabs, SFTP 사이드바를 렌더링하고 탭/탐색기 컨텍스트 액션을 담당합니다.
+- `src/features/connections/connectionStatus.ts`
+  - SSH/SFTP 패널별 연결 상태를 publish/subscribe하며 신규 구독자에게 현재 상태를 replay합니다.
 - `src/features/sftp/sftpBridge.ts`
   - SFTP Tauri command와 프론트엔드 호출부를 분리합니다.
 - `src-tauri/src/commands/ssh.rs`
@@ -177,6 +187,7 @@ scripts/
 - 세션/그룹 드래그 앤 드롭
 - 워크스페이스 탭 분할
 - 탭 clone/duplicate/reconnect/close 메뉴
+- Open Tabs 서버별 그룹, 연결 상태 표시, 그룹 reconnect/disconnect/close 메뉴
 - Settings 탭 기반 SSH Known Hosts 관리
 - private key 파일 선택 dialog
 - Windows Cargo PATH 래퍼
@@ -192,6 +203,7 @@ scripts/
 - 다운로드 완료 후 로컬 폴더 열기
 - 파일 충돌 처리 및 안전한 temp/backup 교체
 - 잔여 temp/backup 파일 감지 및 정리
+- SFTP 사이드바 열린 탐색기, 원격 북마크, 경로 복사, clone/reconnect/disconnect 메뉴
 
 ### 예정
 

@@ -27,7 +27,7 @@ interface UseSshTerminalLifecycleOptions {
   panelId: string;
   pendingPasswordRef: MutableRefObject<string | undefined>;
   pendingUsernameRef: MutableRefObject<string | undefined>;
-  publishIdleStatus: () => void;
+  publishClosedStatus: (updateState?: boolean) => void;
   session: SessionItem;
   setTerminalStatus: (status: SshTerminalUiStatus, failure?: SshTerminalFailure) => void;
   shouldRememberPasswordRef: MutableRefObject<boolean>;
@@ -45,7 +45,7 @@ export function useSshTerminalLifecycle({
   panelId,
   pendingPasswordRef,
   pendingUsernameRef,
-  publishIdleStatus,
+  publishClosedStatus,
   session,
   setTerminalStatus,
   shouldRememberPasswordRef,
@@ -88,7 +88,7 @@ export function useSshTerminalLifecycle({
       terminal.writeln('\r\n[closing ssh session...]');
       closeIntentRef.current = 'dispose';
       void closeSshShell(panelId);
-      publishIdleStatus();
+      publishClosedStatus(false);
     });
 
     let isDisposed = false;
@@ -136,7 +136,7 @@ export function useSshTerminalLifecycle({
       unsubscribeClosing();
       unlisten?.();
       terminal.dispose();
-      publishIdleStatus();
+      publishClosedStatus();
     };
   }, [
     autoConnect,
@@ -148,7 +148,7 @@ export function useSshTerminalLifecycle({
     panelId,
     pendingPasswordRef,
     pendingUsernameRef,
-    publishIdleStatus,
+    publishClosedStatus,
     session,
     setTerminalStatus,
     shouldRememberPasswordRef,

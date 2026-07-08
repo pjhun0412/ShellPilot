@@ -2,6 +2,7 @@ import { TabNode } from 'flexlayout-react';
 
 import { LogsPanel, PanelBody } from '@/features/panels/PanelBody';
 import { panelCatalog } from '@/features/panels/panelCatalog';
+import { SftpTransferQueuePanel } from '@/features/sftp/SftpTransferQueuePanel';
 import type { WorkspacePanel, WorkspacePanelType } from '@/types/workspace';
 
 export function createPanelFactory({
@@ -19,13 +20,17 @@ export function createPanelFactory({
     const activatePanel = () => onActivatePanel(panelId);
     const config = node.getConfig() as {
       autoConnect?: boolean;
-      panelType?: WorkspacePanelType | 'logs';
+      panelType?: WorkspacePanelType | 'logs' | 'sftp-transfer-queue';
       session?: WorkspacePanel['session'];
     };
     const panelType = config.panelType ?? resolvePanelType(panelId);
 
     if (panelType === 'logs') {
       return <LogsPanel isActive={isActive} onActivate={activatePanel} />;
+    }
+
+    if (panelType === 'sftp-transfer-queue') {
+      return <SftpTransferQueuePanel />;
     }
 
     const panel =
@@ -45,13 +50,17 @@ export function createPanelFactory({
 export function panelFactory(node: TabNode) {
   const config = node.getConfig() as {
     autoConnect?: boolean;
-    panelType?: WorkspacePanelType | 'logs';
+    panelType?: WorkspacePanelType | 'logs' | 'sftp-transfer-queue';
     session?: WorkspacePanel['session'];
   };
   const panelType = config.panelType ?? resolvePanelType(node.getId());
 
   if (panelType === 'logs') {
     return <LogsPanel />;
+  }
+
+  if (panelType === 'sftp-transfer-queue') {
+    return <SftpTransferQueuePanel />;
   }
 
   const panel =

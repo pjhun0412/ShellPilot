@@ -83,7 +83,10 @@ export function useSshTerminalActions({
     return subscribeTerminalReconnect((reconnectPanelId) => {
       if (reconnectPanelId === panelId) {
         void reconnectSession();
+        return true;
       }
+
+      return false;
     });
   }, [panelId, reconnectSession]);
 

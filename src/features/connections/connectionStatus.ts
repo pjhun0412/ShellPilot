@@ -1,6 +1,7 @@
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed' | 'closed' | 'restored';
 
 const connectionStatusEventName = 'shellpilot:connection-status';
+const connectionStatuses = new Map<string, ConnectionStatus>();
 
 export interface ConnectionStatusDetail {
   panelId: string;
@@ -8,6 +9,7 @@ export interface ConnectionStatusDetail {
 }
 
 export function publishConnectionStatus(detail: ConnectionStatusDetail) {
+  connectionStatuses.set(detail.panelId, detail.status);
   window.dispatchEvent(new CustomEvent<ConnectionStatusDetail>(connectionStatusEventName, { detail }));
 }
 
@@ -17,5 +19,6 @@ export function subscribeConnectionStatus(listener: (detail: ConnectionStatusDet
   };
 
   window.addEventListener(connectionStatusEventName, handler);
+  connectionStatuses.forEach((status, panelId) => listener({ panelId, status }));
   return () => window.removeEventListener(connectionStatusEventName, handler);
 }
