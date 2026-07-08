@@ -47,7 +47,7 @@ const config = {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        mono: ['"Cascadia Code"', 'Consolas', 'monospace'],
+        mono: ['"Cascadia Code"', 'Consolas', '"Noto Sans KR"', 'monospace'],
       },
       boxShadow: {
         workspace: '0 18px 60px rgb(0 0 0 / 0.32)',

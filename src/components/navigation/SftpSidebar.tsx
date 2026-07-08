@@ -166,6 +166,7 @@ export function SftpSidebar({
                       explorer={explorer.primary}
                       key={explorer.panelId}
                       count={explorer.count}
+                      ordinalLabel={explorer.ordinalLabel}
                       onAddBookmark={() => addExplorerBookmark(explorer.primary)}
                       onClone={() => cloneExplorer(explorer.primary)}
                       onClose={() => onClosePanel(explorer.primary.panelId)}
@@ -309,6 +310,7 @@ function SftpExplorerButton({
   onClose,
   onCopyPath,
   onReconnect,
+  ordinalLabel,
   state,
 }: {
   active: boolean;
@@ -320,9 +322,11 @@ function SftpExplorerButton({
   onClose: () => void;
   onCopyPath: () => void;
   onReconnect: () => void;
+  ordinalLabel: string;
   state?: SftpSidebarPanelState;
 }) {
   const path = state?.path ?? 'Home';
+  const pathTitle = getRemotePathTitle(path);
 
   return (
     <ContextMenu>
@@ -340,7 +344,9 @@ function SftpExplorerButton({
           >
             <Folder className="mt-0.5 size-3.5 text-primary" />
             <span className="grid min-w-0 gap-0.5">
-              <span className="truncate text-xs font-semibold">{getRemotePathTitle(path)}</span>
+              <span className="truncate text-xs font-semibold">
+                {ordinalLabel} · {pathTitle}
+              </span>
               <span className="truncate font-mono text-[10px] text-slate-400/90">
                 {formatSftpExplorerTarget(explorer)}
               </span>
@@ -384,7 +390,7 @@ function SftpExplorerButton({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuLabel>{getRemotePathTitle(path)}</ContextMenuLabel>
+        <ContextMenuLabel>{ordinalLabel} · {pathTitle}</ContextMenuLabel>
         <ContextMenuItem onSelect={onClick}>Open</ContextMenuItem>
         <ContextMenuItem onSelect={onReconnect}>Reconnect</ContextMenuItem>
         <ContextMenuItem disabled={!explorer.session} onSelect={onClone}>
@@ -405,4 +411,3 @@ function SftpExplorerButton({
     </ContextMenu>
   );
 }
-

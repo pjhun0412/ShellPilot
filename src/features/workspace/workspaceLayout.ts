@@ -33,6 +33,14 @@ export const initialLayout: IJsonModel = {
           component: 'panel',
           config: { panelType: 'sftp-transfer-queue' },
         },
+        {
+          type: 'tab',
+          id: 'ai-assistant',
+          name: 'AI Assistant',
+          enableClose: false,
+          component: 'panel',
+          config: { panelType: 'ai' },
+        },
       ],
     },
   ],
@@ -80,7 +88,7 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
 
   return {
     ...normalizedLayout,
-    borders: ensureSftpTransferQueueBorder(
+    borders: ensureBottomBorderTabs(
       normalizedLayout.borders?.filter((border) => {
         return !border.children?.some((child) => child.id === 'logs' || child.config?.panelType === 'logs');
       }) ?? [],
@@ -99,23 +107,36 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
   };
 }
 
-function ensureSftpTransferQueueBorder(borders: NonNullable<IJsonModel['borders']>) {
-  const hasTransferQueue = borders.some((border) =>
-    border.children?.some((child) => child.id === 'sftp-transfer-queue' || child.config?.panelType === 'sftp-transfer-queue'),
+function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
+  const bottomTabs = [
+    {
+      type: 'tab' as const,
+      id: 'sftp-transfer-queue',
+      name: 'Transfer Queue',
+      enableClose: false,
+      component: 'panel',
+      config: { panelType: 'sftp-transfer-queue' },
+    },
+    {
+      type: 'tab' as const,
+      id: 'ai-assistant',
+      name: 'AI Assistant',
+      enableClose: false,
+      component: 'panel',
+      config: { panelType: 'ai' },
+    },
+  ];
+  const missingTabs = bottomTabs.filter(
+    (tab) =>
+      !borders.some((border) =>
+        border.children?.some((child) => child.id === tab.id || child.config?.panelType === tab.config.panelType),
+      ),
   );
 
-  if (hasTransferQueue) {
+  if (missingTabs.length === 0) {
     return borders;
   }
 
-  const transferQueueTab = {
-    type: 'tab' as const,
-    id: 'sftp-transfer-queue',
-    name: 'Transfer Queue',
-    enableClose: false,
-    component: 'panel',
-    config: { panelType: 'sftp-transfer-queue' },
-  };
   const bottomBorderIndex = borders.findIndex((border) => border.location === 'bottom');
 
   if (bottomBorderIndex >= 0) {
@@ -126,7 +147,7 @@ function ensureSftpTransferQueueBorder(borders: NonNullable<IJsonModel['borders'
 
       return {
         ...border,
-        children: [...(border.children ?? []), transferQueueTab],
+        children: [...(border.children ?? []), ...missingTabs],
         selected: border.selected ?? 0,
         size: border.size ?? 190,
       };
@@ -140,7 +161,7 @@ function ensureSftpTransferQueueBorder(borders: NonNullable<IJsonModel['borders'
       location: 'bottom' as const,
       size: 190,
       selected: 0,
-      children: [transferQueueTab],
+      children: missingTabs,
     },
   ];
 }
@@ -164,7 +185,9 @@ function forceClosableTabs(value: unknown): unknown {
   if (node.type === 'tab') {
     const config = node.config as Record<string, unknown> | undefined;
     const isPinnedBorderTab =
-      node.id === 'sftp-transfer-queue' || config?.panelType === 'sftp-transfer-queue';
+      node.id === 'sftp-transfer-queue' ||
+      node.id === 'ai-assistant' ||
+      config?.panelType === 'sftp-transfer-queue';
 
     nextNode.enableClose = !isPinnedBorderTab;
   }

@@ -11,6 +11,9 @@ export interface SftpBookmark {
 
 export interface GroupedSftpExplorer {
   count: number;
+  ordinalLabel: string;
+  ordinal: number;
+  ordinals: number[];
   panelId: string;
   primary: SftpSidebarExplorer;
   state?: SftpSidebarPanelState;
@@ -192,7 +195,7 @@ export function groupWorkspaceTabs(
   connectionStates: Record<string, WorkspaceTabVisualStatus>,
 ): WorkspaceTabGroup[] {
   const groups = new Map<string, WorkspaceTabGroup>();
-  const terminalCountsByGroup = new Map<string, number>();
+  const tabCountsByGroupAndType = new Map<string, number>();
 
   for (const tab of tabs) {
     const groupKey = getWorkspaceTabGroupKey(tab, panelStates[tab.id]);
@@ -200,7 +203,8 @@ export function groupWorkspaceTabs(
     const displayTitle = getWorkspaceTabTreeDisplayTitle(
       tab,
       groupKey.id,
-      terminalCountsByGroup,
+      tabCountsByGroupAndType,
+      panelStates[tab.id],
     );
     const currentGroup = groups.get(groupKey.id);
     const groupItem = { displayTitle, status, tab };
@@ -273,22 +277,23 @@ function summarizeConnectionStatus(statuses: Array<WorkspaceTabVisualStatus | un
 function getWorkspaceTabTreeDisplayTitle(
   tab: WorkspaceTabItem,
   groupId: string,
-  terminalCountsByGroup: Map<string, number>,
+  tabCountsByGroupAndType: Map<string, number>,
+  panelState?: SftpSidebarPanelState,
 ) {
-  if (tab.type !== 'terminal') {
+  if (tab.type !== 'terminal' && tab.type !== 'sftp') {
     return undefined;
   }
 
-  const terminalCount = (terminalCountsByGroup.get(groupId) ?? 0) + 1;
+  const key = `${groupId}:${tab.type}`;
+  const tabCount = (tabCountsByGroupAndType.get(key) ?? 0) + 1;
 
-  terminalCountsByGroup.set(groupId, terminalCount);
+  tabCountsByGroupAndType.set(key, tabCount);
 
-  if (tab.session?.kind === 'ssh') {
-    return terminalCount === 1 ? 'SSH Terminal' : `SSH Terminal ${terminalCount}`;
+  if (tab.type === 'sftp') {
+    return `SFTP #${tabCount} · ${getRemotePathTitle(panelState?.path ?? tab.title)}`;
   }
 
-  const baseTitle = getWorkspaceTabTypeLabel(tab.type);
-  return terminalCount === 1 ? baseTitle : `${baseTitle} ${terminalCount}`;
+  return tab.session?.kind === 'ssh' ? `SSH #${tabCount}` : `Terminal #${tabCount}`;
 }
 
 function getWorkspaceTabTypeLabel(type: WorkspacePanelType) {
@@ -422,9 +427,15 @@ export function groupSftpExplorers(
   panelStates: Record<string, SftpSidebarPanelState>,
 ): GroupedSftpExplorer[] {
   const grouped = new Map<string, GroupedSftpExplorer>();
+  const ordinalsByPanelId = new Map<string, number>();
+
+  explorers.forEach((explorer, index) => {
+    ordinalsByPanelId.set(explorer.panelId, index + 1);
+  });
 
   for (const explorer of explorers) {
     const state = panelStates[explorer.panelId];
+    const ordinal = ordinalsByPanelId.get(explorer.panelId) ?? grouped.size + 1;
     const groupKey = [
       explorer.host ?? explorer.title,
       explorer.username ?? '',
@@ -434,16 +445,22 @@ export function groupSftpExplorers(
 
     if (current) {
       current.count += 1;
+      current.ordinals.push(ordinal);
       if (state?.status === 'connected' && current.state?.status !== 'connected') {
         current.panelId = explorer.panelId;
         current.primary = explorer;
         current.state = state;
       }
+      current.ordinal = Math.min(...current.ordinals);
+      current.ordinalLabel = createSftpOrdinalLabel(current.ordinals);
       continue;
     }
 
     grouped.set(groupKey, {
       count: 1,
+      ordinal,
+      ordinalLabel: createSftpOrdinalLabel([ordinal]),
+      ordinals: [ordinal],
       panelId: explorer.panelId,
       primary: explorer,
       state,
@@ -451,4 +468,45 @@ export function groupSftpExplorers(
   }
 
   return Array.from(grouped.values());
+}
+
+function createSftpOrdinalLabel(ordinals: number[]) {
+  const sortedOrdinals = [...ordinals].sort((left, right) => left - right);
+
+  if (sortedOrdinals.length <= 1) {
+    return `SFTP #${sortedOrdinals[0] ?? 1}`;
+  }
+
+  const first = sortedOrdinals[0];
+  const last = sortedOrdinals[sortedOrdinals.length - 1];
+  const isContiguous = last - first + 1 === sortedOrdinals.length;
+
+  return isContiguous
+    ? `SFTP #${first}-#${last}`
+    : `SFTP ${formatOrdinalRanges(sortedOrdinals)}`;
+}
+
+function formatOrdinalRanges(sortedOrdinals: number[]) {
+  const ranges: string[] = [];
+  let rangeStart = sortedOrdinals[0];
+  let previous = sortedOrdinals[0];
+
+  for (const ordinal of sortedOrdinals.slice(1)) {
+    if (ordinal === previous + 1) {
+      previous = ordinal;
+      continue;
+    }
+
+    ranges.push(formatOrdinalRange(rangeStart, previous));
+    rangeStart = ordinal;
+    previous = ordinal;
+  }
+
+  ranges.push(formatOrdinalRange(rangeStart, previous));
+
+  return ranges.join(', ');
+}
+
+function formatOrdinalRange(start: number, end: number) {
+  return start === end ? `#${start}` : `#${start}-#${end}`;
 }

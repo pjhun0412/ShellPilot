@@ -16,6 +16,7 @@ export function WorkspaceTabMenu({
   onCloseOthers,
   onCloseRight,
   onDisconnect,
+  onOpenAi,
   onOpenSftp,
   onReconnect,
 }: {
@@ -25,11 +26,14 @@ export function WorkspaceTabMenu({
   onCloseOthers: () => void;
   onCloseRight: () => void;
   onDisconnect: () => void;
+  onOpenAi?: () => void;
   onOpenSftp?: (session: SessionItem) => void;
   onReconnect: () => void;
 }) {
   const { node, session, x, y } = menu;
   const isSessionTab = Boolean(session);
+  const panelType = node.getConfig()?.panelType;
+  const canAskAi = panelType === 'terminal' || panelType === 'sftp';
   const copyHost = () => {
     if (session?.host) {
       void navigator.clipboard.writeText(session.host).catch(() => undefined);
@@ -52,6 +56,9 @@ export function WorkspaceTabMenu({
       <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground">{node.getName()}</div>
       <WorkspaceTabMenuButton disabled={!isSessionTab} onClick={onClone}>
         Clone Channel
+      </WorkspaceTabMenuButton>
+      <WorkspaceTabMenuButton disabled={!canAskAi || !onOpenAi} onClick={() => onOpenAi?.()}>
+        Ask AI about this
       </WorkspaceTabMenuButton>
       <WorkspaceTabMenuButton disabled={session?.kind !== 'ssh' || !onOpenSftp} onClick={() => session && onOpenSftp?.(session)}>
         Open SFTP

@@ -1,10 +1,10 @@
-import { Bot, Folder, Monitor } from 'lucide-react';
+import { Folder, Monitor } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { AiAssistantPanel } from '@/features/ai/AiAssistantPanel';
+import { BoundAiPanel } from '@/features/ai/BoundAiPanel';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
 import { SftpPanel } from '@/features/sftp/SftpPanel';
 import { SshTerminal } from '@/features/terminal/SshTerminal';
-import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { WorkspacePanel } from '@/types/workspace';
 
@@ -39,23 +39,7 @@ export function PanelBody({
   if (panel.type === 'ai') {
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
-        <div className="app-scrollbar ai-panel flex h-full min-h-0 flex-col justify-between gap-5 overflow-auto p-4">
-          <div className="space-y-4">
-            <div className="flex size-10 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
-              <Bot className="size-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium">AI Assistant</h3>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-                {t('ai.placeholder')}
-              </p>
-            </div>
-          </div>
-          <Button type="button">
-            <Bot />
-            {t('ai.ask')}
-          </Button>
-        </div>
+        <AiPanelContent panel={panel} />
       </PanelFocusFrame>
     );
   }
@@ -116,6 +100,14 @@ export function PanelBody({
       </div>
     </PanelFocusFrame>
   );
+}
+
+function AiPanelContent({ panel }: { panel: WorkspacePanel }) {
+  if (panel.aiBinding) {
+    return <BoundAiPanel binding={panel.aiBinding} session={panel.session} />;
+  }
+
+  return <AiAssistantPanel panelId={panel.id} />;
 }
 
 function PanelFocusFrame({

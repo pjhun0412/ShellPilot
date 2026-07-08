@@ -5,6 +5,7 @@ import { useEffect, type RefObject, type MutableRefObject } from 'react';
 
 import type { SessionItem } from '@/types/workspace';
 import { subscribeTerminalClosing } from './terminalLifecycle';
+import { registerTerminal, unregisterTerminal } from './terminalRegistry';
 import {
   closeSshShell,
   openSshShell,
@@ -61,6 +62,7 @@ export function useSshTerminalLifecycle({
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    registerTerminal(panelId, terminal);
     fitTerminal(panelId, terminal, fitAddon);
     if (autoConnect) {
       terminal.writeln(`Connecting to ${endpointLabel}...`);
@@ -135,6 +137,7 @@ export function useSshTerminalLifecycle({
       resizeObserver.disconnect();
       unsubscribeClosing();
       unlisten?.();
+      unregisterTerminal(panelId);
       terminal.dispose();
       publishClosedStatus();
     };

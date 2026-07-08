@@ -1,5 +1,6 @@
 mod commands;
 
+use commands::local_pty::LocalPtySessionStore;
 use commands::sftp::SftpSessionStore;
 use commands::ssh::SshSessionStore;
 
@@ -11,15 +12,23 @@ fn app_ready() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(LocalPtySessionStore::default())
         .manage(SftpSessionStore::default())
         .manage(SshSessionStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             app_ready,
+            commands::ai::ai_list_providers,
+            commands::ai::ai_run_prompt,
+            commands::ai::ai_run_prompt_stream,
             commands::credentials::delete_credential,
             commands::credentials::get_credential,
             commands::credentials::save_credential,
+            commands::local_pty::local_pty_close,
+            commands::local_pty::local_pty_open,
+            commands::local_pty::local_pty_resize,
+            commands::local_pty::local_pty_write,
             commands::sessions::load_session_registry,
             commands::sessions::save_session_registry,
             commands::ssh::clear_ssh_known_hosts,
@@ -29,6 +38,7 @@ pub fn run() {
             commands::ssh::probe_ssh_connection,
             commands::ssh::ssh_close,
             commands::ssh::ssh_open_shell,
+            commands::ssh::ssh_run_readonly_command,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_write,
             commands::sftp::sftp_close,

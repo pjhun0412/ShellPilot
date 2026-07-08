@@ -8,13 +8,23 @@ import { MenuBar } from '@/components/shell/MenuBar';
 import { panelCatalog } from '@/features/panels/panelCatalog';
 import {
   requestSftpSidebarNavigation,
-  type SftpSidebarExplorer,
 } from '@/features/sftp/sftpSidebarState';
 import { Workspace } from '@/features/workspace/Workspace';
-import { readSessionConfig } from '@/features/workspace/WorkspaceTabMenu';
+import {
+  createBoundAiBinding,
+  createBoundAiPanelId,
+  createBoundAiTitle,
+} from '@/features/workspace/boundAiWorkspace';
 import { getSelectedPanelId } from '@/features/workspace/workspaceLayoutActions';
 import { loadSavedLayout, saveWorkspaceLayout } from '@/features/workspace/workspaceLayout';
-import type { ActivityId, WorkspacePanel, WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
+import {
+  focusWorkspaceTab,
+  getBottomBorderId,
+  getCascadeCloseTabIds,
+  getSelectedBottomBorderTab,
+} from '@/features/workspace/workspaceNodeUtils';
+import { collectSftpExplorers, collectWorkspaceTabs } from '@/features/workspace/workspaceTabCollection';
+import type { ActivityId, WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
 
 export function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -33,6 +43,7 @@ export function App() {
     return nextModel;
   }, []);
   const modelRef = useRef(model);
+  const previousActivePanelIdRef = useRef<string>();
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -88,7 +99,7 @@ export function App() {
   const addPanel = (panel: WorkspacePanel) => {
     const existingNode = modelRef.current.getNodeById(panel.id);
 
-    if (panel.type === 'settings' && existingNode?.getType() === 'tab') {
+    if ((panel.type === 'settings' || panel.type === 'ai') && existingNode?.getType() === 'tab') {
       modelRef.current.doAction(Actions.selectTab(panel.id));
       setLastAddedPanelId(panel.id);
       setLayoutVersion((version) => version + 1);
@@ -147,6 +158,18 @@ export function App() {
     [layoutVersion],
   );
   const activePanelId = useMemo(() => getSelectedPanelId(modelRef.current), [layoutVersion]);
+  useEffect(() => {
+    if (previousActivePanelIdRef.current === activePanelId) {
+      return;
+    }
+
+    previousActivePanelIdRef.current = activePanelId;
+
+    syncSelectedBoundAiTab(modelRef.current, activePanelId, () => {
+      setLastAddedPanelId(undefined);
+      setLayoutVersion((version) => version + 1);
+    });
+  }, [activePanelId, layoutVersion]);
   const selectWorkspaceTab = (panelId: string) => {
     const node = modelRef.current.getNodeById(panelId);
 
@@ -165,7 +188,11 @@ export function App() {
       return;
     }
 
-    modelRef.current.doAction(Actions.deleteTab(panelId));
+    getCascadeCloseTabIds(modelRef.current, panelId).forEach((tabId) => {
+      if (modelRef.current.getNodeById(tabId)?.getType() === 'tab') {
+        modelRef.current.doAction(Actions.deleteTab(tabId));
+      }
+    });
     setLayoutVersion((version) => version + 1);
   };
   const cloneWorkspaceTab = (tab: WorkspaceTabItem, remotePath?: string) => {
@@ -199,6 +226,47 @@ export function App() {
     if (tab.type === 'sftp' && remotePath && remotePath !== 'Home') {
       window.setTimeout(() => requestSftpSidebarNavigation(tabId, remotePath), 250);
     }
+  };
+  const openAiForWorkspaceTab = (tab: WorkspaceTabItem) => {
+    if (tab.type !== 'terminal' && tab.type !== 'sftp') {
+      return;
+    }
+
+    const aiTabId = createBoundAiPanelId(tab.id);
+    const aiBinding = createBoundAiBinding({ model: modelRef.current, tab });
+    const aiLabel = createBoundAiTitle(tab, aiBinding);
+    const existingNode = modelRef.current.getNodeById(aiTabId);
+
+    if (existingNode?.getType() === 'tab') {
+      modelRef.current.doAction(Actions.renameTab(aiTabId, aiLabel));
+      modelRef.current.doAction(Actions.updateNodeAttributes(aiTabId, { config: { aiBinding, panelType: 'ai', session: tab.session } }));
+      focusWorkspaceTab(modelRef.current, aiTabId);
+      setLastAddedPanelId(aiTabId);
+      setLayoutVersion((version) => version + 1);
+      return;
+    }
+
+    const bottomTargetId = getBottomBorderId(modelRef.current) ?? modelRef.current.getActiveTabset()?.getId() ?? modelRef.current.getFirstTabSet().getId();
+
+    modelRef.current.doAction(
+      Actions.addTab(
+        {
+          type: 'tab',
+          id: aiTabId,
+          name: aiLabel,
+          enableClose: true,
+          component: 'panel',
+          config: { aiBinding, panelType: 'ai', session: tab.session },
+        },
+        bottomTargetId,
+        DockLocation.CENTER,
+        -1,
+        true,
+      ),
+    );
+    focusWorkspaceTab(modelRef.current, aiTabId);
+    setLastAddedPanelId(aiTabId);
+    setLayoutVersion((version) => version + 1);
   };
 
   return (
@@ -252,6 +320,7 @@ export function App() {
             modelRef.current = nextModel;
             setLayoutVersion((version) => version + 1);
           }}
+          onOpenAi={openAiForWorkspaceTab}
           onOpenSftp={openSftpForSession}
         />
       </section>
@@ -264,63 +333,46 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function collectWorkspaceTabs(model: Model): WorkspaceTabItem[] {
-  const tabs: WorkspaceTabItem[] = [];
+function syncSelectedBoundAiTab(
+  model: Model,
+  activePanelId: string | undefined,
+  onSynced: () => void,
+) {
+  if (!activePanelId) {
+    return;
+  }
 
-  model.visitNodes((node) => {
-    if (node.getType() !== 'tab') {
-      return;
-    }
+  const activeNode = model.getNodeById(activePanelId);
 
-    const tab = node as TabNode;
-    const config = tab.getConfig() as { panelType?: string; session?: unknown };
+  if (activeNode?.getType() !== 'tab') {
+    return;
+  }
 
-    if (!isWorkspacePanelType(config.panelType)) {
-      return;
-    }
+  const activeConfig = (activeNode as TabNode).getConfig() as { panelType?: string };
 
-    const session = readSessionConfig(config.session);
+  if (activeConfig.panelType !== 'terminal' && activeConfig.panelType !== 'sftp') {
+    return;
+  }
 
-    tabs.push({
-      id: tab.getId(),
-      session,
-      title: tab.getName(),
-      type: config.panelType,
-    });
-  });
+  const selectedBottomTab = getSelectedBottomBorderTab(model);
+  const selectedBottomConfig = selectedBottomTab?.getConfig() as
+    | { aiBinding?: { boundPanelId?: string }; panelType?: string }
+    | undefined;
 
-  return tabs;
-}
+  if (selectedBottomConfig?.panelType !== 'ai' || !selectedBottomConfig.aiBinding?.boundPanelId) {
+    return;
+  }
 
-function isWorkspacePanelType(value: unknown): value is WorkspacePanelType {
-  return value === 'terminal' || value === 'sftp' || value === 'ai' || value === 'rdp' || value === 'settings';
-}
+  const targetAiTabId = `ai-bound-${activePanelId}`;
 
-function collectSftpExplorers(model: Model): SftpSidebarExplorer[] {
-  const explorers: SftpSidebarExplorer[] = [];
+  if (selectedBottomTab?.getId() === targetAiTabId) {
+    return;
+  }
 
-  model.visitNodes((node) => {
-    if (node.getType() !== 'tab') {
-      return;
-    }
+  if (model.getNodeById(targetAiTabId)?.getType() !== 'tab') {
+    return;
+  }
 
-    const tab = node as TabNode;
-    const config = tab.getConfig() as { panelType?: string; session?: unknown };
-
-    if (config.panelType !== 'sftp') {
-      return;
-    }
-
-    const session = readSessionConfig(config.session);
-
-    explorers.push({
-      host: session?.host,
-      panelId: tab.getId(),
-      session,
-      title: tab.getName(),
-      username: session?.username,
-    });
-  });
-
-  return explorers;
+  focusWorkspaceTab(model, targetAiTabId);
+  onSynced();
 }

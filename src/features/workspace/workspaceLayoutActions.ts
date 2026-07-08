@@ -1,16 +1,14 @@
 import { Actions, DockLocation, type Action, type Model, type TabNode } from 'flexlayout-react';
 
 import { notifyTerminalClosing } from '@/features/terminal/terminalLifecycle';
-
-export function getSelectedPanelId(model: Model) {
-  const selectedNode = model.getActiveTabset()?.getSelectedNode();
-
-  if (selectedNode?.getType() !== 'tab') {
-    return undefined;
-  }
-
-  return selectedNode.getId();
-}
+import {
+  getBoundAiTabIds,
+  getNextActivePanelIdAfterClose,
+  getSelectedPanelId,
+  getTabIds,
+  isTerminalLikeTab,
+} from './workspaceNodeUtils';
+export { getSelectedPanelId };
 
 export function createWorkspaceActionHandler({
   activePanelId,
@@ -37,9 +35,21 @@ export function createWorkspaceActionHandler({
       return;
     }
 
-    const nextActivePanelId = getNextActivePanelIdAfterClose(model, panelId, effectiveActivePanelId);
+    const boundAiTabIds = getBoundAiTabIds(model, panelId);
+    const closingTabIds = new Set([panelId, ...boundAiTabIds]);
+    const nextActivePanelId = getNextActivePanelIdAfterClose({
+      closingPanelId: panelId,
+      closingPanelIds: closingTabIds,
+      currentActivePanelId: effectiveActivePanelId,
+      model,
+    });
     const closeTab = () => {
       model.doAction(Actions.deleteTab(panelId));
+      boundAiTabIds.forEach((tabId) => {
+        if (model.getNodeById(tabId)?.getType() === 'tab') {
+          model.doAction(Actions.deleteTab(tabId));
+        }
+      });
       if (nextActivePanelId) {
         model.doAction(Actions.selectTab(nextActivePanelId));
       }
@@ -55,7 +65,7 @@ export function createWorkspaceActionHandler({
 
     closingPanelIds.add(panelId);
 
-    if (isTerminalTab(closingNode as TabNode)) {
+    if (isTerminalLikeTab(closingNode as TabNode)) {
       notifyTerminalClosing(panelId);
       window.setTimeout(closeTab, 180);
       return;
@@ -154,53 +164,4 @@ export function createWorkspaceActionHandler({
     handleLayoutAction,
     requestTabClose,
   };
-}
-
-function isTerminalTab(tabNode: TabNode) {
-  const config = tabNode.getConfig() as { panelType?: string; session?: unknown };
-
-  return config.panelType === 'terminal' || Boolean(config.session);
-}
-
-function getTabIds(model: Model) {
-  const tabIds: string[] = [];
-
-  model.visitNodes((node) => {
-    if (node.getType() === 'tab') {
-      tabIds.push(node.getId());
-    }
-  });
-
-  return tabIds;
-}
-
-function getNextActivePanelIdAfterClose(
-  model: Model,
-  closingPanelId: string,
-  currentActivePanelId: string | undefined,
-) {
-  if (currentActivePanelId && currentActivePanelId !== closingPanelId) {
-    return currentActivePanelId;
-  }
-
-  const closingNode = model.getNodeById(closingPanelId);
-  const siblingNodes = closingNode?.getParent()?.getChildren() ?? [];
-  const closingIndex = siblingNodes.findIndex((node) => node.getId() === closingPanelId);
-
-  if (closingIndex < 0) {
-    return undefined;
-  }
-
-  const previousNode = siblingNodes[closingIndex - 1];
-  const nextNode = siblingNodes[closingIndex + 1];
-
-  if (previousNode?.getType() === 'tab') {
-    return previousNode.getId();
-  }
-
-  if (nextNode?.getType() === 'tab') {
-    return nextNode.getId();
-  }
-
-  return undefined;
 }

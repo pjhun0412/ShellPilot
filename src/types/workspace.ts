@@ -39,7 +39,20 @@ export interface SessionGroup {
 
 export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'settings';
 
+export interface AiPanelBinding {
+  boundPanelId: string;
+  boundPanelOrdinal?: number;
+  boundPanelShortId?: string;
+  boundPanelTitle: string;
+  boundPanelType: WorkspacePanelType;
+  contextLabel?: string;
+  sessionHost?: string;
+  sessionName?: string;
+  sessionUsername?: string;
+}
+
 export interface WorkspacePanel {
+  aiBinding?: AiPanelBinding;
   autoConnect?: boolean;
   id: string;
   session?: SessionItem;
@@ -48,6 +61,7 @@ export interface WorkspacePanel {
 }
 
 export interface WorkspaceTabItem {
+  aiBinding?: AiPanelBinding;
   id: string;
   session?: SessionItem;
   title: string;

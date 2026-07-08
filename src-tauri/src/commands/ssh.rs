@@ -19,6 +19,7 @@ use russh::{
     ChannelMsg, Disconnect,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
+use tokio::time;
 use tokio::sync::{mpsc, Mutex};
 
 #[derive(Default)]
@@ -115,6 +116,21 @@ pub struct SshConnectResult {
     host: String,
     port: u16,
     username: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshCommandResult {
+    exit_code: Option<u32>,
+    stderr: String,
+    stdout: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshReadonlyCommandRequest {
+    command: String,
+    target: SshShellTarget,
 }
 
 #[derive(Serialize)]
@@ -343,6 +359,16 @@ pub async fn ssh_open_shell(
 
     tauri::async_runtime::spawn(run_shell_session(app, target, auth, rx));
     Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_run_readonly_command(
+    app: AppHandle,
+    request: SshReadonlyCommandRequest,
+) -> Result<SshCommandResult, String> {
+    let command = validate_readonly_command(&request.command)?;
+
+    run_ssh_exec(app, request.target, command, Duration::from_secs(15)).await
 }
 
 #[tauri::command]
@@ -575,6 +601,210 @@ async fn run_shell_session(
         Ok(()) => emit_terminal_event(&app, &panel_id, SshTerminalStatus::Closed, None, None),
         Err(error) => emit_terminal_failure(&app, &panel_id, error),
     }
+}
+
+async fn run_ssh_exec(
+    app: AppHandle,
+    target: SshShellTarget,
+    command: &str,
+    timeout: Duration,
+) -> Result<SshCommandResult, String> {
+    let auth = SshAuthRequest::from_target(&target);
+    let config = Arc::new(client::Config {
+        inactivity_timeout: Some(timeout),
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..Default::default()
+    });
+    let mut session = client::connect(
+        config,
+        (target.host.as_str(), target.port),
+        ShellPilotSshClient::new(
+            app,
+            Some(target.panel_id.clone()),
+            &target.host,
+            target.port,
+            target.accept_new_host_key.unwrap_or(false),
+        ),
+    )
+    .await
+    .map_err(|error| classify_connect_error(error.to_string()).message)?;
+
+    authenticate_session(&mut session, &target.username, &auth)
+        .await
+        .map_err(|error| classify_auth_error(error, &auth).message)?;
+
+    let result = time::timeout(timeout, async {
+        let mut channel = session
+            .channel_open_session()
+            .await
+            .map_err(|error| format!("failed to open ssh exec channel: {error}"))?;
+
+        channel
+            .exec(true, command)
+            .await
+            .map_err(|error| format!("failed to execute remote command: {error}"))?;
+
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        let mut exit_code = None;
+
+        while let Some(message) = channel.wait().await {
+            match message {
+                ChannelMsg::Data { data } => {
+                    stdout.push_str(&String::from_utf8_lossy(&data));
+                    if stdout.len() > 24_000 {
+                        stdout.truncate(24_000);
+                        stdout.push_str("\n[output truncated]\n");
+                    }
+                }
+                ChannelMsg::ExtendedData { data, .. } => {
+                    stderr.push_str(&String::from_utf8_lossy(&data));
+                    if stderr.len() > 8_000 {
+                        stderr.truncate(8_000);
+                        stderr.push_str("\n[stderr truncated]\n");
+                    }
+                }
+                ChannelMsg::ExitStatus { exit_status } => {
+                    exit_code = Some(exit_status);
+                }
+                ChannelMsg::Eof | ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+
+        Ok::<SshCommandResult, String>(SshCommandResult {
+            exit_code,
+            stderr,
+            stdout,
+        })
+    })
+    .await
+    .map_err(|_| format!("remote command timed out after {} seconds", timeout.as_secs()))?;
+
+    let _ = session
+        .disconnect(Disconnect::ByApplication, "exec complete", "en")
+        .await;
+
+    result
+}
+
+fn validate_readonly_command(command: &str) -> Result<&str, String> {
+    let command = command.trim();
+
+    if command.is_empty() {
+        return Err("read-only command is empty".to_string());
+    }
+
+    if command.len() > 500 {
+        return Err("read-only command is too long".to_string());
+    }
+
+    // Block shell control operators. A single `&` can split foreground and
+    // background jobs, so checking only `&&` is not sufficient.
+    let forbidden_tokens = [
+        ";", "&", "`", "$(", ">", "<", "|", "\n", "\r",
+    ];
+
+    if let Some(token) = forbidden_tokens.iter().find(|token| command.contains(**token)) {
+        return Err(format!("read-only command rejected: forbidden token `{token}`"));
+    }
+
+    let first_word = command
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches(|value: char| value == '\'' || value == '"');
+    let allowed_commands = [
+        "cat",
+        "df",
+        "du",
+        "egrep",
+        "find",
+        "free",
+        "grep",
+        "head",
+        "id",
+        "journalctl",
+        "ls",
+        "netstat",
+        "pgrep",
+        "ps",
+        "pwd",
+        "ss",
+        "stat",
+        "tail",
+        "uname",
+        "uptime",
+        "wc",
+        "who",
+        "whoami",
+        "zcat",
+        "zgrep",
+    ];
+
+    if !allowed_commands.contains(&first_word) {
+        return Err(format!("read-only command rejected: `{first_word}` is not allowed"));
+    }
+
+    let forbidden_words = [
+        "apt",
+        "bash",
+        "chmod",
+        "chown",
+        "cp",
+        "curl",
+        "dd",
+        "dnf",
+        "kill",
+        "mkfs",
+        "mkdir",
+        "mv",
+        "perl",
+        "pkill",
+        "python",
+        "python3",
+        "reboot",
+        "rm",
+        "rmdir",
+        "service",
+        "sh",
+        "shutdown",
+        "sudo",
+        "systemctl",
+        "tee",
+        "touch",
+        "truncate",
+        "wget",
+        "yum",
+        // find is allowed for discovery, but these actions can execute
+        // commands, delete files, or write reports on the remote host.
+        "-exec",
+        "-execdir",
+        "-ok",
+        "-okdir",
+        "-delete",
+        "-fprint",
+        "-fprintf",
+        "-fls",
+        // journalctl has maintenance options that mutate journal state.
+        "--vacuum-time",
+        "--flush",
+        "--relinquish-var",
+        "--smart-relinquish-var",
+        "--sync",
+        "--vacuum-size",
+        "--vacuum-files",
+        "--rotate",
+    ];
+
+    for word in command.split(|value: char| !value.is_ascii_alphanumeric() && value != '_' && value != '-') {
+        if forbidden_words.contains(&word) {
+            return Err(format!("read-only command rejected: `{word}` is not allowed"));
+        }
+    }
+
+    Ok(command)
 }
 
 fn read_ssh_banner(stream: &mut TcpStream) -> Option<String> {

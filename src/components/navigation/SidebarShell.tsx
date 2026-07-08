@@ -1,7 +1,7 @@
 import { PanelLeftClose } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { panelCatalog } from '@/features/panels/panelCatalog';
+import { AiSidebar } from '@/features/ai/AiSidebar';
 import type { SftpSidebarExplorer } from '@/features/sftp/sftpSidebarState';
 import {
   SessionsView,
@@ -125,16 +125,7 @@ function SidebarContent({
   }
 
   if (activeActivity === 'ai') {
-    return (
-      <SidebarPanelList
-        items={[
-          { label: 'AI Assistant', panel: panelCatalog[1] },
-          { label: 'Command Diagnosis', panel: panelCatalog[1] },
-          { label: 'Provider Settings', panel: panelCatalog[1] },
-        ]}
-        onAddPanel={onAddPanel}
-      />
-    );
+    return <AiSidebar onAddPanel={onAddPanel} />;
   }
 
   if (activeActivity === 'logs') {

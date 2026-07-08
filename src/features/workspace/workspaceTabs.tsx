@@ -8,23 +8,37 @@ export type WorkspaceRenderTabValues = {
   leading: React.ReactNode;
 };
 
+export interface WorkspaceTabIdentity {
+  kindLabel: string;
+  ordinal: number;
+  shortId: string;
+}
+
 export function createWorkspaceTabRenderer({
   activePanelId,
   connectionStatuses,
+  tabIdentities,
 }: {
   activePanelId?: string;
   connectionStatuses: Record<string, ConnectionStatus>;
+  tabIdentities?: Record<string, WorkspaceTabIdentity>;
 }) {
   return (node: TabNode, renderValues: WorkspaceRenderTabValues) => {
     const config = node.getConfig() as { session?: unknown };
     const isActive = activePanelId === node.getId();
+    const identity = tabIdentities?.[node.getId()];
 
     renderValues.content = (
       <span
-        className={cn('shellpilot-tab-title', isActive && 'shellpilot-tab-title--active')}
+        className={cn('shellpilot-tab-title flex min-w-0 items-center gap-1.5', isActive && 'shellpilot-tab-title--active')}
         data-shellpilot-tab-id={node.getId()}
       >
-        {node.getName()}
+        <span className="min-w-0 truncate">{node.getName()}</span>
+        {identity && (
+          <span className="shellpilot-tab-identity-badge shrink-0 rounded border border-border/80 bg-background/50 px-1 text-[10px] leading-4 text-muted-foreground">
+            {identity.kindLabel} #{identity.ordinal}
+          </span>
+        )}
       </span>
     );
 
