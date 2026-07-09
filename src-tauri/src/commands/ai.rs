@@ -142,10 +142,7 @@ impl From<&AiPromptStreamRequest> for AiPromptRequest {
 }
 
 fn build_prompt_command(request: &AiPromptRequest) -> Result<(String, Vec<String>, Option<String>), String> {
-    let prompt = match request.context.as_deref().filter(|context| !context.trim().is_empty()) {
-        Some(context) => format!("{context}\n\nUser question:\n{}", request.prompt),
-        None => request.prompt.clone(),
-    };
+    let prompt = build_prompt_payload(request);
 
     match request.provider_id.as_str() {
         // plan mode: claude can read/reason but never executes tools or edits files, even headless.
@@ -172,6 +169,25 @@ fn build_prompt_command(request: &AiPromptRequest) -> Result<(String, Vec<String
         )),
         unknown => Err(format!("unsupported AI provider: {unknown}")),
     }
+}
+
+fn build_prompt_payload(request: &AiPromptRequest) -> String {
+    let user_request = format!(
+        "<user_request>\n{}\n</user_request>",
+        escape_xml_text(&request.prompt)
+    );
+
+    match request.context.as_deref().filter(|context| !context.trim().is_empty()) {
+        Some(context) => format!("{context}\n\n{user_request}"),
+        None => user_request,
+    }
+}
+
+fn escape_xml_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 fn run_prompt_stream(app: AppHandle, request: AiPromptStreamRequest) {

@@ -7,6 +7,7 @@ export interface ReadonlyToolStep {
 }
 
 export interface ReadonlyToolPlan {
+  intent: ReadonlyToolIntent;
   name: string;
   steps: ReadonlyToolStep[];
 }
@@ -14,9 +15,11 @@ export interface ReadonlyToolPlan {
 export interface ReadonlyToolResult {
   context: string;
   failed: boolean;
+  planName: string;
+  records: ReadonlyToolExecutionRecord[];
 }
 
-type ToolId =
+type ReadonlyToolIntent =
   | 'find_file'
   | 'inspect_path'
   | 'list_current_directory'
@@ -24,11 +27,42 @@ type ToolId =
   | 'read_log'
   | 'system_snapshot';
 
+type ReadonlyToolIntentParams =
+  | { intent: 'find_file'; query: string }
+  | { intent: 'inspect_path'; path: string }
+  | { intent: 'list_current_directory' }
+  | { intent: 'list_home' }
+  | { intent: 'read_log'; path: string }
+  | { intent: 'system_snapshot' };
+
+interface ClassifiedToolIntent {
+  source: 'classifier' | 'fast-path';
+  tool: ReadonlyToolIntentParams;
+}
+
+interface ClassifierJsonResponse {
+  intent?: string;
+  params?: {
+    path?: unknown;
+    query?: unknown;
+  };
+}
+
 interface ToolCatalogEntry {
   argHint?: string;
   description: string;
-  id: ToolId;
+  id: ReadonlyToolIntent;
   needsArg: boolean;
+}
+
+export interface ReadonlyToolExecutionRecord {
+  command: string;
+  error?: string;
+  exitCode?: number;
+  name: string;
+  stderr: string;
+  stdout: string;
+  status: 'failed' | 'success';
 }
 
 const TOOL_CATALOG: ToolCatalogEntry[] = [
@@ -43,10 +77,19 @@ const TOOL_CATALOG: ToolCatalogEntry[] = [
 const ABSOLUTE_PATH_PATTERN = /\/[\w.-]+(?:\/[\w.-]+)+\/?/;
 
 export function createReadonlyToolPlan(prompt: string): ReadonlyToolPlan | undefined {
+  const classified = createFastPathToolIntent(prompt);
+
+  return classified ? buildToolPlan(classified.tool) : undefined;
+}
+
+function createFastPathToolIntent(prompt: string): ClassifiedToolIntent | undefined {
   const explicitPath = extractPathArgument(prompt);
 
   if (explicitPath) {
-    return buildToolPlan('inspect_path', explicitPath);
+    return {
+      source: 'fast-path',
+      tool: { intent: 'inspect_path', path: explicitPath },
+    };
   }
 
   const normalized = prompt.toLowerCase();
@@ -73,7 +116,10 @@ export function createReadonlyToolPlan(prompt: string): ReadonlyToolPlan | undef
     '\uD504\uB85C\uC138\uC2A4',
     '\uB9AC\uC18C\uC2A4',
   ])) {
-    return buildToolPlan('system_snapshot');
+    return {
+      source: 'fast-path',
+      tool: { intent: 'system_snapshot' },
+    };
   }
 
   if (includesAny(normalized, [
@@ -82,7 +128,10 @@ export function createReadonlyToolPlan(prompt: string): ReadonlyToolPlan | undef
     'home \uACBD\uB85C',
     '\uD648 \uACBD\uB85C',
   ])) {
-    return buildToolPlan('list_home');
+    return {
+      source: 'fast-path',
+      tool: { intent: 'list_home' },
+    };
   }
 
   if (includesAny(normalized, [
@@ -94,23 +143,35 @@ export function createReadonlyToolPlan(prompt: string): ReadonlyToolPlan | undef
     '\uD30C\uC77C \uBB50',
     '\uBAA9\uB85D',
   ])) {
-    return buildToolPlan('list_current_directory');
+    return {
+      source: 'fast-path',
+      tool: { intent: 'list_current_directory' },
+    };
   }
 
   return undefined;
 }
 
 export async function classifyToolPlan(prompt: string, providerId: string): Promise<ReadonlyToolPlan | undefined> {
+  const classified = await classifyToolIntent(prompt, providerId);
+
+  return classified ? buildToolPlan(classified.tool) : undefined;
+}
+
+async function classifyToolIntent(prompt: string, providerId: string): Promise<ClassifiedToolIntent | undefined> {
   const catalogText = TOOL_CATALOG.map(
     (tool) => `- ${tool.id}${tool.needsArg ? ` (${tool.argHint})` : ''}: ${tool.description}`,
   ).join('\n');
   const classifierPrompt = [
     'You are a routing classifier for ShellPilot.',
-    'Choose at most one tool. Do not invent tools or shell commands.',
-    'Respond with EXACTLY one line and nothing else, in this exact format:',
-    'TOOL: <tool_id> | ARGS: <argument or NONE>',
+    'Choose at most one read-only intent. Do not invent tools, shell commands, or execution plans.',
+    'Respond with compact JSON only. Do not include Markdown, prose, or code fences.',
+    'Schema:',
+    '{"intent":"<intent_id>","params":{}}',
+    'Use {"intent":"none","params":{}} when no remote tool is needed.',
+    'For find_file use params.query. For read_log and inspect_path use params.path.',
     '',
-    'Available tools:',
+    'Available intents:',
     catalogText,
     '- none: no remote tool is needed to answer this question',
     '',
@@ -120,7 +181,9 @@ export async function classifyToolPlan(prompt: string, providerId: string): Prom
   try {
     const response = await runAiPrompt({ prompt: classifierPrompt, providerId });
 
-    return parseToolClassification(response.output);
+    const tool = parseToolClassification(response.output);
+
+    return tool ? { source: 'classifier', tool } : undefined;
   } catch {
     return undefined;
   }
@@ -128,11 +191,20 @@ export async function classifyToolPlan(prompt: string, providerId: string): Prom
 
 export async function collectReadonlyToolContext(panelId: string, session: SessionItem, plan: ReadonlyToolPlan): Promise<ReadonlyToolResult> {
   const chunks: string[] = [`Remote read-only tool plan: ${plan.name}`];
+  const records: ReadonlyToolExecutionRecord[] = [];
   let failed = false;
 
   for (const step of plan.steps) {
     try {
       const result = await runReadonlyRemoteCommand(panelId, session, step.command);
+      records.push({
+        command: step.command,
+        exitCode: result.exitCode,
+        name: step.name,
+        status: 'success',
+        stderr: result.stderr,
+        stdout: result.stdout,
+      });
 
       chunks.push(
         [
@@ -147,6 +219,14 @@ export async function collectReadonlyToolContext(panelId: string, session: Sessi
       );
     } catch (error) {
       failed = true;
+      records.push({
+        command: step.command,
+        error: error instanceof Error ? error.message : String(error),
+        name: step.name,
+        status: 'failed',
+        stderr: '',
+        stdout: '',
+      });
       chunks.push(
         [
           `## ${step.name}`,
@@ -165,13 +245,16 @@ export async function collectReadonlyToolContext(panelId: string, session: Sessi
   return {
     context: chunks.join('\n\n'),
     failed,
+    planName: plan.name,
+    records,
   };
 }
 
-function buildToolPlan(toolId: string, rawArg?: string): ReadonlyToolPlan | undefined {
-  switch (toolId) {
+function buildToolPlan(tool: ReadonlyToolIntentParams): ReadonlyToolPlan | undefined {
+  switch (tool.intent) {
     case 'system_snapshot':
       return {
+        intent: tool.intent,
         name: 'system_snapshot',
         steps: [
           { command: 'id', name: 'identity' },
@@ -186,46 +269,51 @@ function buildToolPlan(toolId: string, rawArg?: string): ReadonlyToolPlan | unde
       };
     case 'list_home':
       return {
+        intent: tool.intent,
         name: 'list_home',
         steps: [{ command: 'ls -lah ~', name: 'home_listing' }],
       };
     case 'list_current_directory':
       return {
+        intent: tool.intent,
         name: 'list_current_directory',
         steps: [{ command: 'ls -lah .', name: 'current_directory_listing' }],
       };
     case 'find_file': {
-      const name = sanitizeFilePattern(rawArg);
+      const name = sanitizeFilePattern(tool.query);
 
       if (!name) {
         return undefined;
       }
 
       return {
+        intent: tool.intent,
         name: 'find_file',
         steps: [{ command: `find ~ -maxdepth 6 -iname "*${name}*"`, name: 'find_file' }],
       };
     }
     case 'read_log': {
-      const path = sanitizeAbsolutePath(rawArg);
+      const path = sanitizeAbsolutePath(tool.path);
 
       if (!path) {
         return undefined;
       }
 
       return {
+        intent: tool.intent,
         name: 'read_log',
         steps: [{ command: `tail -n 200 -- "${path}"`, name: 'read_log' }],
       };
     }
     case 'inspect_path': {
-      const path = sanitizeAbsolutePath(rawArg);
+      const path = sanitizeAbsolutePath(tool.path);
 
       if (!path) {
         return undefined;
       }
 
       return {
+        intent: tool.intent,
         name: 'inspect_path',
         steps: [
           { command: `stat -- "${path}"`, name: 'stat' },
@@ -239,7 +327,13 @@ function buildToolPlan(toolId: string, rawArg?: string): ReadonlyToolPlan | unde
   }
 }
 
-function parseToolClassification(output: string): ReadonlyToolPlan | undefined {
+function parseToolClassification(output: string): ReadonlyToolIntentParams | undefined {
+  const jsonTool = parseJsonToolClassification(output);
+
+  if (jsonTool) {
+    return jsonTool;
+  }
+
   const match = output.match(/TOOL:\s*([a-z_]+)\s*\|\s*ARGS:\s*(.*)/i);
 
   if (!match) {
@@ -250,7 +344,78 @@ function parseToolClassification(output: string): ReadonlyToolPlan | undefined {
   const argsRaw = match[2].trim();
   const arg = argsRaw && argsRaw.toUpperCase() !== 'NONE' ? argsRaw : undefined;
 
-  return buildToolPlan(toolId, arg);
+  switch (toolId) {
+    case 'system_snapshot':
+      return { intent: 'system_snapshot' };
+    case 'list_home':
+      return { intent: 'list_home' };
+    case 'list_current_directory':
+      return { intent: 'list_current_directory' };
+    case 'find_file':
+      return arg ? { intent: 'find_file', query: arg } : undefined;
+    case 'read_log':
+      return arg ? { intent: 'read_log', path: arg } : undefined;
+    case 'inspect_path':
+      return arg ? { intent: 'inspect_path', path: arg } : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function parseJsonToolClassification(output: string): ReadonlyToolIntentParams | undefined {
+  const jsonText = extractJsonObject(output);
+
+  if (!jsonText) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText) as ClassifierJsonResponse;
+    const intent = typeof parsed.intent === 'string' ? parsed.intent.trim().toLowerCase() : '';
+    const params = parsed.params ?? {};
+
+    switch (intent) {
+      case 'system_snapshot':
+        return { intent: 'system_snapshot' };
+      case 'list_home':
+        return { intent: 'list_home' };
+      case 'list_current_directory':
+        return { intent: 'list_current_directory' };
+      case 'find_file': {
+        const query = typeof params.query === 'string' ? params.query : '';
+        return query ? { intent: 'find_file', query } : undefined;
+      }
+      case 'read_log': {
+        const path = typeof params.path === 'string' ? params.path : '';
+        return path ? { intent: 'read_log', path } : undefined;
+      }
+      case 'inspect_path': {
+        const path = typeof params.path === 'string' ? params.path : '';
+        return path ? { intent: 'inspect_path', path } : undefined;
+      }
+      default:
+        return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+function extractJsonObject(output: string): string | undefined {
+  const trimmed = output.trim();
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    return trimmed;
+  }
+
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+
+  if (start < 0 || end <= start) {
+    return undefined;
+  }
+
+  return trimmed.slice(start, end + 1);
 }
 
 function extractPathArgument(prompt: string): string | undefined {
