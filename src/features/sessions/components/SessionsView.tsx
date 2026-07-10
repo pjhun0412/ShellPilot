@@ -1,23 +1,25 @@
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, Terminal } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { PanelIcon } from '@/features/panels/PanelIcon';
 import { panelCatalog } from '@/features/panels/panelCatalog';
+import { getLocalTerminalProfile } from '@/features/terminal/localTerminalProfiles';
+import { loadPreferences, subscribePreferences } from '@/features/settings/appPreferences';
 import { loadSessionUiState, saveSessionUiState } from '@/features/sessions/sessionStorage';
 import { useSessionRegistry } from '@/features/sessions/useSessionRegistry';
 import { t } from '@/i18n';
-import type { SessionGroup, SessionItem, SessionKind, WorkspacePanel } from '@/types/workspace';
+import type { SessionGroup, SessionItem, WorkspacePanel } from '@/types/workspace';
 import { CreateSessionDialog, type CreateSessionResult } from './CreateSessionDialog';
 import { SessionTree } from './SessionTree';
 
-type SessionFilter = 'all' | 'ssh' | 'rdp' | 'local' | 'favorites';
+type SessionFilter = 'all' | 'ssh' | 'file' | 'rdp' | 'favorites';
 
 const sessionFilters: Array<{ id: SessionFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'ssh', label: 'SSH' },
+  { id: 'file', label: 'Files' },
   { id: 'rdp', label: 'RDP' },
-  { id: 'local', label: 'Local' },
   { id: 'favorites', label: 'Favorites' },
 ];
 
@@ -30,6 +32,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createDialogGroupId, setCreateDialogGroupId] = useState<string | undefined>();
   const [editingSession, setEditingSession] = useState<SessionItem | undefined>();
+  const [preferences, setPreferences] = useState(() => loadPreferences());
   const [selectedGroupId, setSelectedGroupId] = useState<string | undefined>();
   const [treeMenu, setTreeMenu] = useState<{ x: number; y: number }>();
   const {
@@ -54,6 +57,9 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
     () => filterSessionGroups(groups, activeFilter, query),
     [activeFilter, groups, query],
   );
+  const defaultLocalTerminalProfile = getLocalTerminalProfile(preferences.terminal.localTerminalProfileId);
+
+  useEffect(() => subscribePreferences(setPreferences), []);
 
   useEffect(() => {
     if (!treeMenu) {
@@ -128,7 +134,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
     openPanelForSession(session);
   };
   const openSftpSession = (session: SessionItem) => {
-    if (session.kind !== 'ssh') {
+    if (session.kind !== 'ssh' && session.kind !== 'sftp') {
       return;
     }
 
@@ -163,7 +169,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4" onContextMenu={openTreeContextMenu}>
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden" onContextMenu={openTreeContextMenu}>
       <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2">
         <label className="relative min-w-0">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -203,6 +209,23 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
           </button>
         ))}
       </div>
+
+      <button
+        className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950/45 px-3 py-2 text-left text-xs font-semibold text-slate-200 transition-colors hover:border-slate-700 hover:bg-slate-900"
+        type="button"
+        onClick={() => {
+          onAddPanel({
+            id: `local-terminal-${crypto.randomUUID()}`,
+            localPtyTarget: defaultLocalTerminalProfile.target,
+            title: defaultLocalTerminalProfile.title,
+            type: 'terminal',
+          });
+        }}
+      >
+        <Terminal className="size-4 text-primary" />
+        <span className="min-w-0 flex-1">Open Local Terminal</span>
+        <span className="truncate text-[11px] text-slate-500">{defaultLocalTerminalProfile.label}</span>
+      </button>
 
       <SessionTree
         collapsedGroupIds={collapsedGroupIds}
@@ -344,11 +367,11 @@ export function SidebarStaticList({ items }: { items: string[] }) {
 }
 
 function getPanelForSession(session: SessionItem): WorkspacePanel | undefined {
-  if (session.kind === 'ssh' || session.kind === 'local' || session.kind === 'docker' || session.kind === 'wsl') {
+  if (session.kind === 'ssh') {
     return {
       id: session.id,
       session,
-      title: `${getSessionKindLabel(session.kind)} - ${session.name}`,
+      title: `SSH - ${session.name}`,
       type: 'terminal',
     };
   }
@@ -372,14 +395,6 @@ function getPanelForSession(session: SessionItem): WorkspacePanel | undefined {
   }
 
   return undefined;
-}
-
-function getSessionKindLabel(kind: SessionKind) {
-  if (kind === 'wsl') {
-    return 'WSL';
-  }
-
-  return kind.toUpperCase();
 }
 
 function filterSessionGroups(
@@ -416,13 +431,9 @@ function matchesSessionFilter(session: SessionItem, filter: SessionFilter) {
     return Boolean(session.favorite);
   }
 
-  if (filter === 'local') {
-    return isLocalSessionKind(session.kind);
+  if (filter === 'file') {
+    return session.kind === 'sftp' || session.kind === 'ftp';
   }
 
   return session.kind === filter;
-}
-
-function isLocalSessionKind(kind: SessionKind) {
-  return kind === 'local' || kind === 'docker' || kind === 'wsl';
 }

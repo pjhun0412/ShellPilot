@@ -135,10 +135,6 @@ function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
       ),
   );
 
-  if (missingTabs.length === 0) {
-    return borders;
-  }
-
   const bottomBorderIndex = borders.findIndex((border) => border.location === 'bottom');
 
   if (bottomBorderIndex >= 0) {
@@ -151,7 +147,7 @@ function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
         ...border,
         children: [...(border.children ?? []), ...missingTabs],
         selected: border.selected ?? 0,
-        size: border.size ?? 190,
+        size: normalizeBottomBorderSize(border.size),
       };
     });
   }
@@ -167,6 +163,14 @@ function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
       children: missingTabs,
     },
   ];
+}
+
+function normalizeBottomBorderSize(value: unknown) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return 190;
+  }
+
+  return Math.min(Math.max(value, 140), 320);
 }
 
 function forceClosableTabs(value: unknown): unknown {
@@ -216,6 +220,10 @@ function sanitizeWorkspaceNode(value: unknown): unknown {
 
   for (const [key, childValue] of Object.entries(node)) {
     nextNode[key] = sanitizeWorkspaceNode(childValue);
+  }
+
+  if (node.type === 'border' && node.location === 'bottom') {
+    nextNode.size = normalizeBottomBorderSize(node.size);
   }
 
   if (node.type === 'tab' && node.config && typeof node.config === 'object') {

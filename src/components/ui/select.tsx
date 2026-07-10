@@ -13,7 +13,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'session-input flex items-center justify-between gap-2 border-slate-700/90 bg-slate-950/80 font-medium text-slate-100 shadow-inner shadow-black/20 hover:border-slate-600 hover:bg-slate-950 focus:border-primary focus:shadow-[0_0_0_2px_hsl(var(--ring)/0.16)] data-[placeholder]:text-slate-500',
+      'session-input flex items-center justify-between gap-2 font-medium hover:border-slate-600 focus:border-primary focus:shadow-[0_0_0_2px_hsl(var(--ring)/0.16)] data-[placeholder]:text-slate-500',
       className,
     )}
     {...props}
@@ -35,13 +35,13 @@ const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-slate-700/90 bg-slate-950 text-slate-100 shadow-xl shadow-black/45',
+        'app-scrollbar z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-slate-700/90 bg-slate-950 text-slate-100 shadow-xl shadow-black/45',
         position === 'popper' && 'translate-y-1',
         className,
       )}
       {...props}
     >
-      <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+      <SelectPrimitive.Viewport className="app-scrollbar max-h-72 overflow-y-auto p-1">{children}</SelectPrimitive.Viewport>
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
 ));

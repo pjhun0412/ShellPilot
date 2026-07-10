@@ -1,7 +1,7 @@
 import type { Model, TabNode } from 'flexlayout-react';
 
 import type { SftpSidebarExplorer } from '@/features/sftp/sftpSidebarState';
-import type { WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
+import type { WorkspaceLocalPtyTarget, WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
 
 import { readSessionConfig } from './WorkspaceTabMenu';
 
@@ -14,7 +14,12 @@ export function collectWorkspaceTabs(model: Model): WorkspaceTabItem[] {
     }
 
     const tab = node as TabNode;
-    const config = tab.getConfig() as { aiBinding?: WorkspaceTabItem['aiBinding']; panelType?: string; session?: unknown };
+    const config = tab.getConfig() as {
+      aiBinding?: WorkspaceTabItem['aiBinding'];
+      localPtyTarget?: WorkspaceTabItem['localPtyTarget'];
+      panelType?: string;
+      session?: unknown;
+    };
 
     if (!isWorkspacePanelType(config.panelType)) {
       return;
@@ -25,6 +30,7 @@ export function collectWorkspaceTabs(model: Model): WorkspaceTabItem[] {
     tabs.push({
       aiBinding: config.aiBinding,
       id: tab.getId(),
+      localPtyTarget: readLocalPtyTargetConfig(config.localPtyTarget),
       session,
       title: tab.getName(),
       type: config.panelType,
@@ -65,4 +71,24 @@ export function collectSftpExplorers(model: Model): SftpSidebarExplorer[] {
 
 function isWorkspacePanelType(value: unknown): value is WorkspacePanelType {
   return value === 'terminal' || value === 'sftp' || value === 'ai' || value === 'rdp' || value === 'settings';
+}
+
+function readLocalPtyTargetConfig(value: unknown): WorkspaceTabItem['localPtyTarget'] {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const target = value as Partial<WorkspaceLocalPtyTarget>;
+
+  if (typeof target.command !== 'string' || target.command.trim().length === 0) {
+    return undefined;
+  }
+
+  return {
+    args: Array.isArray(target.args)
+      ? target.args.filter((arg): arg is string => typeof arg === 'string')
+      : undefined,
+    command: target.command,
+    cwd: typeof target.cwd === 'string' ? target.cwd : undefined,
+  };
 }

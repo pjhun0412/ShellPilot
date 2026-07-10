@@ -1504,7 +1504,7 @@ async fn open_sftp_connection(
 ) -> Result<SftpConnection, String> {
     let auth = SshAuthRequest::from_target(&target);
     let config = Arc::new(client::Config {
-        inactivity_timeout: Some(Duration::from_secs(30)),
+        inactivity_timeout: None,
         keepalive_interval: Some(Duration::from_secs(30)),
         keepalive_max: 3,
         ..Default::default()

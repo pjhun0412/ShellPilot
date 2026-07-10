@@ -55,6 +55,7 @@ export function panelFactory(node: TabNode) {
 type PanelNodeConfig = {
   aiBinding?: WorkspacePanel['aiBinding'];
   autoConnect?: boolean;
+  localPtyTarget?: WorkspacePanel['localPtyTarget'];
   panelType?: WorkspacePanelType | 'logs' | 'sftp-transfer-queue';
   session?: WorkspacePanel['session'];
 };
@@ -74,6 +75,7 @@ function createWorkspacePanelFromNode(
       aiBinding: config.aiBinding,
       id: node.getId(),
       autoConnect: config.autoConnect,
+      localPtyTarget: config.localPtyTarget,
       session: config.session,
       title: node.getName(),
       type: panelType,

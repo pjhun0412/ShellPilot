@@ -1,7 +1,7 @@
 import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
 import { availableMonitors, getCurrentWindow } from '@tauri-apps/api/window';
 
-const windowStateStorageKey = 'shellpilot.windowState.v1';
+const windowStateStorageKey = 'shellpilot.windowState.v2';
 const minWindowWidth = 960;
 const minWindowHeight = 640;
 
@@ -17,11 +17,12 @@ interface StoredWindowState {
 export function initializeWindowStatePersistence() {
   const appWindow = getCurrentWindow();
   let saveTimer: number | undefined;
+  let canPersist = false;
   let isDisposed = false;
   const unlistenCallbacks: Array<() => void> = [];
 
   const saveSoon = () => {
-    if (isDisposed) {
+    if (isDisposed || !canPersist) {
       return;
     }
 
@@ -40,6 +41,7 @@ export function initializeWindowStatePersistence() {
         return;
       }
 
+      canPersist = true;
       void appWindow.onResized(saveSoon).then((unlisten) => {
         if (isDisposed) {
           unlisten();
@@ -58,12 +60,18 @@ export function initializeWindowStatePersistence() {
       });
     });
 
-  window.addEventListener('beforeunload', saveWindowStateBeforeUnload);
+  const saveBeforeUnload = () => {
+    if (canPersist) {
+      void saveCurrentWindowState();
+    }
+  };
+
+  window.addEventListener('beforeunload', saveBeforeUnload);
 
   return () => {
     isDisposed = true;
     window.clearTimeout(saveTimer);
-    window.removeEventListener('beforeunload', saveWindowStateBeforeUnload);
+    window.removeEventListener('beforeunload', saveBeforeUnload);
     for (const unlisten of unlistenCallbacks) {
       unlisten();
     }
@@ -92,15 +100,11 @@ async function restoreWindowState() {
   }
 }
 
-function saveWindowStateBeforeUnload() {
-  void saveCurrentWindowState();
-}
-
 async function saveCurrentWindowState() {
   const appWindow = getCurrentWindow();
   const [position, size, maximized] = await Promise.all([
     appWindow.outerPosition(),
-    appWindow.outerSize(),
+    appWindow.innerSize(),
     appWindow.isMaximized(),
   ]);
 

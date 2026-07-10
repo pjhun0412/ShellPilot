@@ -24,6 +24,18 @@ export function SessionBasicFields({
   form: UseFormReturn<CreateSessionInput>;
   groupId: string | undefined;
 }) {
+  const kind = form.watch('kind');
+  const isFileTransferSession = kind === 'sftp' || kind === 'ftp';
+  const authOptions =
+    kind === 'ftp' || kind === 'rdp'
+      ? [{ label: 'Password', value: 'password' as const }]
+      : [
+          { label: 'Password', value: 'password' as const },
+          { label: 'SSH Key', value: 'key' as const },
+          { label: 'SSH Agent', value: 'agent' as const },
+          { label: 'Interactive', value: 'interactive' as const },
+        ];
+
   return (
     <div className="grid grid-cols-2 gap-3">
       <SessionField label="Name" error={form.formState.errors.name?.message}>
@@ -62,14 +74,45 @@ export function SessionBasicFields({
           />
         </SessionField>
       )}
+      {isFileTransferSession && (
+        <SessionField className="col-span-2" label="Protocol" error={form.formState.errors.kind?.message}>
+          <Select
+            value={kind}
+            onValueChange={(value) =>
+              form.setValue('kind', value as CreateSessionInput['kind'], {
+                shouldDirty: true,
+                shouldValidate: true,
+              })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sftp">SFTP</SelectItem>
+              <SelectItem value="ftp">FTP</SelectItem>
+            </SelectContent>
+          </Select>
+        </SessionField>
+      )}
       <SessionField label="Host" error={form.formState.errors.host?.message}>
         <input className="session-input" {...form.register('host')} />
       </SessionField>
       <SessionField label="Port" error={form.formState.errors.port?.message}>
         <input
           className="session-input"
-          type="number"
-          {...form.register('port', { valueAsNumber: true })}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          {...form.register('port', {
+            setValueAs: (value) => {
+              if (value === '' || value == null) {
+                return undefined;
+              }
+
+              const parsed = Number(value);
+              return Number.isFinite(parsed) ? parsed : undefined;
+            },
+          })}
         />
       </SessionField>
       <SessionField label="Username" error={form.formState.errors.username?.message}>
@@ -89,10 +132,11 @@ export function SessionBasicFields({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="password">Password</SelectItem>
-            <SelectItem value="key">SSH Key</SelectItem>
-            <SelectItem value="agent">SSH Agent</SelectItem>
-            <SelectItem value="interactive">Interactive</SelectItem>
+            {authOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </SessionField>

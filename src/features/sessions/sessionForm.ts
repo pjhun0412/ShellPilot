@@ -45,12 +45,14 @@ export function getSessionFormValues({
   }
 
   return {
-    kind: initialSession.kind === 'sftp' ? 'ssh' : initialSession.kind,
+    kind: initialSession.kind === 'sftp' || initialSession.kind === 'ftp' || initialSession.kind === 'rdp'
+      ? initialSession.kind
+      : 'ssh',
     name: initialSession.name,
     groupId: initialSession.groupId ?? '',
     newGroupName: '',
     host: initialSession.host ?? '',
-    port: initialSession.port ?? (initialSession.kind === 'rdp' ? 3389 : 22),
+    port: initialSession.port ?? getDefaultPort(initialSession.kind),
     username: initialSession.username ?? '',
     authMethod:
       initialSession.authMethod === 'os-credential'
@@ -66,6 +68,18 @@ export function getSessionFormValues({
     tags: initialSession.tags?.join(', ') ?? '',
     favorite: Boolean(initialSession.favorite),
   };
+}
+
+function getDefaultPort(kind: SessionItem['kind']) {
+  if (kind === 'rdp') {
+    return 3389;
+  }
+
+  if (kind === 'ftp') {
+    return 21;
+  }
+
+  return 22;
 }
 
 export function buildCreateSessionResult({

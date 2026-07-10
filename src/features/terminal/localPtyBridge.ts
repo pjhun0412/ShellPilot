@@ -45,6 +45,10 @@ export async function closeLocalPty(panelId: string) {
   await invoke('local_pty_close', { panelId });
 }
 
+export async function openElevatedLocalTerminal(shell: 'cmd' | 'powershell') {
+  await invoke('open_elevated_local_terminal', { shell });
+}
+
 export async function pasteClipboardToLocalPty(panelId: string) {
   const text = await navigator.clipboard.readText().catch(() => '');
 

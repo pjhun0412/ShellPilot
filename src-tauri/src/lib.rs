@@ -32,6 +32,7 @@ pub fn run() {
             commands::local_pty::local_pty_open,
             commands::local_pty::local_pty_resize,
             commands::local_pty::local_pty_write,
+            commands::local_pty::open_elevated_local_terminal,
             commands::sessions::load_session_registry,
             commands::sessions::save_session_registry,
             commands::ssh::clear_ssh_known_hosts,

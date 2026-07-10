@@ -2,6 +2,7 @@ import { AiAssistantPanel } from '@/features/ai/AiAssistantPanel';
 import { BoundAiPanel } from '@/features/ai/BoundAiPanel';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
 import { SftpPanel } from '@/features/sftp/SftpPanel';
+import { LocalPtyTerminal } from '@/features/terminal/LocalPtyTerminal';
 import { SshTerminal } from '@/features/terminal/SshTerminal';
 import {
   FilePanelPlaceholder,
@@ -26,7 +27,9 @@ export function PanelBody({
   if (panel.type === 'terminal') {
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
-        {panel.session?.kind === 'ssh' ? (
+        {panel.localPtyTarget ? (
+          <LocalPtyTerminal panelId={panel.id} target={panel.localPtyTarget} />
+        ) : panel.session?.kind === 'ssh' ? (
           <SshTerminal
             autoConnect={panel.autoConnect !== false}
             panelId={panel.id}

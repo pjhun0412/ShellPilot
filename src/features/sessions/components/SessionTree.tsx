@@ -535,7 +535,7 @@ function SessionContextMenu({
       <ContextMenuContent>
         <ContextMenuLabel>{session.name}</ContextMenuLabel>
         <ContextMenuItem onSelect={onOpenSession}>Connect</ContextMenuItem>
-        <ContextMenuItem disabled={session.kind !== 'ssh'} onSelect={onOpenSftpSession}>
+        <ContextMenuItem disabled={session.kind !== 'ssh' && session.kind !== 'sftp'} onSelect={onOpenSftpSession}>
           Open SFTP
         </ContextMenuItem>
         <ContextMenuSeparator />

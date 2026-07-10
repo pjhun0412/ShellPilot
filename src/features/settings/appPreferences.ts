@@ -1,3 +1,9 @@
+import {
+  defaultLocalTerminalProfileId,
+  localTerminalProfiles,
+  type LocalTerminalProfileId,
+} from '@/features/terminal/localTerminalProfiles';
+
 export interface ShellPilotPreferences {
   connection: {
     keepaliveIntervalSeconds: number;
@@ -12,6 +18,7 @@ export interface ShellPilotPreferences {
     fontFamily: string;
     fontSize: number;
     lineHeight: number;
+    localTerminalProfileId: LocalTerminalProfileId;
     scrollback: number;
   };
   workspace: {
@@ -137,6 +144,7 @@ export const defaultPreferences: ShellPilotPreferences = {
     fontFamily: 'Cascadia Mono, D2Coding, Consolas, monospace',
     fontSize: 13,
     lineHeight: 1.35,
+    localTerminalProfileId: defaultLocalTerminalProfileId,
     scrollback: 5000,
   },
   workspace: {
@@ -202,6 +210,7 @@ function normalizePreferences(value: Partial<ShellPilotPreferences>): ShellPilot
       fontFamily: value.terminal?.fontFamily?.trim() || defaultPreferences.terminal.fontFamily,
       fontSize: clampNumber(value.terminal?.fontSize, 10, 24, defaultPreferences.terminal.fontSize),
       lineHeight: clampNumber(value.terminal?.lineHeight, 1, 2, defaultPreferences.terminal.lineHeight),
+      localTerminalProfileId: normalizeLocalTerminalProfileId(value.terminal?.localTerminalProfileId),
       scrollback: clampNumber(value.terminal?.scrollback, 1000, 100000, defaultPreferences.terminal.scrollback),
     },
     workspace: {
@@ -209,6 +218,16 @@ function normalizePreferences(value: Partial<ShellPilotPreferences>): ShellPilot
         value.workspace?.showTransferQueueOnStartup ?? defaultPreferences.workspace.showTransferQueueOnStartup,
     },
   };
+}
+
+function normalizeLocalTerminalProfileId(value: unknown): LocalTerminalProfileId {
+  if (typeof value !== 'string') {
+    return defaultLocalTerminalProfileId;
+  }
+
+  return localTerminalProfiles.some((profile) => profile.id === value)
+    ? (value as LocalTerminalProfileId)
+    : defaultLocalTerminalProfileId;
 }
 
 function normalizeDiagnosticRules(value: unknown): DiagnosticHighlightRule[] {

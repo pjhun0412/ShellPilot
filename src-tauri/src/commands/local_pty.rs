@@ -104,6 +104,45 @@ pub async fn local_pty_close(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn open_elevated_local_terminal(shell: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || open_elevated_local_terminal_blocking(&shell))
+        .await
+        .map_err(|error| format!("failed to open elevated terminal: {error}"))?
+}
+
+#[cfg(windows)]
+fn open_elevated_local_terminal_blocking(shell: &str) -> Result<(), String> {
+    let normalized = shell.trim().to_ascii_lowercase();
+    let script = match normalized.as_str() {
+        "powershell" | "powershell.exe" => {
+            "Start-Process -FilePath 'powershell.exe' -ArgumentList '-NoLogo -NoExit' -Verb RunAs"
+        }
+        "cmd" | "cmd.exe" => "Start-Process -FilePath 'cmd.exe' -Verb RunAs",
+        _ => return Err("unsupported elevated local terminal shell".to_string()),
+    };
+
+    let mut command = std::process::Command::new("powershell.exe");
+    command.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]);
+
+    command
+        .spawn()
+        .map_err(|error| format!("failed to request elevation: {error}"))?;
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn open_elevated_local_terminal_blocking(_shell: &str) -> Result<(), String> {
+    Err("elevated local terminals are only supported on Windows".to_string())
+}
+
 fn close_session(store: &LocalPtySessionStore, panel_id: &str) {
     if let Some(mut handle) = store.sessions.lock().unwrap().remove(panel_id) {
         let _ = handle.child.kill();

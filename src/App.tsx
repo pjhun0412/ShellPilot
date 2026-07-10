@@ -10,6 +10,7 @@ import { panelCatalog } from '@/features/panels/panelCatalog';
 import {
   requestSftpSidebarNavigation,
 } from '@/features/sftp/sftpSidebarState';
+import { openElevatedLocalTerminal } from '@/features/terminal/localPtyBridge';
 import { Workspace } from '@/features/workspace/Workspace';
 import {
   createBoundAiBinding,
@@ -25,7 +26,7 @@ import {
   getSelectedBottomBorderTab,
 } from '@/features/workspace/workspaceNodeUtils';
 import { collectSftpExplorers, collectWorkspaceTabs } from '@/features/workspace/workspaceTabCollection';
-import type { ActivityId, WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
+import type { ActivityId, WorkspaceLocalPtyTarget, WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
 
 export function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -44,9 +45,20 @@ export function App() {
     return nextModel;
   }, []);
   const modelRef = useRef(model);
+  const didMountRef = useRef(false);
+  const isHydratingLayoutRef = useRef(true);
+  const layoutDirtyRef = useRef(false);
   const previousActivePanelIdRef = useRef<string>();
 
   useEffect(() => initializeWindowStatePersistence(), []);
+
+  useEffect(() => {
+    const hydrationTimer = window.setTimeout(() => {
+      isHydratingLayoutRef.current = false;
+    }, 1000);
+
+    return () => window.clearTimeout(hydrationTimer);
+  }, []);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -65,8 +77,20 @@ export function App() {
   };
 
   useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+
+    if (isHydratingLayoutRef.current) {
+      return;
+    }
+
+    layoutDirtyRef.current = true;
+
     const saveTimer = window.setTimeout(() => {
       saveWorkspaceLayout(modelRef.current.toJson());
+      layoutDirtyRef.current = false;
     }, 450);
 
     return () => window.clearTimeout(saveTimer);
@@ -84,7 +108,9 @@ export function App() {
       }
     };
     const saveBeforeUnload = () => {
-      saveWorkspaceLayout(modelRef.current.toJson());
+      if (!isHydratingLayoutRef.current && layoutDirtyRef.current) {
+        saveWorkspaceLayout(modelRef.current.toJson());
+      }
     };
 
     window.addEventListener('contextmenu', suppressBrowserContextMenu);
@@ -120,7 +146,12 @@ export function App() {
           name: panel.title,
           enableClose: true,
           component: 'panel',
-          config: { autoConnect: true, panelType: panel.type, session: panel.session },
+          config: {
+            autoConnect: true,
+            localPtyTarget: panel.localPtyTarget,
+            panelType: panel.type,
+            session: panel.session,
+          },
         },
         activeTabset.getId(),
         DockLocation.CENTER,
@@ -133,7 +164,7 @@ export function App() {
     setLayoutVersion((version) => version + 1);
   };
   const openSftpForSession = (session: NonNullable<WorkspacePanel['session']>) => {
-    if (session.kind !== 'ssh') {
+    if (session.kind !== 'ssh' && session.kind !== 'sftp') {
       return;
     }
 
@@ -144,6 +175,27 @@ export function App() {
       type: 'sftp',
     });
     setActiveActivity('files');
+  };
+  const openLocalTerminal = ({
+    target,
+    title,
+  }: {
+    target: WorkspaceLocalPtyTarget;
+    title: string;
+  }) => {
+    const panelId = `local-terminal-${crypto.randomUUID()}`;
+
+    addPanel({
+      id: panelId,
+      localPtyTarget: target,
+      title,
+      type: 'terminal',
+    });
+  };
+  const openElevatedTerminal = (shell: 'cmd' | 'powershell') => {
+    void openElevatedLocalTerminal(shell).catch((error) => {
+      console.error('failed to open elevated local terminal', error);
+    });
   };
   const openSettings = () => {
     const settingsPanel = panelCatalog.find((panel) => panel.type === 'settings');
@@ -161,6 +213,10 @@ export function App() {
     [layoutVersion],
   );
   const activePanelId = useMemo(() => getSelectedPanelId(modelRef.current), [layoutVersion]);
+  const isAiAssistantVisible = useMemo(
+    () => isBottomBorderTabVisible(modelRef.current, 'ai-assistant'),
+    [layoutVersion],
+  );
   const isTransferQueueVisible = useMemo(
     () => isBottomBorderTabVisible(modelRef.current, 'sftp-transfer-queue'),
     [layoutVersion],
@@ -188,8 +244,8 @@ export function App() {
     setLastAddedPanelId(panelId);
     setLayoutVersion((version) => version + 1);
   };
-  const toggleTransferQueue = () => {
-    if (isTransferQueueVisible) {
+  const toggleBottomBorderTab = (tabId: string) => {
+    if (isBottomBorderTabVisible(modelRef.current, tabId)) {
       const bottomBorderId = getBottomBorderId(modelRef.current);
 
       if (bottomBorderId) {
@@ -199,7 +255,9 @@ export function App() {
       return;
     }
 
-    selectWorkspaceTab('sftp-transfer-queue');
+    focusWorkspaceTab(modelRef.current, tabId);
+    setLastAddedPanelId(undefined);
+    setLayoutVersion((version) => version + 1);
   };
   const closeWorkspaceTab = (panelId: string) => {
     const node = modelRef.current.getNodeById(panelId);
@@ -216,11 +274,11 @@ export function App() {
     setLayoutVersion((version) => version + 1);
   };
   const cloneWorkspaceTab = (tab: WorkspaceTabItem, remotePath?: string) => {
-    if (!tab.session) {
+    if (!tab.session && !tab.localPtyTarget) {
       return;
     }
 
-    const tabId = `${tab.type}-${tab.session.id}-${Date.now()}`;
+    const tabId = `${tab.type}-${tab.session?.id ?? 'local'}-${Date.now()}`;
     const activeTabset = modelRef.current.getActiveTabset() ?? modelRef.current.getFirstTabSet();
 
     modelRef.current.doAction(
@@ -231,7 +289,12 @@ export function App() {
           name: tab.title,
           enableClose: true,
           component: 'panel',
-          config: { autoConnect: true, panelType: tab.type, session: tab.session },
+          config: {
+            autoConnect: true,
+            localPtyTarget: tab.localPtyTarget,
+            panelType: tab.type,
+            session: tab.session,
+          },
         },
         activeTabset.getId(),
         DockLocation.CENTER,
@@ -292,9 +355,13 @@ export function App() {
   return (
     <main className="workspace-bg grid h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
       <MenuBar
+        isAiAssistantVisible={isAiAssistantVisible}
         isTransferQueueVisible={isTransferQueueVisible}
+        onOpenElevatedLocalTerminal={openElevatedTerminal}
+        onOpenLocalTerminal={openLocalTerminal}
         onOpenSettings={openSettings}
-        onToggleTransferQueue={toggleTransferQueue}
+        onToggleAiAssistant={() => toggleBottomBorderTab('ai-assistant')}
+        onToggleTransferQueue={() => toggleBottomBorderTab('sftp-transfer-queue')}
       />
 
       <section

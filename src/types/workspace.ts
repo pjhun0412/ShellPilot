@@ -1,4 +1,4 @@
-export type SessionKind = 'local' | 'ssh' | 'sftp' | 'rdp' | 'docker' | 'wsl';
+export type SessionKind = 'ftp' | 'local' | 'ssh' | 'sftp' | 'rdp' | 'docker' | 'wsl';
 
 export type SessionStatus = 'online' | 'offline' | 'unknown' | 'connecting' | 'ready';
 
@@ -37,6 +37,12 @@ export interface SessionGroup {
   sessions: SessionItem[];
 }
 
+export interface WorkspaceLocalPtyTarget {
+  args?: string[];
+  command: string;
+  cwd?: string;
+}
+
 export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'settings';
 
 export interface AiPanelBinding {
@@ -55,6 +61,7 @@ export interface WorkspacePanel {
   aiBinding?: AiPanelBinding;
   autoConnect?: boolean;
   id: string;
+  localPtyTarget?: WorkspaceLocalPtyTarget;
   session?: SessionItem;
   title: string;
   type: WorkspacePanelType;
@@ -63,6 +70,7 @@ export interface WorkspacePanel {
 export interface WorkspaceTabItem {
   aiBinding?: AiPanelBinding;
   id: string;
+  localPtyTarget?: WorkspaceLocalPtyTarget;
   session?: SessionItem;
   title: string;
   type: WorkspacePanelType;

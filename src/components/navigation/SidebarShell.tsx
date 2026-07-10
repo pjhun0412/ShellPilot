@@ -41,7 +41,7 @@ export function SidebarShell({
   }
 
   return (
-    <aside className="flex min-w-0 flex-col gap-4 border-r bg-card p-4">
+    <aside className="app-scrollbar flex min-w-0 flex-col gap-4 overflow-hidden border-r bg-card p-4">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-2">
         <div className="min-w-0">
           <h1 className="truncate text-base font-bold text-slate-50">{getActivityTitle(activeActivity)}</h1>
@@ -60,7 +60,7 @@ export function SidebarShell({
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-hidden">
         <SidebarContent
           activeActivity={activeActivity}
           activePanelId={activePanelId}
