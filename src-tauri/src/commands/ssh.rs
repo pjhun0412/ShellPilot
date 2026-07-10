@@ -373,7 +373,7 @@ pub async fn ssh_run_readonly_commands(
         .iter()
         .enumerate()
         .map(|(index, command)| {
-            let command = validate_readonly_command(command)?.to_string();
+            let command = validate_readonly_command(command)?;
             let working_directory = request
                 .working_directories
                 .as_ref()
@@ -382,7 +382,7 @@ pub async fn ssh_run_readonly_commands(
                 .map(validate_readonly_working_directory)
                 .transpose()?;
 
-            Ok::<String, String>(format_readonly_command(command, working_directory))
+            build_readonly_execution_string(command, working_directory)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -914,15 +914,29 @@ fn validate_readonly_working_directory(directory: &str) -> Result<&str, String> 
     Ok(directory)
 }
 
-fn format_readonly_command(command: String, working_directory: Option<&str>) -> String {
-    match working_directory {
-        Some(directory) if directory.starts_with("~/") => {
-            format!("cd -- {} && {}", directory, command)
-        }
-        Some(directory) => {
-            format!("cd -- \"{}\" && {}", directory, command)
-        }
-        None => command,
+// Builds the final string that is actually sent to the remote shell. This is
+// deliberately a separate check from `validate_readonly_command`: that
+// function validates a bare user-facing command, never one containing `&&`.
+// This wrapper is the one place allowed to introduce `&&`, and only in this
+// exact `cd -- "<dir>" && <command>` shape, over pieces that were already
+// validated independently. Re-checking the directory here (instead of just
+// trusting the caller) means a future change to `validate_readonly_working_directory`
+// or to this function can't silently widen what reaches the remote shell.
+fn build_readonly_execution_string(command: &str, working_directory: Option<&str>) -> Result<String, String> {
+    let Some(directory) = working_directory else {
+        return Ok(command.to_string());
+    };
+
+    if directory.is_empty() || directory.contains('"') {
+        return Err("read-only command rejected: working directory wrapper is malformed".to_string());
+    }
+
+    let prefix = format!("cd -- \"{directory}\" && ");
+    let assembled = format!("{prefix}{command}");
+
+    match assembled.strip_prefix(prefix.as_str()) {
+        Some(remainder) if remainder == command => Ok(assembled),
+        _ => Err("read-only command rejected: working directory wrapper structure mismatch".to_string()),
     }
 }
 

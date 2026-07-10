@@ -12,6 +12,7 @@ import {
   type LocalPtyTarget,
 } from './localPtyBridge';
 import { bindLocalPtyInput } from './localPtyInput';
+import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
 import { subscribeTerminalClosing } from './terminalLifecycle';
 
 export type LocalPtyStatus = 'closed' | 'connected' | 'connecting' | 'failed';
@@ -42,6 +43,7 @@ export function useLocalPtyLifecycle({
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
     fitTerminal(panelId, terminal, fitAddon);
     setStatus('connecting');
 
@@ -108,6 +110,7 @@ export function useLocalPtyLifecycle({
       isDisposed = true;
       void closeLocalPty(panelId);
       inputBinding.dispose();
+      diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
       unlisten?.();

@@ -5,6 +5,7 @@ import { ActivityBar } from '@/components/navigation/ActivityBar';
 import { SidebarShell } from '@/components/navigation/SidebarShell';
 import { AppDialogProvider } from '@/components/ui/app-dialog';
 import { MenuBar } from '@/components/shell/MenuBar';
+import { initializeWindowStatePersistence } from '@/features/settings/windowState';
 import { panelCatalog } from '@/features/panels/panelCatalog';
 import {
   requestSftpSidebarNavigation,
@@ -44,6 +45,8 @@ export function App() {
   }, []);
   const modelRef = useRef(model);
   const previousActivePanelIdRef = useRef<string>();
+
+  useEffect(() => initializeWindowStatePersistence(), []);
 
   const startSidebarResize = (event: React.PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -158,6 +161,10 @@ export function App() {
     [layoutVersion],
   );
   const activePanelId = useMemo(() => getSelectedPanelId(modelRef.current), [layoutVersion]);
+  const isTransferQueueVisible = useMemo(
+    () => isBottomBorderTabVisible(modelRef.current, 'sftp-transfer-queue'),
+    [layoutVersion],
+  );
   useEffect(() => {
     if (previousActivePanelIdRef.current === activePanelId) {
       return;
@@ -177,9 +184,22 @@ export function App() {
       return;
     }
 
-    modelRef.current.doAction(Actions.selectTab(panelId));
+    focusWorkspaceTab(modelRef.current, panelId);
     setLastAddedPanelId(panelId);
     setLayoutVersion((version) => version + 1);
+  };
+  const toggleTransferQueue = () => {
+    if (isTransferQueueVisible) {
+      const bottomBorderId = getBottomBorderId(modelRef.current);
+
+      if (bottomBorderId) {
+        modelRef.current.doAction(Actions.updateNodeAttributes(bottomBorderId, { show: false } as never));
+        setLayoutVersion((version) => version + 1);
+      }
+      return;
+    }
+
+    selectWorkspaceTab('sftp-transfer-queue');
   };
   const closeWorkspaceTab = (panelId: string) => {
     const node = modelRef.current.getNodeById(panelId);
@@ -271,7 +291,11 @@ export function App() {
 
   return (
     <main className="workspace-bg grid h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-      <MenuBar onOpenSettings={openSettings} />
+      <MenuBar
+        isTransferQueueVisible={isTransferQueueVisible}
+        onOpenSettings={openSettings}
+        onToggleTransferQueue={toggleTransferQueue}
+      />
 
       <section
         className="grid min-h-0"
@@ -327,6 +351,15 @@ export function App() {
       <AppDialogProvider />
     </main>
   );
+}
+
+function isBottomBorderTabVisible(model: Model, tabId: string) {
+  const bottomBorder = model
+    .getBorderSet()
+    .getBorders()
+    .find((border) => border.getLocation().getName() === 'bottom');
+
+  return bottomBorder?.isShowing() === true && bottomBorder.getSelectedNode()?.getId() === tabId;
 }
 
 function clamp(value: number, min: number, max: number) {

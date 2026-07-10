@@ -9,6 +9,7 @@ import { RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { loadPreferences, updatePreferences } from '@/features/settings/appPreferences';
 import type { SessionItem } from '@/types/workspace';
 import { SftpClosedCard, SftpRestoredCard } from './SftpPanelChrome';
 import { SftpFileTable } from './SftpFileTable';
@@ -59,9 +60,24 @@ export function SftpPanel({
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(0);
-  const [showHiddenEntries, setShowHiddenEntries] = useState(true);
+  const [showHiddenEntries, setShowHiddenEntriesState] = useState(() => loadPreferences().sftp.showHiddenFiles);
   const [showPermissions, setShowPermissions] = useState(true);
   const [sorting, setSorting] = useState<SortingState>([{ desc: false, id: 'name' }]);
+  const setShowHiddenEntries = useCallback((value: boolean | ((current: boolean) => boolean)) => {
+    setShowHiddenEntriesState((current) => {
+      const nextValue = typeof value === 'function' ? value(current) : value;
+
+      updatePreferences((preferences) => ({
+        ...preferences,
+        sftp: {
+          ...preferences.sftp,
+          showHiddenFiles: nextValue,
+        },
+      }));
+
+      return nextValue;
+    });
+  }, []);
   const resetSelectionFromLifecycle = useCallback(() => {
     resetSelectionRef.current();
   }, []);

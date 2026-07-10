@@ -16,6 +16,7 @@ import { createXtermTerminal } from './createXtermTerminal';
 import { handleSshTerminalEvent, type SshCloseIntent, type SshHostKeyWarning } from './sshTerminalEventHandler';
 import { bindSshTerminalInput } from './sshTerminalInput';
 import { getSshOpenFailure, type SshTerminalFailure } from './sshTerminalUi';
+import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
 import type { SshTerminalUiStatus } from './useSshTerminalStatus';
 
 interface UseSshTerminalLifecycleOptions {
@@ -63,6 +64,7 @@ export function useSshTerminalLifecycle({
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     registerTerminal(panelId, terminal);
+    const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
     fitTerminal(panelId, terminal, fitAddon);
     if (autoConnect) {
       terminal.writeln(`Connecting to ${endpointLabel}...`);
@@ -144,6 +146,7 @@ export function useSshTerminalLifecycle({
       closeIntentRef.current = 'dispose';
       void closeSshShell(panelId);
       inputBinding.dispose();
+      diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
       unsubscribeDisconnect();

@@ -1,5 +1,6 @@
 import type { IJsonModel } from 'flexlayout-react';
 
+import { loadPreferences } from '@/features/settings/appPreferences';
 import { loadSessionGroups } from '@/features/sessions/sessionStorage';
 import type { SessionItem } from '@/types/workspace';
 
@@ -24,6 +25,7 @@ export const initialLayout: IJsonModel = {
       location: 'bottom',
       size: 190,
       selected: 0,
+      show: loadPreferences().workspace.showTransferQueueOnStartup,
       children: [
         {
           type: 'tab',
@@ -161,6 +163,7 @@ function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
       location: 'bottom' as const,
       size: 190,
       selected: 0,
+      show: loadPreferences().workspace.showTransferQueueOnStartup,
       children: missingTabs,
     },
   ];

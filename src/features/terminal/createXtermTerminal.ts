@@ -1,16 +1,24 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 
+import { loadPreferences } from '@/features/settings/appPreferences';
+
 export function createXtermTerminal() {
+  const { terminal: preferences } = loadPreferences();
   const terminal = new Terminal({
-    allowProposedApi: false,
+    allowProposedApi: preferences.diagnosticsHighlight,
     convertEol: true,
-    cursorBlink: true,
+    cursorBlink: preferences.cursorBlink,
     cursorStyle: 'block',
-    fontFamily: 'Cascadia Mono, D2Coding, Consolas, monospace',
-    fontSize: 13,
-    lineHeight: 1.35,
-    scrollback: 5000,
+    fontFamily: preferences.fontFamily,
+    fontSize: preferences.fontSize,
+    lineHeight: preferences.lineHeight,
+    overviewRuler: preferences.diagnosticsHighlight
+      ? {
+          width: 6,
+        }
+      : undefined,
+    scrollback: preferences.scrollback,
     theme: {
       background: '#05080e',
       black: '#151922',
