@@ -1,4 +1,7 @@
 export interface ShellPilotPreferences {
+  connection: {
+    keepaliveIntervalSeconds: number;
+  };
   sftp: {
     showHiddenFiles: boolean;
   };
@@ -121,6 +124,9 @@ export const defaultDiagnosticRules: DiagnosticHighlightRule[] = [
 ];
 
 export const defaultPreferences: ShellPilotPreferences = {
+  connection: {
+    keepaliveIntervalSeconds: 60,
+  },
   sftp: {
     showHiddenFiles: true,
   },
@@ -173,7 +179,19 @@ export function subscribePreferences(listener: (preferences: ShellPilotPreferenc
 }
 
 function normalizePreferences(value: Partial<ShellPilotPreferences>): ShellPilotPreferences {
+  const legacySftpPreferences = value.sftp as Partial<ShellPilotPreferences['sftp']> & {
+    keepaliveIntervalSeconds?: number;
+  } | undefined;
+
   return {
+    connection: {
+      keepaliveIntervalSeconds: clampNumber(
+        value.connection?.keepaliveIntervalSeconds ?? legacySftpPreferences?.keepaliveIntervalSeconds,
+        15,
+        600,
+        defaultPreferences.connection.keepaliveIntervalSeconds,
+      ),
+    },
     sftp: {
       showHiddenFiles: value.sftp?.showHiddenFiles ?? defaultPreferences.sftp.showHiddenFiles,
     },

@@ -206,6 +206,22 @@ pub async fn sftp_list(
 }
 
 #[tauri::command]
+pub async fn sftp_keepalive(
+    store: State<'_, SftpSessionStore>,
+    panel_id: String,
+) -> Result<(), String> {
+    let connection = get_sftp_connection(&store, &panel_id).await?;
+    let connection = connection.lock().await;
+
+    connection
+        .session
+        .canonicalize(".")
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("failed to keep sftp session alive: {error}"))
+}
+
+#[tauri::command]
 pub async fn sftp_mkdir(
     store: State<'_, SftpSessionStore>,
     panel_id: String,

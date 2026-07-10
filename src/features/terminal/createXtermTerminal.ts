@@ -13,11 +13,6 @@ export function createXtermTerminal() {
     fontFamily: preferences.fontFamily,
     fontSize: preferences.fontSize,
     lineHeight: preferences.lineHeight,
-    overviewRuler: preferences.diagnosticsHighlight
-      ? {
-          width: 6,
-        }
-      : undefined,
     scrollback: preferences.scrollback,
     theme: {
       background: '#05080e',

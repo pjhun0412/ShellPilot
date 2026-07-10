@@ -48,6 +48,7 @@ pub fn run() {
             commands::sftp::sftp_cancel_transfer,
             commands::sftp::reveal_local_path,
             commands::sftp::sftp_download,
+            commands::sftp::sftp_keepalive,
             commands::sftp::sftp_list,
             commands::sftp::sftp_mkdir,
             commands::sftp::sftp_open,

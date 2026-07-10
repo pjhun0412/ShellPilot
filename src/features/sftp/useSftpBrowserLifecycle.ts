@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { publishConnectionStatus } from '@/features/connections/connectionStatus';
+import { loadPreferences, subscribePreferences } from '@/features/settings/appPreferences';
 import type { SessionItem } from '@/types/workspace';
 import {
   closeSftpSession,
+  keepaliveSftpSession,
   listSftpDirectory,
   openSftpSession,
   type SftpEntry,
@@ -42,6 +44,9 @@ export function useSftpBrowserLifecycle({
   const [homePath, setHomePath] = useState('.');
   const [isLoading, setIsLoading] = useState(autoConnect);
   const [path, setPath] = useState('.');
+  const [sftpKeepaliveIntervalSeconds, setSftpKeepaliveIntervalSeconds] = useState(
+    () => loadPreferences().connection.keepaliveIntervalSeconds,
+  );
   const [backStack, setBackStack] = useState<string[]>([]);
   const [forwardStack, setForwardStack] = useState<string[]>([]);
   const isRemoteReady = connectionState === 'connected';
@@ -234,6 +239,54 @@ export function useSftpBrowserLifecycle({
   useEffect(() => {
     currentPathRef.current = path;
   }, [path]);
+
+  useEffect(() => {
+    return subscribePreferences((preferences) => {
+      setSftpKeepaliveIntervalSeconds(preferences.connection.keepaliveIntervalSeconds);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (connectionState !== 'connected') {
+      return undefined;
+    }
+
+    let inFlight = false;
+    let disposed = false;
+    const intervalMs = Math.max(15, sftpKeepaliveIntervalSeconds) * 1000;
+
+    const timerId = window.setInterval(() => {
+      if (inFlight || disposed) {
+        return;
+      }
+
+      inFlight = true;
+      void keepaliveSftpSession(panelId)
+        .catch((error) => {
+          if (disposed) {
+            return;
+          }
+
+          const message = error instanceof Error ? error.message : String(error);
+
+          hasOpenedSessionRef.current = false;
+          clearRemoteBrowserState();
+          setConnectionState('failed');
+          setIsLoading(false);
+          setError(`SFTP keepalive failed: ${message}`);
+          publishConnectionStatus({ panelId, status: 'failed' });
+          void closeSftpSession(panelId);
+        })
+        .finally(() => {
+          inFlight = false;
+        });
+    }, intervalMs);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timerId);
+    };
+  }, [clearRemoteBrowserState, connectionState, panelId, sftpKeepaliveIntervalSeconds]);
 
   useEffect(() => {
     return subscribeSftpSidebarNavigation(({ panelId: targetPanelId, path: targetPath }) => {

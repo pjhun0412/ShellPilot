@@ -54,6 +54,10 @@ export async function listSftpDirectory(panelId: string, path: string) {
   return invoke<SftpListResult>('sftp_list', { panelId, path });
 }
 
+export async function keepaliveSftpSession(panelId: string) {
+  await invoke('sftp_keepalive', { panelId });
+}
+
 export async function closeSftpSession(panelId: string) {
   await invoke('sftp_close', { panelId });
 }

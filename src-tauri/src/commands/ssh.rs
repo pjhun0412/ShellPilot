@@ -603,7 +603,9 @@ async fn run_shell_session(
                             break;
                         }
                         Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
-                            break;
+                            return Err(SshFailure::connection(
+                                "SSH connection was lost unexpectedly. Reconnect to open a new shell session.",
+                            ));
                         }
                         _ => {}
                     }

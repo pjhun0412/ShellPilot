@@ -6,7 +6,6 @@ interface DiagnosticRule {
   backgroundColor?: string;
   foregroundColor?: string;
   id: string;
-  overviewRuler: boolean;
   pattern: RegExp;
   underline: boolean;
 }
@@ -102,12 +101,6 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
             height: 1,
             layer: 'top',
             marker,
-            overviewRulerOptions: rule.overviewRuler && rule.foregroundColor
-              ? {
-                  color: rule.foregroundColor,
-                  position: 'right',
-                }
-              : undefined,
             width: range.width,
             x: range.x,
           });
@@ -194,7 +187,6 @@ function compileDiagnosticRules(rules: DiagnosticHighlightRule[]): DiagnosticRul
           backgroundColor: rule.style.background ? rule.backgroundColor : undefined,
           foregroundColor: rule.style.foreground ? rule.foregroundColor : undefined,
           id: rule.id,
-          overviewRuler: rule.overviewRuler,
           pattern: new RegExp(rule.pattern, 'gi'),
           underline: rule.style.underline,
         },

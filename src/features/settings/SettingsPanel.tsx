@@ -192,6 +192,24 @@ function SettingsSectionContent({
             }))
           }
         />
+        <SettingsNumberInput
+          description="Keepalive is always on for persistent remote sessions. This controls the seconds between lightweight idle checks."
+          matches={matchesSetting(searchQuery, 'connection keepalive interval seconds idle timeout ssh sftp rdp docker')}
+          max={600}
+          min={15}
+          step={15}
+          title="Connection keepalive interval"
+          value={preferences.connection.keepaliveIntervalSeconds}
+          onChange={(keepaliveIntervalSeconds) =>
+            updatePreference((current) => ({
+              ...current,
+              connection: {
+                ...current.connection,
+                keepaliveIntervalSeconds,
+              },
+            }))
+          }
+        />
       </SettingsList>
     );
   }
@@ -624,11 +642,6 @@ function DiagnosticRulesSettings({
                             style: { ...current.style, underline: !current.style.underline },
                           }))
                         }
-                      />
-                      <StyleToggle
-                        active={rule.overviewRuler}
-                        label="Ruler"
-                        onClick={() => updateRule(rule.id, (current) => ({ ...current, overviewRuler: !current.overviewRuler }))}
                       />
                     </div>
                   </div>
