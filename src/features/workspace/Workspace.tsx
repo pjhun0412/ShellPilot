@@ -1,16 +1,25 @@
-import { Layout, Model, type TabNode } from 'flexlayout-react';
+import { Actions, Layout, Model, type TabNode } from 'flexlayout-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
   subscribeConnectionStatus,
   type ConnectionStatus,
 } from '@/features/connections/connectionStatus';
-import type { WorkspaceTabItem } from '@/types/workspace';
-import { notifyTerminalClosing, notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
+import {
+  requestSftpSidebarDisconnect,
+  requestSftpSidebarReconnect,
+  subscribeSftpSidebarDisconnect,
+} from '@/features/sftp/sftpSidebarState';
+import type { WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
+import {
+  notifyTerminalDisconnect,
+  notifyTerminalReconnect,
+  subscribeTerminalDisconnect,
+} from '@/features/terminal/terminalLifecycle';
 import { createPanelFactory } from './panelFactory';
 import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
 import { createWorkspaceActionHandler, getSelectedPanelId } from './workspaceLayoutActions';
-import { createShortPanelId } from './workspaceNodeUtils';
+import { createShortPanelId, getBoundAiTabIds } from './workspaceNodeUtils';
 import {
   closeFlexLayoutTabOnMiddleClick,
   closeLayoutNodeOnMiddleClick,
@@ -36,6 +45,7 @@ export function Workspace({
   const [closingPanelIds] = useState(() => new Set<string>());
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [tabMenu, setTabMenu] = useState<WorkspaceTabMenuState>();
+  const [activeContextPanelId, setActiveContextPanelId] = useState<string | undefined>();
   const effectiveActivePanelId = getSelectedPanelId(model) ?? activePanelId;
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const factory = useMemo(
@@ -83,6 +93,41 @@ export function Workspace({
   }, [lastAddedPanelId]);
 
   useEffect(() => {
+    const closeBoundAiTabs = (sourcePanelId: string) => {
+      const boundAiTabIds = getBoundAiTabIds(model, sourcePanelId);
+
+      if (boundAiTabIds.length === 0) {
+        return;
+      }
+
+      boundAiTabIds.forEach((tabId) => {
+        if (model.getNodeById(tabId)?.getType() === 'tab') {
+          model.doAction(Actions.deleteTab(tabId));
+        }
+      });
+      onModelChange(model);
+      setWorkspaceVersion((version) => version + 1);
+    };
+    const unsubscribeTerminalDisconnect = subscribeTerminalDisconnect(closeBoundAiTabs);
+    const unsubscribeSftpDisconnect = subscribeSftpSidebarDisconnect(({ panelId }) => {
+      closeBoundAiTabs(panelId);
+    });
+
+    return () => {
+      unsubscribeTerminalDisconnect();
+      unsubscribeSftpDisconnect();
+    };
+  }, [model, onModelChange]);
+
+  useEffect(() => {
+    const selectedContextPanelId = getSelectedContextPanelId(model, effectiveActivePanelId);
+
+    if (selectedContextPanelId) {
+      setActiveContextPanelId(selectedContextPanelId);
+    }
+  }, [effectiveActivePanelId, model, workspaceVersion]);
+
+  useEffect(() => {
     if (!tabMenu) {
       return;
     }
@@ -106,11 +151,12 @@ export function Workspace({
   const renderTab = useMemo(
     () =>
       createWorkspaceTabRenderer({
+        activeContextPanelId,
         activePanelId: effectiveActivePanelId,
         connectionStatuses,
         tabIdentities: collectWorkspaceTabIdentities(model),
       }),
-    [connectionStatuses, effectiveActivePanelId, model, workspaceVersion],
+    [activeContextPanelId, connectionStatuses, effectiveActivePanelId, model, workspaceVersion],
   );
   return (
     <section className="grid min-w-0 grid-rows-[minmax(0,1fr)] bg-background">
@@ -164,7 +210,15 @@ export function Workspace({
                 setTabMenu(undefined);
               }}
               onDisconnect={() => {
-                notifyTerminalClosing(tabMenu.node.getId());
+                const config = tabMenu.node.getConfig() as {
+                  panelType?: WorkspaceTabItem['type'];
+                };
+
+                if (config.panelType === 'sftp') {
+                  requestSftpSidebarDisconnect(tabMenu.node.getId());
+                } else {
+                  notifyTerminalDisconnect(tabMenu.node.getId());
+                }
                 setTabMenu(undefined);
               }}
               onOpenAi={() => {
@@ -190,7 +244,15 @@ export function Workspace({
                 setTabMenu(undefined);
               }}
               onReconnect={() => {
-                notifyTerminalReconnect(tabMenu.node.getId());
+                const config = tabMenu.node.getConfig() as {
+                  panelType?: WorkspaceTabItem['type'];
+                };
+
+                if (config.panelType === 'sftp') {
+                  requestSftpSidebarReconnect(tabMenu.node.getId());
+                } else {
+                  notifyTerminalReconnect(tabMenu.node.getId());
+                }
                 setTabMenu(undefined);
               }}
             />
@@ -199,6 +261,24 @@ export function Workspace({
       </div>
     </section>
   );
+}
+
+function getSelectedContextPanelId(model: Model, selectedPanelId: string | undefined) {
+  if (!selectedPanelId) {
+    return undefined;
+  }
+
+  const selectedNode = model.getNodeById(selectedPanelId);
+
+  if (selectedNode?.getType() !== 'tab') {
+    return undefined;
+  }
+
+  const config = (selectedNode as TabNode).getConfig() as { panelType?: WorkspacePanelType };
+
+  return config.panelType === 'terminal' || config.panelType === 'sftp'
+    ? selectedNode.getId()
+    : undefined;
 }
 
 function collectWorkspaceTabIdentities(model: Model) {

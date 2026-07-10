@@ -121,6 +121,7 @@ pub struct SshConnectResult {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshCommandResult {
+    error: Option<String>,
     exit_code: Option<u32>,
     stderr: String,
     stdout: String,
@@ -128,9 +129,10 @@ pub struct SshCommandResult {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SshReadonlyCommandRequest {
-    command: String,
+pub struct SshReadonlyCommandsRequest {
+    commands: Vec<String>,
     target: SshShellTarget,
+    working_directories: Option<Vec<Option<String>>>,
 }
 
 #[derive(Serialize)]
@@ -362,13 +364,29 @@ pub async fn ssh_open_shell(
 }
 
 #[tauri::command]
-pub async fn ssh_run_readonly_command(
+pub async fn ssh_run_readonly_commands(
     app: AppHandle,
-    request: SshReadonlyCommandRequest,
-) -> Result<SshCommandResult, String> {
-    let command = validate_readonly_command(&request.command)?;
+    request: SshReadonlyCommandsRequest,
+) -> Result<Vec<SshCommandResult>, String> {
+    let commands = request
+        .commands
+        .iter()
+        .enumerate()
+        .map(|(index, command)| {
+            let command = validate_readonly_command(command)?.to_string();
+            let working_directory = request
+                .working_directories
+                .as_ref()
+                .and_then(|directories| directories.get(index))
+                .and_then(|directory| directory.as_deref())
+                .map(validate_readonly_working_directory)
+                .transpose()?;
 
-    run_ssh_exec(app, request.target, command, Duration::from_secs(15)).await
+            Ok::<String, String>(format_readonly_command(command, working_directory))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    run_ssh_exec_many(app, request.target, &commands, Duration::from_secs(15)).await
 }
 
 #[tauri::command]
@@ -603,12 +621,12 @@ async fn run_shell_session(
     }
 }
 
-async fn run_ssh_exec(
+async fn run_ssh_exec_many(
     app: AppHandle,
     target: SshShellTarget,
-    command: &str,
+    commands: &[String],
     timeout: Duration,
-) -> Result<SshCommandResult, String> {
+) -> Result<Vec<SshCommandResult>, String> {
     let auth = SshAuthRequest::from_target(&target);
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(timeout),
@@ -616,6 +634,8 @@ async fn run_ssh_exec(
         keepalive_max: 3,
         ..Default::default()
     });
+    // One connection/authentication is reused for every command in the plan
+    // instead of reconnecting per step, which used to dominate latency.
     let mut session = client::connect(
         config,
         (target.host.as_str(), target.port),
@@ -634,7 +654,25 @@ async fn run_ssh_exec(
         .await
         .map_err(|error| classify_auth_error(error, &auth).message)?;
 
-    let result = time::timeout(timeout, async {
+    let mut results = Vec::with_capacity(commands.len());
+
+    for command in commands {
+        results.push(exec_one_command(&mut session, command, timeout).await);
+    }
+
+    let _ = session
+        .disconnect(Disconnect::ByApplication, "exec complete", "en")
+        .await;
+
+    Ok(results)
+}
+
+async fn exec_one_command(
+    session: &mut client::Handle<ShellPilotSshClient>,
+    command: &str,
+    timeout: Duration,
+) -> SshCommandResult {
+    let outcome = time::timeout(timeout, async {
         let mut channel = session
             .channel_open_session()
             .await
@@ -674,19 +712,29 @@ async fn run_ssh_exec(
         }
 
         Ok::<SshCommandResult, String>(SshCommandResult {
+            error: None,
             exit_code,
             stderr,
             stdout,
         })
     })
-    .await
-    .map_err(|_| format!("remote command timed out after {} seconds", timeout.as_secs()))?;
+    .await;
 
-    let _ = session
-        .disconnect(Disconnect::ByApplication, "exec complete", "en")
-        .await;
-
-    result
+    match outcome {
+        Ok(Ok(command_result)) => command_result,
+        Ok(Err(message)) => SshCommandResult {
+            error: Some(message),
+            exit_code: None,
+            stderr: String::new(),
+            stdout: String::new(),
+        },
+        Err(_) => SshCommandResult {
+            error: Some(format!("remote command timed out after {} seconds", timeout.as_secs())),
+            exit_code: None,
+            stderr: String::new(),
+            stdout: String::new(),
+        },
+    }
 }
 
 fn validate_readonly_command(command: &str) -> Result<&str, String> {
@@ -718,6 +766,7 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
     let allowed_commands = [
         "cat",
         "df",
+        "dir",
         "du",
         "egrep",
         "find",
@@ -727,16 +776,23 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
         "id",
         "journalctl",
         "ls",
+        "lsof",
         "netstat",
         "pgrep",
         "ps",
         "pwd",
         "ss",
         "stat",
+        "sw_vers",
+        "sysctl",
         "tail",
+        "tasklist",
         "uname",
         "uptime",
+        "ver",
+        "vm_stat",
         "wc",
+        "wmic",
         "who",
         "whoami",
         "zcat",
@@ -745,6 +801,27 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
 
     if !allowed_commands.contains(&first_word) {
         return Err(format!("read-only command rejected: `{first_word}` is not allowed"));
+    }
+
+    if first_word == "wmic" {
+        let lower = command.to_ascii_lowercase();
+        let allowed_wmic_query = lower.contains(" get ")
+            && !lower.contains(" call ")
+            && !lower.contains(" create ")
+            && !lower.contains(" delete ")
+            && !lower.contains(" set ");
+
+        if !allowed_wmic_query {
+            return Err("read-only command rejected: only WMIC query commands are allowed".to_string());
+        }
+    }
+
+    if first_word == "sysctl" {
+        let lower = command.to_ascii_lowercase();
+
+        if lower.contains(" -w ") || lower.starts_with("sysctl -w") {
+            return Err("read-only command rejected: sysctl writes are not allowed".to_string());
+        }
     }
 
     let forbidden_words = [
@@ -805,6 +882,48 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
     }
 
     Ok(command)
+}
+
+fn validate_readonly_working_directory(directory: &str) -> Result<&str, String> {
+    let directory = directory.trim();
+
+    if directory.is_empty() {
+        return Err("read-only command rejected: working directory is empty".to_string());
+    }
+
+    if directory.len() > 260 {
+        return Err("read-only command rejected: working directory is too long".to_string());
+    }
+
+    if !directory.starts_with('/') && !directory.starts_with("~/") {
+        return Err("read-only command rejected: working directory must be absolute or home-relative".to_string());
+    }
+
+    if directory.contains("..") {
+        return Err("read-only command rejected: working directory cannot contain `..`".to_string());
+    }
+
+    let forbidden_tokens = ["\"", "'", "`", "\\", ";", "&", "|", "$", ">", "<", "\n", "\r"];
+
+    if let Some(token) = forbidden_tokens.iter().find(|token| directory.contains(**token)) {
+        return Err(format!(
+            "read-only command rejected: working directory contains forbidden token `{token}`"
+        ));
+    }
+
+    Ok(directory)
+}
+
+fn format_readonly_command(command: String, working_directory: Option<&str>) -> String {
+    match working_directory {
+        Some(directory) if directory.starts_with("~/") => {
+            format!("cd -- {} && {}", directory, command)
+        }
+        Some(directory) => {
+            format!("cd -- \"{}\" && {}", directory, command)
+        }
+        None => command,
+    }
 }
 
 fn read_ssh_banner(stream: &mut TcpStream) -> Option<String> {

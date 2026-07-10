@@ -1,7 +1,9 @@
 type TerminalClosingListener = (panelId: string) => void;
+type TerminalDisconnectListener = (panelId: string) => void;
 type TerminalReconnectListener = (panelId: string) => boolean | void;
 
 const closingListeners = new Set<TerminalClosingListener>();
+const disconnectListeners = new Set<TerminalDisconnectListener>();
 const reconnectListeners = new Set<TerminalReconnectListener>();
 const pendingReconnectPanelIds = new Set<string>();
 
@@ -15,6 +17,19 @@ export function subscribeTerminalClosing(listener: TerminalClosingListener) {
 
   return () => {
     closingListeners.delete(listener);
+  };
+}
+
+export function notifyTerminalDisconnect(panelId: string) {
+  pendingReconnectPanelIds.delete(panelId);
+  disconnectListeners.forEach((listener) => listener(panelId));
+}
+
+export function subscribeTerminalDisconnect(listener: TerminalDisconnectListener) {
+  disconnectListeners.add(listener);
+
+  return () => {
+    disconnectListeners.delete(listener);
   };
 }
 

@@ -3,7 +3,7 @@ import { useCallback, useEffect, type FormEvent, type MutableRefObject } from 'r
 
 import { appConfirm } from '@/components/ui/app-dialog';
 import type { SessionItem } from '@/types/workspace';
-import { subscribeTerminalReconnect } from './terminalLifecycle';
+import { notifyTerminalDisconnect, subscribeTerminalReconnect } from './terminalLifecycle';
 import {
   closeSshShell,
   forgetSshKnownHost,
@@ -91,11 +91,8 @@ export function useSshTerminalActions({
   }, [panelId, reconnectSession]);
 
   const closeSession = useCallback(async () => {
-    terminalRef.current?.writeln('\r\n[closing ssh session...]');
-    closeIntentRef.current = 'manual';
-    await closeSshShell(panelId).catch(() => undefined);
-    setTerminalStatus('closed');
-  }, [closeIntentRef, panelId, setTerminalStatus, terminalRef]);
+    notifyTerminalDisconnect(panelId);
+  }, [panelId]);
 
   const connectWithPassword = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {

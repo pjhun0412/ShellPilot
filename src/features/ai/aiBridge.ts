@@ -22,6 +22,7 @@ export interface AiPromptRequest {
   prompt: string;
   providerId: string;
   runId?: string;
+  timeoutSeconds?: number;
 }
 
 export interface AiPromptResponse {
@@ -37,9 +38,15 @@ export interface AiPromptStreamEvent {
 }
 
 export interface RemoteCommandResult {
+  error?: string;
   exitCode?: number;
   stderr: string;
   stdout: string;
+}
+
+export interface ReadonlyRemoteCommandRequest {
+  command: string;
+  workingDirectory?: string;
 }
 
 export async function listAiProviders() {
@@ -54,15 +61,28 @@ export async function runAiPromptStream(request: Required<Pick<AiPromptRequest, 
   return invoke<void>('ai_run_prompt_stream', { request });
 }
 
+export async function cancelAiPrompt(runId: string) {
+  return invoke<void>('ai_cancel_prompt', { runId });
+}
+
 export function listenAiPromptEvents(listener: (event: AiPromptStreamEvent) => void): Promise<UnlistenFn> {
   return listen<AiPromptStreamEvent>('shellpilot-ai-prompt', (event) => listener(event.payload));
 }
 
-export async function runReadonlyRemoteCommand(panelId: string, session: SessionItem, command: string) {
-  return invoke<RemoteCommandResult>('ssh_run_readonly_command', {
+export async function runReadonlyRemoteCommands(
+  panelId: string,
+  session: SessionItem,
+  commands: Array<string | ReadonlyRemoteCommandRequest>,
+) {
+  const normalizedCommands = commands.map((command) =>
+    typeof command === 'string' ? { command } : command,
+  );
+
+  return invoke<RemoteCommandResult[]>('ssh_run_readonly_commands', {
     request: {
-      command,
+      commands: normalizedCommands.map((command) => command.command),
       target: createSshToolTarget(panelId, session),
+      workingDirectories: normalizedCommands.map((command) => command.workingDirectory ?? null),
     },
   });
 }

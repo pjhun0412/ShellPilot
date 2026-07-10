@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     io::{Error, ErrorKind, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -7,7 +8,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -15,6 +16,11 @@ use std::os::windows::process::CommandExt;
 // npm으로 설치된 claude/codex는 Windows에서 .cmd 셸 스크립트라, 확장자 없이는 spawn이 못 찾는다.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[derive(Default)]
+pub struct AiRunStore {
+    runs: Mutex<HashMap<String, Arc<Mutex<Child>>>>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +39,7 @@ pub struct AiPromptRequest {
     provider_id: String,
     prompt: String,
     context: Option<String>,
+    timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -75,7 +82,8 @@ pub async fn ai_list_providers() -> Vec<AiProviderInfo> {
 pub async fn ai_run_prompt(request: AiPromptRequest) -> Result<AiPromptResponse, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let (command, args, stdin_input) = build_prompt_command(&request)?;
-        let output = run_command(&command, args, None, Duration::from_secs(180), stdin_input)?;
+        let timeout = Duration::from_secs(request.timeout_seconds.unwrap_or(180).clamp(1, 180));
+        let output = run_command(&command, args, None, timeout, stdin_input)?;
 
         if !output.status_success {
             return Err(first_non_empty(&output.stderr, &output.stdout)
@@ -98,6 +106,26 @@ pub async fn ai_run_prompt_stream(app: AppHandle, request: AiPromptStreamRequest
     tauri::async_runtime::spawn_blocking(move || {
         run_prompt_stream(app, request);
     });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ai_cancel_prompt(app: AppHandle, run_id: String) -> Result<(), String> {
+    let store = app.state::<AiRunStore>();
+    let child = store
+        .runs
+        .lock()
+        .map_err(|_| "failed to lock AI run store".to_string())?
+        .remove(&run_id);
+
+    if let Some(child) = child {
+        let mut child = child
+            .lock()
+            .map_err(|_| "failed to lock AI process".to_string())?;
+        let _ = child.kill();
+        return Ok(());
+    }
 
     Ok(())
 }
@@ -137,6 +165,7 @@ impl From<&AiPromptStreamRequest> for AiPromptRequest {
             provider_id: request.provider_id.clone(),
             prompt: request.prompt.clone(),
             context: request.context.clone(),
+            timeout_seconds: None,
         }
     }
 }
@@ -161,8 +190,6 @@ fn build_prompt_command(request: &AiPromptRequest) -> Result<(String, Vec<String
                 "exec".to_string(),
                 "--sandbox".to_string(),
                 "read-only".to_string(),
-                "--ask-for-approval".to_string(),
-                "never".to_string(),
                 "-".to_string(),
             ],
             Some(prompt),
@@ -209,6 +236,9 @@ fn run_prompt_stream(app: AppHandle, request: AiPromptStreamRequest) {
 
     match result {
         Ok(()) => emit_stream_event(&app, &request, "completed", None, None),
+        Err(message) if message == "AI run was canceled" => {
+            emit_stream_event(&app, &request, "canceled", None, Some(message))
+        }
         Err(message) => emit_stream_event(&app, &request, "failed", None, Some(message)),
     }
 }
@@ -298,9 +328,13 @@ fn run_command_streaming(
         stderr.clone(),
         "stderr",
     );
+    let child = Arc::new(Mutex::new(child));
+    register_streaming_child(app, &request.run_id, child.clone())?;
 
     if let Some(stdin_input) = stdin_input {
         let mut stdin = child
+            .lock()
+            .map_err(|_| format!("failed to lock {command} process"))?
             .stdin
             .take()
             .ok_or_else(|| format!("failed to open stdin for {command}"))?;
@@ -313,12 +347,20 @@ fn run_command_streaming(
     let started_at = Instant::now();
 
     loop {
-        if let Some(status) = child
+        let status = child
+            .lock()
+            .map_err(|_| format!("failed to lock {command} process"))?
             .try_wait()
-            .map_err(|error| format!("failed to wait for {command}: {error}"))?
-        {
+            .map_err(|error| format!("failed to wait for {command}: {error}"))?;
+
+        if let Some(status) = status {
+            let was_active = unregister_streaming_child(app, &request.run_id);
             join_stream_reader(stdout_reader)?;
             join_stream_reader(stderr_reader)?;
+
+            if !was_active {
+                return Err("AI run was canceled".to_string());
+            }
 
             if status.success() {
                 return Ok(());
@@ -326,15 +368,23 @@ fn run_command_streaming(
 
             let stderr_output = lock_string(&stderr);
             let stdout_output = lock_string(&stdout);
-
-            return Err(first_non_empty(&stderr_output, &stdout_output)
+            let message = first_non_empty(&stderr_output, &stdout_output)
                 .unwrap_or("AI CLI exited with a non-zero status")
-                .to_string());
+                .to_string();
+
+            if message.trim().is_empty() {
+                return Err("AI run was canceled".to_string());
+            }
+
+            return Err(message);
         }
 
         if started_at.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
+            unregister_streaming_child(app, &request.run_id);
+            if let Ok(mut child) = child.lock() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
             let _ = join_stream_reader(stdout_reader);
             let _ = join_stream_reader(stderr_reader);
             return Err(format!("{command} timed out after {} seconds", timeout.as_secs()));
@@ -380,6 +430,28 @@ fn spawn_child(
     }
 
     Err(last_error.unwrap_or_else(|| Error::new(ErrorKind::NotFound, command.to_string())))
+}
+
+fn register_streaming_child(
+    app: &AppHandle,
+    run_id: &str,
+    child: Arc<Mutex<Child>>,
+) -> Result<(), String> {
+    let store = app.state::<AiRunStore>();
+    store
+        .runs
+        .lock()
+        .map_err(|_| "failed to lock AI run store".to_string())?
+        .insert(run_id.to_string(), child);
+    Ok(())
+}
+
+fn unregister_streaming_child(app: &AppHandle, run_id: &str) -> bool {
+    app.state::<AiRunStore>()
+        .runs
+        .lock()
+        .map(|mut runs| runs.remove(run_id).is_some())
+        .unwrap_or(false)
 }
 
 type PipeReader = JoinHandle<Result<String, String>>;

@@ -3,6 +3,7 @@ mod commands;
 use commands::local_pty::LocalPtySessionStore;
 use commands::sftp::SftpSessionStore;
 use commands::ssh::SshSessionStore;
+use commands::ai::AiRunStore;
 
 #[tauri::command]
 fn app_ready() -> String {
@@ -13,12 +14,14 @@ fn app_ready() -> String {
 pub fn run() {
     tauri::Builder::default()
         .manage(LocalPtySessionStore::default())
+        .manage(AiRunStore::default())
         .manage(SftpSessionStore::default())
         .manage(SshSessionStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             app_ready,
+            commands::ai::ai_cancel_prompt,
             commands::ai::ai_list_providers,
             commands::ai::ai_run_prompt,
             commands::ai::ai_run_prompt_stream,
@@ -38,7 +41,7 @@ pub fn run() {
             commands::ssh::probe_ssh_connection,
             commands::ssh::ssh_close,
             commands::ssh::ssh_open_shell,
-            commands::ssh::ssh_run_readonly_command,
+            commands::ssh::ssh_run_readonly_commands,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_write,
             commands::sftp::sftp_close,

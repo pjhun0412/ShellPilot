@@ -1,4 +1,4 @@
-import { Bot, Info, Link2, SendHorizontal } from 'lucide-react';
+import { Bot, Info, Link2, SendHorizontal, Square } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -38,11 +38,15 @@ export function BoundAiPanel({ binding, session }: { binding: AiPanelBinding; se
   const selectedProvider = providers.find((provider) => provider.id === providerId);
   const {
     canSend,
+    cancelActivePrompt,
     draft,
+    elapsedSeconds,
     isSending,
     messages,
+    recallDraftHistory,
     scrollAnchorRef,
     setDraft,
+    submitSuggestedTool,
     submitPrompt,
     thinkingTick,
   } = useBoundAiChat({ binding, selectedProvider, session });
@@ -99,7 +103,13 @@ export function BoundAiPanel({ binding, session }: { binding: AiPanelBinding; se
 
       <div className="app-scrollbar min-h-0 flex-1 overflow-auto px-4 py-2.5">
         <div className="mx-auto flex max-w-4xl flex-col gap-2">
-          <AiChatMessages anchorRef={scrollAnchorRef} messages={messages} thinkingTick={thinkingTick} />
+          <AiChatMessages
+            anchorRef={scrollAnchorRef}
+            elapsedSeconds={elapsedSeconds}
+            messages={messages}
+            thinkingTick={thinkingTick}
+            onRunSuggestion={submitSuggestedTool}
+          />
         </div>
       </div>
 
@@ -114,13 +124,42 @@ export function BoundAiPanel({ binding, session }: { binding: AiPanelBinding; se
               if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
                 event.preventDefault();
                 void submitPrompt();
+                return;
+              }
+
+              if (
+                event.key === 'ArrowUp' &&
+                event.currentTarget.selectionStart === 0 &&
+                event.currentTarget.selectionEnd === 0
+              ) {
+                if (recallDraftHistory('previous')) {
+                  event.preventDefault();
+                }
+                return;
+              }
+
+              if (
+                event.key === 'ArrowDown' &&
+                event.currentTarget.selectionStart === event.currentTarget.value.length &&
+                event.currentTarget.selectionEnd === event.currentTarget.value.length
+              ) {
+                if (recallDraftHistory('next')) {
+                  event.preventDefault();
+                }
               }
             }}
           />
-          <Button className="h-9 gap-2" disabled={!canSend} type="button" onClick={() => void submitPrompt()}>
-            <SendHorizontal className="size-4" />
-            {isSending ? 'Sending' : 'Ask'}
-          </Button>
+          {isSending ? (
+            <Button className="h-9 gap-2" type="button" variant="secondary" onClick={() => void cancelActivePrompt()}>
+              <Square className="size-3.5 fill-current" />
+              Stop
+            </Button>
+          ) : (
+            <Button className="h-9 gap-2" disabled={!canSend} type="button" onClick={() => void submitPrompt()}>
+              <SendHorizontal className="size-4" />
+              Ask
+            </Button>
+          )}
         </div>
       </footer>
     </div>

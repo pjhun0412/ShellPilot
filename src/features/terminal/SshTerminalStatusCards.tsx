@@ -24,7 +24,7 @@ export function SshRestoredCard({ onReconnect }: { onReconnect: () => void }) {
 
 export function SshClosedCard({ onReconnect }: { onReconnect: () => void }) {
   return (
-    <TerminalOverlayCard title="Session closed">
+    <TerminalOverlayCard title="SSH session disconnected">
       <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
         The SSH connection is closed. Reconnect to open a new shell session.
       </span>

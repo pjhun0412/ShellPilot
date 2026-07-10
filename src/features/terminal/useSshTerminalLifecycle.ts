@@ -4,7 +4,7 @@ import type { Terminal } from '@xterm/xterm';
 import { useEffect, type RefObject, type MutableRefObject } from 'react';
 
 import type { SessionItem } from '@/types/workspace';
-import { subscribeTerminalClosing } from './terminalLifecycle';
+import { subscribeTerminalClosing, subscribeTerminalDisconnect } from './terminalLifecycle';
 import { registerTerminal, unregisterTerminal } from './terminalRegistry';
 import {
   closeSshShell,
@@ -92,6 +92,16 @@ export function useSshTerminalLifecycle({
       void closeSshShell(panelId);
       publishClosedStatus(false);
     });
+    const unsubscribeDisconnect = subscribeTerminalDisconnect((disconnectPanelId) => {
+      if (disconnectPanelId !== panelId) {
+        return;
+      }
+
+      terminal.writeln('\r\n[ssh session disconnected]');
+      closeIntentRef.current = 'manual';
+      void closeSshShell(panelId);
+      publishClosedStatus();
+    });
 
     let isDisposed = false;
     let unlisten: UnlistenFn | undefined;
@@ -136,6 +146,7 @@ export function useSshTerminalLifecycle({
       inputBinding.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
+      unsubscribeDisconnect();
       unlisten?.();
       unregisterTerminal(panelId);
       terminal.dispose();

@@ -19,7 +19,7 @@ ShellPilot decides whether a safe tool is useful, executes only allowed read-onl
 The existing code already maps closely to the target architecture:
 
 - Intent routing and plan building: `src/features/ai/aiToolRouter.ts`
-- Remote read-only execution: `ssh_run_readonly_command` in `src-tauri/src/commands/ssh.rs`
+- Remote read-only execution: `ssh_run_readonly_commands` in `src-tauri/src/commands/ssh.rs`
 - AI prompt execution: `src-tauri/src/commands/ai.rs`
 - Bound-session chat flow: `src/features/ai/useBoundAiChat.ts`
 - Bound-session UI: `src/features/ai/BoundAiPanel.tsx`
@@ -93,6 +93,23 @@ This is primarily a correctness and UX improvement. Dangerous execution is alrea
 
 Use fixed recipes now. Do not let AI assemble arbitrary step arrays.
 
+Intent entries are managed as a catalog, not as one-off question branches. Each catalog entry owns:
+
+- user-facing examples for fast matching and classifier hints
+- required params and missing-param behavior
+- safety class (`read-only` now; mutating actions later)
+- cost (`instant`, `light`, or `heavy`)
+- OS-specific fixed recipes
+- suggested next checks after a light first-pass result
+
+The first-pass routing flow is:
+
+1. Try catalog fast-path matching using normalized/fuzzy examples for common requests and small typos.
+2. If no catalog match exists, ask the CLI classifier to choose only an intent and typed params.
+3. If no safe intent is found, answer from existing bound context without running tools.
+
+Heavy intents are still represented in the catalog, but broad health questions route to `quick_health` first. The answer can then suggest deeper checks such as process, network, log, or full snapshot analysis.
+
 Current and near-term intents:
 
 | Intent | Example user request | ShellPilot recipe |
@@ -102,7 +119,9 @@ Current and near-term intents:
 | `find_file` | Find `nginx.conf` | `find ~ -maxdepth 6 -iname "*name*"` |
 | `inspect_path` | What is under `/path`? | `stat`, `ls`, `tail` attempts |
 | `read_log` | Read `/path/app.log` | `tail -n 200` |
-| `system_snapshot` | Why is server slow? | OS, uptime, memory, disk, CPU, top processes |
+| `quick_health` | Why is server slow? First-pass health? | Minimal OS, uptime/load, memory, and disk checks |
+| `system_snapshot` | Deep system diagnosis | OS, uptime, memory, disk, CPU, top processes |
+| `inspect_process` | Is Tomcat running? Where is it? | OS-specific process query recipe |
 
 Planned additions:
 
@@ -112,11 +131,26 @@ Planned additions:
 | `inspect_network` | Port/process/network checks with `ss`, `netstat`, `pgrep` where available |
 | `sftp_context` | Explain currently visible SFTP path, selected entries, and listing |
 
+## Remote OS Strategy
+
+Intents stay OS-neutral. ShellPilot first detects the remote OS with a short read-only probe, caches that result for the bound panel, and then chooses an OS-specific fixed recipe.
+
+Current target families:
+
+- Linux: primary recipe set for server operations.
+- macOS/Darwin: basic system, process, directory, and network recipes.
+- Windows: basic `ver`, `tasklist`, `wmic`, `dir`, and `netstat` recipes where the command can remain read-only.
+- Unknown: Linux-compatible recipe fallback unless a recipe is clearly unsafe or unsupported.
+
+This avoids mapping every user phrase. New work should add or refine named intents, then add only the OS-specific recipes needed for that intent.
+
+Read-only validation remains the final backend gate. Broad commands such as `wmic` and `sysctl` are allowed only in constrained query forms.
+
 ## Known Limitations
 
 ### Terminal Current Directory
 
-`ssh_run_readonly_command` opens a new exec channel for each command. It does not know the interactive shell's current directory after the user runs `cd`.
+`ssh_run_readonly_commands` opens exec channels outside the interactive shell session. It does not know the interactive shell's current directory after the user runs `cd`.
 
 For now:
 
@@ -159,6 +193,8 @@ Status: implemented. The internal router separates fast-path/classifier intent r
 - Add `analyze_log` fixed recipe.
 - Add SFTP context snapshot support.
 
+Status: implemented. `inspect_network`, `inspect_process`, and `analyze_log` are implemented through the existing read-only SSH executor. The executor batches plan steps over one SSH connection to avoid reconnecting per command. Network and process inspection now choose Linux/macOS/Windows recipes after a cached OS probe. Log analysis uses fixed `stat`, `find`, `tail`, `grep`, and `journalctl` checks only when the user provides an explicit absolute log path. SFTP-bound AI panels now receive a structured snapshot of the current remote path, visible entries, selected entries, and connection state.
+
 ### Phase 4: Mutating Approval Gate
 
 - Add a separate model for proposed mutating actions.
@@ -168,4 +204,4 @@ Status: implemented. The internal router separates fast-path/classifier intent r
 
 ## Next Step
 
-Implement Phase 3 capabilities one at a time, starting with `inspect_network` because it only needs the existing SSH read-only executor and does not require new SFTP state plumbing.
+Begin Phase 4 design for mutating approval gates, or refine SFTP context into explicit read-only intents such as selected-file summary and large-file review.

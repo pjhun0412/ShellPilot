@@ -175,6 +175,19 @@
     color: hsl(var(--foreground)) !important;
   }
 
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) {
+    background: hsl(var(--workspace-panel)) !important;
+    background-color: hsl(var(--workspace-panel)) !important;
+    color: hsl(var(--muted-foreground) / 0.72) !important;
+    box-shadow: none !important;
+    font-weight: 400 !important;
+  }
+
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__tab_button_content,
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__tab_button_trailing {
+    color: hsl(var(--muted-foreground) / 0.72) !important;
+  }
+
   .workspace-frame .shellpilot-tab-title {
     color: hsl(var(--muted-foreground) / 0.72);
     max-width: 100%;

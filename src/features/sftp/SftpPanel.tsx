@@ -34,6 +34,10 @@ import { useSftpPathActions } from './useSftpPathActions';
 import { useSftpSelection } from './useSftpSelection';
 import { useSftpTransfers } from './useSftpTransfers';
 import { useSftpUploadDrop } from './useSftpUploadDrop';
+import {
+  clearSftpAiContextSnapshot,
+  publishSftpAiContextSnapshot,
+} from './sftpAiContext';
 import { publishSftpSidebarPanelState } from './sftpSidebarState';
 import type { SftpEntry } from './sftpBridge';
 
@@ -289,6 +293,40 @@ export function SftpPanel({
       username: session.username,
     });
   }, [connectionState, panelId, path, session.host, session.name, session.username, transferSummary]);
+
+  useEffect(() => {
+    publishSftpAiContextSnapshot(panelId, {
+      connectionState,
+      entries: visibleEntries,
+      host: session.host,
+      isLoading,
+      path,
+      selectedEntries,
+      sessionName: session.name,
+      showHiddenEntries,
+      totalEntryCount: entries.length,
+      username: session.username,
+      visibleEntryCount: visibleEntries.length,
+    });
+  }, [
+    connectionState,
+    entries.length,
+    isLoading,
+    panelId,
+    path,
+    selectedEntries,
+    session.host,
+    session.name,
+    session.username,
+    showHiddenEntries,
+    visibleEntries,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      clearSftpAiContextSnapshot(panelId);
+    };
+  }, [panelId]);
 
   const openEntry = (entry: SftpEntry) => {
     if (entry.isDirectory) {

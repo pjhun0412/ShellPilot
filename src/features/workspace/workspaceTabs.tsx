@@ -2,6 +2,7 @@ import type { BorderNode, TabNode, TabSetNode } from 'flexlayout-react';
 
 import type { ConnectionStatus } from '@/features/connections/connectionStatus';
 import { cn } from '@/lib/utils';
+import type { AiPanelBinding } from '@/types/workspace';
 
 export type WorkspaceRenderTabValues = {
   content: React.ReactNode;
@@ -15,22 +16,33 @@ export interface WorkspaceTabIdentity {
 }
 
 export function createWorkspaceTabRenderer({
+  activeContextPanelId,
   activePanelId,
   connectionStatuses,
   tabIdentities,
 }: {
+  activeContextPanelId?: string;
   activePanelId?: string;
   connectionStatuses: Record<string, ConnectionStatus>;
   tabIdentities?: Record<string, WorkspaceTabIdentity>;
 }) {
   return (node: TabNode, renderValues: WorkspaceRenderTabValues) => {
-    const config = node.getConfig() as { session?: unknown };
-    const isActive = activePanelId === node.getId();
+    const config = node.getConfig() as { aiBinding?: AiPanelBinding; panelType?: string; session?: unknown };
+    const isSelected = activePanelId === node.getId();
+    const isMismatchedBoundAi =
+      config.panelType === 'ai' &&
+      Boolean(config.aiBinding?.boundPanelId) &&
+      config.aiBinding?.boundPanelId !== activeContextPanelId;
+    const isActive = isSelected && !isMismatchedBoundAi;
     const identity = tabIdentities?.[node.getId()];
 
     renderValues.content = (
       <span
-        className={cn('shellpilot-tab-title flex min-w-0 items-center gap-1.5', isActive && 'shellpilot-tab-title--active')}
+        className={cn(
+          'shellpilot-tab-title flex min-w-0 items-center gap-1.5',
+          isActive && 'shellpilot-tab-title--active',
+          isMismatchedBoundAi && 'shellpilot-tab-title--context-mismatch',
+        )}
         data-shellpilot-tab-id={node.getId()}
       >
         <span className="min-w-0 truncate">{node.getName()}</span>
@@ -42,7 +54,7 @@ export function createWorkspaceTabRenderer({
       </span>
     );
 
-    if (!config.session) {
+    if (!config.session || config.panelType === 'ai') {
       return;
     }
 
