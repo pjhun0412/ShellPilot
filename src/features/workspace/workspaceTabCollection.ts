@@ -14,6 +14,11 @@ export function collectWorkspaceTabs(model: Model): WorkspaceTabItem[] {
     }
 
     const tab = node as TabNode;
+
+    if (tab.getParent()?.getType() === 'border') {
+      return;
+    }
+
     const config = tab.getConfig() as {
       aiBinding?: WorkspaceTabItem['aiBinding'];
       localPtyTarget?: WorkspaceTabItem['localPtyTarget'];

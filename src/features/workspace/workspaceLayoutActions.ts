@@ -6,7 +6,7 @@ import {
   getNextActivePanelIdAfterClose,
   getSelectedPanelId,
   getTabIds,
-  isTerminalLikeTab,
+  isTerminalPanelTab,
 } from './workspaceNodeUtils';
 export { getSelectedPanelId };
 
@@ -65,7 +65,7 @@ export function createWorkspaceActionHandler({
 
     closingPanelIds.add(panelId);
 
-    if (isTerminalLikeTab(closingNode as TabNode)) {
+    if (isTerminalPanelTab(closingNode as TabNode)) {
       notifyTerminalClosing(panelId);
       window.setTimeout(closeTab, 180);
       return;

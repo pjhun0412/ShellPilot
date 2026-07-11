@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 use core::time::Duration;
 use std::env;
 use std::error::Error;
@@ -11,19 +13,21 @@ use base64::Engine as _;
 use ironrdp::cliprdr::backend::ClipboardMessage;
 use ironrdp::cliprdr::pdu::{ClipboardFormat, ClipboardFormatId, FileDescriptor};
 use ironrdp::cliprdr::CliprdrClient;
-use ironrdp::connector::connection_activation::{ConnectionActivationSequence, ConnectionActivationState};
-use ironrdp::connector::{self, ConnectionResult, Credentials};
+use ironrdp::connector::connection_activation::{
+    ConnectionActivationSequence, ConnectionActivationState,
+};
 use ironrdp::connector::Sequence as _;
+use ironrdp::connector::{self, ConnectionResult, Credentials};
 use ironrdp::core::WriteBuf;
 use ironrdp::displaycontrol::client::DisplayControlClient;
 use ironrdp::displaycontrol::pdu::MonitorLayoutEntry;
 use ironrdp::dvc::DrdynvcClient;
 use ironrdp::pdu::gcc::KeyboardType;
 use ironrdp::pdu::geometry::InclusiveRectangle;
-use ironrdp::pdu::rdp::headers::ShareDataPdu;
-use ironrdp::pdu::rdp::refresh_rectangle::RefreshRectanglePdu;
 use ironrdp::pdu::rdp::capability_sets::MajorPlatformType;
 use ironrdp::pdu::rdp::client_info::{CompressionType, PerformanceFlags, TimezoneInfo};
+use ironrdp::pdu::rdp::headers::ShareDataPdu;
+use ironrdp::pdu::rdp::refresh_rectangle::RefreshRectanglePdu;
 use ironrdp::session::image::DecodedImage;
 use ironrdp::session::{ActiveStage, ActiveStageOutput};
 use serde::Serialize;
@@ -64,6 +68,9 @@ struct ProbeArgs {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum SidecarMessage {
+    CertificateReady {
+        certificate_fingerprint: Option<String>,
+    },
     Connected {
         desktop_width: u16,
         desktop_height: u16,
@@ -92,6 +99,15 @@ enum SidecarMessage {
     },
     DisplayResizeError {
         message: String,
+    },
+    CursorDefault,
+    CursorHidden,
+    CursorBitmap {
+        width: u16,
+        height: u16,
+        hotspot_x: u16,
+        hotspot_y: u16,
+        data: String,
     },
 }
 
@@ -125,6 +141,12 @@ fn main() {
 
 fn run() -> AppResult<()> {
     let mut args = parse_args()?;
+    let certificate_fingerprint = probe_tls_certificate(&args)?;
+
+    emit_message(&SidecarMessage::CertificateReady {
+        certificate_fingerprint: certificate_fingerprint.clone(),
+    })?;
+
     resolve_password(&mut args)?;
     let connector_config = build_config(&args)?;
     let local_clipboard_files = Arc::new(Mutex::new(Vec::new()));
@@ -140,8 +162,13 @@ fn run() -> AppResult<()> {
         clipboard_proxy,
         Arc::clone(&clipboard_ready),
     );
-    let (connection_result, mut framed, certificate_fingerprint) =
-        connect(connector_config, args.host, args.port, clipboard_backend)?;
+    let (connection_result, mut framed) = connect(
+        connector_config,
+        args.host,
+        args.port,
+        clipboard_backend,
+        certificate_fingerprint.as_deref(),
+    )?;
 
     let desktop_width = connection_result.desktop_size.width;
     let desktop_height = connection_result.desktop_size.height;
@@ -289,12 +316,12 @@ fn build_config(args: &ProbeArgs) -> AppResult<connector::Config> {
         #[cfg(target_os = "android")]
         platform: MajorPlatformType::ANDROID,
 
-        enable_server_pointer: false,
+        enable_server_pointer: true,
         request_data: None,
         autologon: false,
         enable_audio_playback: false,
         compression_type: Some(CompressionType::Rdp61),
-        pointer_software_rendering: true,
+        pointer_software_rendering: false,
         multitransport_flags: None,
         performance_flags: PerformanceFlags::default(),
         desktop_scale_factor: 100,
@@ -311,7 +338,8 @@ fn connect(
     server_name: String,
     port: u16,
     clipboard_backend: ShellPilotClipboardBackend,
-) -> AppResult<(ConnectionResult, UpgradedFramed, Option<String>)> {
+    expected_certificate_fingerprint: Option<&str>,
+) -> AppResult<(ConnectionResult, UpgradedFramed)> {
     let server_addr = lookup_addr(&server_name, port)?;
     let tcp_stream = TcpStream::connect(server_addr)?;
     tcp_stream.set_read_timeout(Some(Duration::from_secs(12)))?;
@@ -327,6 +355,14 @@ fn connect(
     let initial_stream = framed.into_inner_no_leftover();
     let (upgraded_stream, server_public_key, certificate_fingerprint) =
         tls_upgrade(initial_stream, server_name.clone())?;
+
+    if !certificate_fingerprint_matches(
+        certificate_fingerprint.as_deref(),
+        expected_certificate_fingerprint,
+    ) {
+        return Err("RDP server certificate changed between verification and login".into());
+    }
+
     let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
     let mut upgraded_framed = ironrdp_blocking::Framed::new(upgraded_stream);
     let mut network_client = ReqwestNetworkClient;
@@ -340,7 +376,41 @@ fn connect(
         None,
     )?;
 
-    Ok((connection_result, upgraded_framed, certificate_fingerprint))
+    Ok((connection_result, upgraded_framed))
+}
+
+fn probe_tls_certificate(args: &ProbeArgs) -> AppResult<Option<String>> {
+    let probe_args = ProbeArgs {
+        domain: args.domain.clone(),
+        height: args.height,
+        host: args.host.clone(),
+        password: Some(String::new()),
+        password_stdin: false,
+        port: args.port,
+        username: args.username.clone(),
+        width: args.width,
+    };
+    let config = build_config(&probe_args)?;
+    let server_addr = lookup_addr(&probe_args.host, probe_args.port)?;
+    let tcp_stream = TcpStream::connect(server_addr)?;
+    tcp_stream.set_read_timeout(Some(Duration::from_secs(12)))?;
+
+    let client_addr = tcp_stream.local_addr()?;
+    let mut framed = ironrdp_blocking::Framed::new(tcp_stream);
+    let mut connector = connector::ClientConnector::new(config, client_addr);
+    let _ = ironrdp_blocking::connect_begin(&mut framed, &mut connector)?;
+    let initial_stream = framed.into_inner_no_leftover();
+    let (_, _, certificate_fingerprint) = tls_upgrade(initial_stream, probe_args.host)?;
+
+    Ok(certificate_fingerprint)
+}
+
+fn certificate_fingerprint_matches(actual: Option<&str>, expected: Option<&str>) -> bool {
+    match (actual, expected) {
+        (Some(actual), Some(expected)) => actual.eq_ignore_ascii_case(expected),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 fn run_active_stage(
@@ -367,15 +437,13 @@ fn run_active_stage(
         if clipboard_ready.load(Ordering::SeqCst) {
             if let Some(descriptors) = pending_local_files.take() {
                 match process_clipboard_file_copy(&mut active_stage, descriptors) {
-                    Ok(outputs) => {
-                        handle_outputs(
-                            &mut framed,
-                            image,
-                            outputs,
-                            &mut frame_sequence,
-                            &mut pending_activation,
-                        )?
-                    }
+                    Ok(outputs) => handle_outputs(
+                        &mut framed,
+                        image,
+                        outputs,
+                        &mut frame_sequence,
+                        &mut pending_activation,
+                    )?,
                     Err(error) => emit_message(&SidecarMessage::ClipboardError {
                         message: format!("RDP clipboard file copy failed: {error}"),
                     })?,
@@ -392,15 +460,13 @@ fn run_active_stage(
                 );
 
                 match result {
-                    Ok(outputs) => {
-                        handle_outputs(
-                            &mut framed,
-                            image,
-                            outputs,
-                            &mut frame_sequence,
-                            &mut pending_activation,
-                        )?
-                    }
+                    Ok(outputs) => handle_outputs(
+                        &mut framed,
+                        image,
+                        outputs,
+                        &mut frame_sequence,
+                        &mut pending_activation,
+                    )?,
                     Err(error) => emit_message(&SidecarMessage::ClipboardError {
                         message: format!("RDP clipboard text copy failed: {error}"),
                     })?,
@@ -434,15 +500,13 @@ fn run_active_stage(
 
                 if clipboard_ready.load(Ordering::SeqCst) {
                     match process_clipboard_file_copy(&mut active_stage, descriptors) {
-                        Ok(outputs) => {
-                            handle_outputs(
-                                &mut framed,
-                                image,
-                                outputs,
-                                &mut frame_sequence,
-                                &mut pending_activation,
-                            )?
-                        }
+                        Ok(outputs) => handle_outputs(
+                            &mut framed,
+                            image,
+                            outputs,
+                            &mut frame_sequence,
+                            &mut pending_activation,
+                        )?,
                         Err(error) => emit_message(&SidecarMessage::ClipboardError {
                             message: format!("RDP clipboard file copy failed: {error}"),
                         })?,
@@ -467,15 +531,13 @@ fn run_active_stage(
                     );
 
                     match result {
-                        Ok(outputs) => {
-                            handle_outputs(
-                                &mut framed,
-                                image,
-                                outputs,
-                                &mut frame_sequence,
-                                &mut pending_activation,
-                            )?
-                        }
+                        Ok(outputs) => handle_outputs(
+                            &mut framed,
+                            image,
+                            outputs,
+                            &mut frame_sequence,
+                            &mut pending_activation,
+                        )?,
                         Err(error) => emit_message(&SidecarMessage::ClipboardError {
                             message: format!("RDP clipboard text copy failed: {error}"),
                         })?,
@@ -490,7 +552,8 @@ fn run_active_stage(
                 match encode_display_resize(&mut active_stage, width, height) {
                     Ok(Some(frame)) => {
                         framed.write_all(&frame)?;
-                        let (desktop_width, desktop_height) = normalize_display_size(width, height)?;
+                        let (desktop_width, desktop_height) =
+                            normalize_display_size(width, height)?;
                         *image = DecodedImage::new(
                             ironrdp_graphics::image_processing::PixelFormat::RgbA32,
                             desktop_width,
@@ -499,14 +562,20 @@ fn run_active_stage(
                         // MS-RDPEDISP has no resize acknowledgement, so nothing
                         // else would ever tell the server to repaint the new
                         // canvas — without this the screen just stays blank.
-                        request_full_refresh(&mut framed, &mut active_stage, desktop_width, desktop_height)?;
+                        request_full_refresh(
+                            &mut framed,
+                            &mut active_stage,
+                            desktop_width,
+                            desktop_height,
+                        )?;
                         emit_message(&SidecarMessage::DisplayResized {
                             desktop_width,
                             desktop_height,
                         })?;
                     }
                     Ok(None) => emit_message(&SidecarMessage::DisplayResizeError {
-                        message: "RDP server did not open the Display Control channel yet.".to_string(),
+                        message: "RDP server did not open the Display Control channel yet."
+                            .to_string(),
                     })?,
                     Err(error) => emit_message(&SidecarMessage::DisplayResizeError {
                         message: format!("RDP display resize failed: {error}"),
@@ -666,7 +735,12 @@ fn process_reactivation_frame(
             desktop_size.width,
             desktop_size.height,
         );
-        request_full_refresh(framed, active_stage, desktop_size.width, desktop_size.height)?;
+        request_full_refresh(
+            framed,
+            active_stage,
+            desktop_size.width,
+            desktop_size.height,
+        )?;
 
         return Ok(Some((desktop_size.width, desktop_size.height)));
     }
@@ -708,13 +782,19 @@ fn encode_display_resize(
     let (desktop_width, desktop_height) = normalize_display_size(width, height)?;
 
     active_stage
-        .encode_resize(u32::from(desktop_width), u32::from(desktop_height), Some(100), None)
+        .encode_resize(
+            u32::from(desktop_width),
+            u32::from(desktop_height),
+            Some(100),
+            None,
+        )
         .transpose()
         .map_err(|error| error.into())
 }
 
 fn normalize_display_size(width: u16, height: u16) -> AppResult<(u16, u16)> {
-    let (width, height) = MonitorLayoutEntry::adjust_display_size(u32::from(width), u32::from(height));
+    let (width, height) =
+        MonitorLayoutEntry::adjust_display_size(u32::from(width), u32::from(height));
 
     Ok((width.try_into()?, height.try_into()?))
 }
@@ -732,6 +812,23 @@ fn handle_outputs(
             ActiveStageOutput::GraphicsUpdate(rect) => {
                 *frame_sequence = frame_sequence.saturating_add(1);
                 emit_frame(image, &rect, *frame_sequence)?;
+            }
+            ActiveStageOutput::PointerDefault => {
+                emit_message(&SidecarMessage::CursorDefault)?;
+            }
+            ActiveStageOutput::PointerHidden => {
+                emit_message(&SidecarMessage::CursorHidden)?;
+            }
+            ActiveStageOutput::PointerBitmap(pointer) => {
+                let data = base64::engine::general_purpose::STANDARD.encode(&pointer.bitmap_data);
+
+                emit_message(&SidecarMessage::CursorBitmap {
+                    data,
+                    height: pointer.height,
+                    hotspot_x: pointer.hotspot_x,
+                    hotspot_y: pointer.hotspot_y,
+                    width: pointer.width,
+                })?;
             }
             ActiveStageOutput::Terminate(reason) => {
                 return Err(format!("RDP session terminated: {reason:?}").into());
@@ -817,7 +914,6 @@ fn tls_upgrade(
         .with_custom_certificate_verifier(std::sync::Arc::new(danger::NoCertificateVerification))
         .with_no_client_auth();
 
-    config.key_log = std::sync::Arc::new(rustls::KeyLogFile::new());
     config.resumption = rustls::client::Resumption::disabled();
 
     let client =

@@ -185,7 +185,7 @@ function getWorkspaceTabGroupKey(tab: WorkspaceTabItem, panelState?: SftpSidebar
 
   return {
     id: `workspace:${tab.type}`,
-    label: getWorkspaceTabTypeLabel(tab.type),
+    label: tab.type === 'terminal' && !tab.session ? 'Local Terminal' : getWorkspaceTabTypeLabel(tab.type),
   };
 }
 
@@ -243,6 +243,10 @@ export function getWorkspaceTabStatus(
     return 'restored';
   }
 
+  if (tab.type === 'rdp') {
+    return 'restored';
+  }
+
   return 'idle';
 }
 
@@ -284,7 +288,7 @@ function getWorkspaceTabTreeDisplayTitle(
     return undefined;
   }
 
-  const key = `${groupId}:${tab.type}`;
+  const key = `${groupId}:${tab.type}:${getWorkspaceTabOrdinalKey(tab, panelState)}`;
   const tabCount = (tabCountsByGroupAndType.get(key) ?? 0) + 1;
 
   tabCountsByGroupAndType.set(key, tabCount);
@@ -293,7 +297,23 @@ function getWorkspaceTabTreeDisplayTitle(
     return `SFTP #${tabCount} · ${getRemotePathTitle(panelState?.path ?? tab.title)}`;
   }
 
-  return tab.session?.kind === 'ssh' ? `SSH #${tabCount}` : `Terminal #${tabCount}`;
+  if (tab.session) {
+    return tab.session.kind === 'ssh' ? `SSH #${tabCount}` : `${tab.session.kind.toUpperCase()} #${tabCount}`;
+  }
+
+  return `${getWorkspaceTabTitle(tab, panelState)} #${tabCount}`;
+}
+
+function getWorkspaceTabOrdinalKey(tab: WorkspaceTabItem, panelState?: SftpSidebarPanelState) {
+  if (tab.type === 'sftp') {
+    return getRemotePathTitle(panelState?.path ?? tab.title);
+  }
+
+  if (tab.type === 'terminal') {
+    return tab.session?.id ?? getWorkspaceTabTitle(tab, panelState);
+  }
+
+  return tab.title;
 }
 
 function getWorkspaceTabTypeLabel(type: WorkspacePanelType) {

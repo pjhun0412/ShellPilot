@@ -19,6 +19,10 @@
     "core:window:allow-show",
     "core:window:allow-toggle-maximize",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "process:allow-restart",
+    "updater:allow-check",
+    "updater:allow-download-and-install"
   ]
 }

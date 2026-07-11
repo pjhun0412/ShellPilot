@@ -27,7 +27,12 @@ export function createWorkspaceTabRenderer({
   tabIdentities?: Record<string, WorkspaceTabIdentity>;
 }) {
   return (node: TabNode, renderValues: WorkspaceRenderTabValues) => {
-    const config = node.getConfig() as { aiBinding?: AiPanelBinding; panelType?: string; session?: unknown };
+    const config = node.getConfig() as {
+      aiBinding?: AiPanelBinding;
+      localPtyTarget?: unknown;
+      panelType?: string;
+      session?: unknown;
+    };
     const isSelected = activePanelId === node.getId();
     const isMismatchedBoundAi =
       config.panelType === 'ai' &&
@@ -54,7 +59,10 @@ export function createWorkspaceTabRenderer({
       </span>
     );
 
-    if (!config.session || config.panelType === 'ai') {
+    const shouldShowConnectionDot =
+      config.panelType !== 'ai' && (Boolean(config.session) || Boolean(config.localPtyTarget));
+
+    if (!shouldShowConnectionDot) {
       return;
     }
 

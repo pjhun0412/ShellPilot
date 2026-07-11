@@ -2,7 +2,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Clipboard, Copy, Eraser, FolderOpen, PlugZap, RotateCcw } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   ContextMenu,
@@ -31,11 +31,13 @@ import { useSshTerminalLifecycle } from './useSshTerminalLifecycle';
 
 export function SshTerminal({
   autoConnect = true,
+  isActive = false,
   onOpenSftp,
   panelId,
   session,
 }: {
   autoConnect?: boolean;
+  isActive?: boolean;
   onOpenSftp?: (session: SessionItem) => void;
   panelId: string;
   session: SessionItem;
@@ -102,6 +104,16 @@ export function SshTerminal({
     shouldRememberUsernameRef,
     terminalRef,
   });
+
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      terminalRef.current?.focus();
+    });
+  }, [isActive]);
 
   const copySelection = () => {
     copyTerminalSelection(terminalRef.current);

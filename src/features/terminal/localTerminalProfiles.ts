@@ -19,7 +19,7 @@ export const localTerminalProfiles: LocalTerminalProfile[] = [
   {
     id: 'cmd',
     label: 'CMD',
-    title: 'Command Prompt',
+    title: 'CMD',
     target: { command: 'cmd.exe' },
   },
   {

@@ -3,9 +3,10 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
+import { requestRdpDisconnect, requestRdpReconnect } from '@/features/rdp/rdpPanelLifecycle';
 import { subscribeConnectionStatus } from '@/features/connections/connectionStatus';
 import { requestSftpSidebarDisconnect, requestSftpSidebarReconnect, subscribeSftpSidebarPanelStates, type SftpSidebarPanelState } from '@/features/sftp/sftpSidebarState';
-import { notifyTerminalClosing, notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
+import { notifyTerminalDisconnect, notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
 import type { WorkspacePanel, WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
 import { ConnectionStatusDot, formatConnectionStatusLabel, formatRemotePath, getRemotePathTitle, getWorkspaceTabPrimaryDetail, getWorkspaceTabTitle, groupWorkspaceTabs, loadStringSetPreference, openTabsCollapsedGroupsStorageKey, saveStringSetPreference, type WorkspaceTabGroup, type WorkspaceTabVisualStatus } from './SidebarPanelUtils';
 export function WorkspaceTabsSidebar({
@@ -60,7 +61,7 @@ export function WorkspaceTabsSidebar({
     });
   };
   const reconnectTab = (tab: WorkspaceTabItem) => {
-    if (tab.type === 'terminal') {
+    if (tab.type === 'terminal' && tab.session) {
       setConnectionStates((current) => ({ ...current, [tab.id]: 'queued' }));
       notifyTerminalReconnect(tab.id);
       return;
@@ -69,18 +70,30 @@ export function WorkspaceTabsSidebar({
     if (tab.type === 'sftp') {
       setConnectionStates((current) => ({ ...current, [tab.id]: 'queued' }));
       requestSftpSidebarReconnect(tab.id);
+      return;
+    }
+
+    if (tab.type === 'rdp') {
+      setConnectionStates((current) => ({ ...current, [tab.id]: 'queued' }));
+      requestRdpReconnect(tab.id);
     }
   };
   const disconnectTab = (tab: WorkspaceTabItem) => {
-    if (tab.type === 'terminal') {
+    if (tab.type === 'terminal' && tab.session) {
       setConnectionStates((current) => ({ ...current, [tab.id]: 'closed' }));
-      notifyTerminalClosing(tab.id);
+      notifyTerminalDisconnect(tab.id);
       return;
     }
 
     if (tab.type === 'sftp') {
       setConnectionStates((current) => ({ ...current, [tab.id]: 'closed' }));
       requestSftpSidebarDisconnect(tab.id);
+      return;
+    }
+
+    if (tab.type === 'rdp') {
+      setConnectionStates((current) => ({ ...current, [tab.id]: 'closed' }));
+      requestRdpDisconnect(tab.id);
     }
   };
   const cloneTab = (tab: WorkspaceTabItem) => {
@@ -248,9 +261,13 @@ function WorkspaceTabButton({
   const title = displayTitle ?? getWorkspaceTabTitle(tab, panelState);
   const primaryDetail = getWorkspaceTabPrimaryDetail(tab, panelState);
   const counterpartLabel = tab.type === 'sftp' ? 'Open SSH Terminal' : 'Open SFTP Explorer';
-  const canReconnect = (tab.type === 'terminal' || tab.type === 'sftp') && status !== 'queued' && status !== 'connecting';
+  const isSessionConnectionTab =
+    (tab.type === 'terminal' && Boolean(tab.session)) ||
+    tab.type === 'sftp' ||
+    tab.type === 'rdp';
+  const canReconnect = isSessionConnectionTab && status !== 'queued' && status !== 'connecting';
   const canDisconnect =
-    (tab.type === 'terminal' || tab.type === 'sftp') &&
+    isSessionConnectionTab &&
     (status === 'connected' || status === 'connecting' || status === 'queued');
 
   return (

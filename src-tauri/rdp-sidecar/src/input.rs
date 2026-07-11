@@ -148,6 +148,8 @@ pub(crate) fn to_fastpath_events(message: InputMessage) -> Vec<FastPathInputEven
 
             events
         }
-        InputMessage::ClipboardFiles { .. } | InputMessage::ClipboardText { .. } | InputMessage::Resize { .. } => Vec::new(),
+        InputMessage::ClipboardFiles { .. }
+        | InputMessage::ClipboardText { .. }
+        | InputMessage::Resize { .. } => Vec::new(),
     }
 }

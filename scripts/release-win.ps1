@@ -16,9 +16,29 @@ if ([string]::IsNullOrWhiteSpace($Tag)) {
 
 $assetDir = Join-Path $root "release-assets"
 $portableSource = Join-Path $root "src-tauri\target\release\ShellPilot.exe"
+$sidecarManifest = Join-Path $root "src-tauri\rdp-sidecar\Cargo.toml"
+$sidecarSource = Join-Path $root "src-tauri\rdp-sidecar\target\release\shellpilot-rdp-probe.exe"
+$sidecarExternalBinDir = Join-Path $root "src-tauri\binaries"
+$sidecarExternalBin = Join-Path $sidecarExternalBinDir "shellpilot-rdp-probe-x86_64-pc-windows-msvc.exe"
 $nsisDir = Join-Path $root "src-tauri\target\release\bundle\nsis"
-$portableAsset = Join-Path $assetDir "ShellPilot-$version-portable.exe"
+$portableStagingDir = Join-Path $assetDir "ShellPilot-$version-portable"
+$portableAsset = Join-Path $assetDir "ShellPilot-$version-portable.zip"
 $setupAsset = Join-Path $assetDir "ShellPilot-$version-setup.exe"
+$setupSignatureAsset = "$setupAsset.sig"
+$latestJsonAsset = Join-Path $assetDir "latest.json"
+
+Write-Host "Building ShellPilot RDP sidecar $version..."
+cargo.exe build --release --manifest-path $sidecarManifest
+if ($LASTEXITCODE -ne 0) {
+  throw "RDP sidecar release build failed."
+}
+
+if (-not (Test-Path -LiteralPath $sidecarSource)) {
+  throw "RDP sidecar executable was not found: $sidecarSource"
+}
+
+New-Item -ItemType Directory -Force -Path $sidecarExternalBinDir | Out-Null
+Copy-Item -LiteralPath $sidecarSource -Destination $sidecarExternalBin -Force
 
 Write-Host "Building ShellPilot $version Windows installer..."
 npm.cmd run release:win:build
@@ -41,8 +61,26 @@ if (-not $setupSource) {
 Remove-Item -LiteralPath $assetDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
 
-Copy-Item -LiteralPath $portableSource -Destination $portableAsset -Force
+New-Item -ItemType Directory -Force -Path $portableStagingDir | Out-Null
+Copy-Item -LiteralPath $portableSource -Destination (Join-Path $portableStagingDir "ShellPilot.exe") -Force
+Copy-Item -LiteralPath $sidecarSource -Destination (Join-Path $portableStagingDir "shellpilot-rdp-probe.exe") -Force
+Compress-Archive -Path (Join-Path $portableStagingDir "*") -DestinationPath $portableAsset -Force
 Copy-Item -LiteralPath $setupSource.FullName -Destination $setupAsset -Force
+
+$setupSignatureSource = "$($setupSource.FullName).sig"
+if (-not (Test-Path -LiteralPath $setupSignatureSource)) {
+  Write-Host "Updater signature was not produced by the bundler. Signing setup executable..."
+  npm.cmd run tauri -- signer sign --private-key-path $env:TAURI_SIGNING_PRIVATE_KEY_PATH $setupSource.FullName
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to sign updater package. Set TAURI_SIGNING_PRIVATE_KEY_PATH or TAURI_SIGNING_PRIVATE_KEY."
+  }
+}
+
+if (-not (Test-Path -LiteralPath $setupSignatureSource)) {
+  throw "Updater signature was not found after signing: $setupSignatureSource"
+}
+
+Copy-Item -LiteralPath $setupSignatureSource -Destination $setupSignatureAsset -Force
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   throw "GitHub CLI (gh) is required to upload releases. Install it and run 'gh auth login'."
@@ -63,12 +101,31 @@ if ($LASTEXITCODE -ne 0) {
   }
 }
 
+$setupUrl = "https://github.com/$repo/releases/download/$Tag/ShellPilot-$version-setup.exe"
+$signature = (Get-Content -Raw -LiteralPath $setupSignatureAsset).Trim()
+$publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$latestJson = [ordered]@{
+  version = $version
+  notes = "ShellPilot $Tag release"
+  pub_date = $publishedAt
+  platforms = [ordered]@{
+    "windows-x86_64" = [ordered]@{
+      signature = $signature
+      url = $setupUrl
+    }
+  }
+} | ConvertTo-Json -Depth 6
+
+Set-Content -LiteralPath $latestJsonAsset -Value $latestJson -Encoding UTF8
+
 Write-Host "Uploading release assets..."
-& gh release upload $Tag $setupAsset $portableAsset --clobber
+& gh release upload $Tag $setupAsset $setupSignatureAsset $portableAsset $latestJsonAsset --clobber
 if ($LASTEXITCODE -ne 0) {
   throw "Failed to upload release assets."
 }
 
 Write-Host "Uploaded:"
 Write-Host "  $setupAsset"
+Write-Host "  $setupSignatureAsset"
 Write-Host "  $portableAsset"
+Write-Host "  $latestJsonAsset"

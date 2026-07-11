@@ -28,6 +28,16 @@ export interface RdpFrameEvent {
   y: number;
 }
 
+export interface RdpCursorEvent {
+  data?: string;
+  height?: number;
+  hotspotX?: number;
+  hotspotY?: number;
+  kind: 'bitmap' | 'default' | 'hidden';
+  panelId: string;
+  width?: number;
+}
+
 export interface RdpClipboardTextEvent {
   panelId: string;
   text: string;
@@ -109,6 +119,12 @@ export async function listenRdpFrames(
   listener: (event: RdpFrameEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<RdpFrameEvent>('shellpilot-rdp-frame', (event) => listener(event.payload));
+}
+
+export async function listenRdpCursor(
+  listener: (event: RdpCursorEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<RdpCursorEvent>('shellpilot-rdp-cursor', (event) => listener(event.payload));
 }
 
 export async function listenRdpClipboardText(

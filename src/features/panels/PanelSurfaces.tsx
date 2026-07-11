@@ -19,7 +19,7 @@ export function PanelFocusFrame({
         'overflow-hidden',
         !isActive && 'brightness-[0.98]',
       )}
-      onPointerDown={onActivate}
+      onPointerDownCapture={onActivate}
       tabIndex={-1}
     >
       {children}

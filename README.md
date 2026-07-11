@@ -1,4 +1,6 @@
-﻿# ShellPilot
+# ShellPilot
+
+> 최신 한국어 인계 문서는 [docs/index.md](docs/index.md)를 먼저 보세요.
 
 ShellPilot은 SSH 중심의 원격 작업을 하나의 데스크톱 워크스페이스에서 관리하기 위한 Tauri 기반 애플리케이션입니다.
 

@@ -28,10 +28,11 @@ export function PanelBody({
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         {panel.localPtyTarget ? (
-          <LocalPtyTerminal panelId={panel.id} target={panel.localPtyTarget} />
+          <LocalPtyTerminal isActive={isActive} panelId={panel.id} target={panel.localPtyTarget} />
         ) : panel.session?.kind === 'ssh' ? (
           <SshTerminal
             autoConnect={panel.autoConnect !== false}
+            isActive={isActive}
             panelId={panel.id}
             session={panel.session}
             onOpenSftp={onOpenSftp}
@@ -77,6 +78,7 @@ export function PanelBody({
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         <SftpPanel
           autoConnect={panel.autoConnect !== false}
+          isActive={isActive}
           panelId={panel.id}
           session={panel.session}
         />

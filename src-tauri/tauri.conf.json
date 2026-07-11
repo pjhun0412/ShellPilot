@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ShellPilot",
   "mainBinaryName": "ShellPilot",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "identifier": "com.shellpilot.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -30,6 +30,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "binaries/shellpilot-rdp-probe"
+    ],
     "icon": [
       "icons/icon.ico",
       "icons/icon.icns",
@@ -39,5 +42,14 @@
       "icons/128x128.png",
       "icons/128x128@2x.png"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/pjhun0412/ShellPilot/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhEODE0MzQ3MTMyMjkzRDMKUldUVGt5SVRSME9CallqWk8yUUtDMnhNa1AvcGJoVTNDcHB6SU1POWk4YTJMYnNDUndMcDA2SG8K"
+    }
   }
 }

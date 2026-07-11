@@ -1,5 +1,7 @@
 # RDP Design
 
+> 한국어 빠른 인계 문서는 `docs/rdp-handoff.md`를 먼저 보세요. 이 문서는 상세 설계, 단계별 계획, 결정 로그를 함께 보관하는 장기 설계 문서입니다.
+
 ShellPilot RDP is planned as an embedded tab experience, not an external client launcher.
 The first target is Windows development and Windows RDP servers. macOS support is a later
 compatibility pass, but early architecture should avoid Windows-only UI embedding.
@@ -10,7 +12,8 @@ RDP currently uses a ShellPilot-managed IronRDP sidecar process:
 
 - React renders the remote desktop in an `RdpPanel` canvas.
 - The Tauri backend owns RDP session lifecycle and starts/stops one sidecar per panel.
-- The sidecar receives credentials through stdin, not argv.
+- The sidecar receives credentials through stdin only after the backend has approved the server TLS
+  fingerprint.
 - Frames, lifecycle events, clipboard events, and display resize events are normalized into Tauri
   events for the frontend.
 - Keyboard, mouse, wheel, clipboard, Windows-key capture, and display resize commands flow from
@@ -162,6 +165,8 @@ These items are part of the RDP MVP hardening path, not optional polish.
 
 - Do not pass secrets through process arguments. The sidecar receives the password through stdin so
   it is not exposed through process listings.
+- Do not send the password to the sidecar until the server TLS fingerprint has passed the backend
+  TOFU trust decision.
 - Do not write credentials to logs, stderr, telemetry, or reconnect messages.
 - Sidecar processes are killed when a tab disconnects or closes.
 - Backend session handles are removed when the sidecar exits, fails, or is closed.
@@ -171,15 +176,17 @@ These items are part of the RDP MVP hardening path, not optional polish.
   newer than the binary.
 - Release builds must use a bundled sidecar binary. A user machine must not require `cargo` just to
   open RDP.
-- The sidecar emits the RDP TLS certificate SHA-256 fingerprint on connect.
+- The sidecar first performs a certificate probe and emits the RDP TLS certificate SHA-256
+  fingerprint before the backend sends credentials.
 - The backend stores trusted RDP fingerprints in app data and applies a TOFU-style decision:
   unknown certificates are blocked until the user chooses `Trust and reconnect`, and changed
   fingerprints are blocked as certificate mismatches.
 - If a fingerprint changes, the user can explicitly forget the stored certificate and reconnect;
   the next connection returns to the unknown-certificate trust flow.
-- Current limitation: the first trust decision is enforced when the sidecar reports `Connected`.
-  A later hardening pass should move this boundary earlier, before credential exchange, if IronRDP
-  exposes a clean pre-auth certificate hook for the embedded flow.
+- The sidecar compares the certificate used by the actual login connection with the fingerprint
+  approved during the probe and aborts if it changes before credential exchange.
+- Sidecar stderr is summarized before being shown in the UI. Full sidecar debug logging is disabled
+  by default and only written when `SHELLPILOT_RDP_DEBUG_LOG=1` is set.
 
 ## Input Expectations
 
@@ -307,7 +314,8 @@ Stabilization can continue from real usage reports. The known backlog is:
 - IME/Korean input compatibility.
 - 4K/high-FPS performance testing.
 - Release packaging verification for the sidecar binary.
-- Earlier TLS certificate trust decision, if IronRDP exposes the needed hook.
+- More direct pre-auth certificate hooks if IronRDP exposes them in a future API. The current
+  implementation uses a probe connection before sending credentials to the login connection.
 - Optional sidecar refactor of display resize/reactivation, frame decode, and connection bootstrap
   into smaller modules once behavior has settled.
 
@@ -331,8 +339,8 @@ Stabilization can continue from real usage reports. The known backlog is:
 - Phase 0 therefore uses a ShellPilot-managed `rdp-sidecar` IronRDP probe process. This keeps the
   SSH/SFTP backend stable while still proving an internal embedded RDP engine, not an external RDP
   client launcher.
-- RDP credentials are sent to the sidecar through stdin instead of argv as of the first hardening
-  pass.
+- RDP credentials are sent to the sidecar through stdin instead of argv, and only after the backend
+  approves the server TLS fingerprint.
 - RDP sidecar sessions now clean up their backend store entry on close/failure/exit and guard
   cleanup with a run id so stale exits do not delete newer sessions.
 - RDP frame events include a monotonically increasing sequence id so the frontend can ignore stale

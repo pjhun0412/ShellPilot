@@ -90,10 +90,10 @@ export function getNextActivePanelIdAfterClose({
   return undefined;
 }
 
-export function isTerminalLikeTab(tabNode: TabNode) {
+export function isTerminalPanelTab(tabNode: TabNode) {
   const config = tabNode.getConfig() as { panelType?: string; session?: unknown };
 
-  return config.panelType === 'terminal' || Boolean(config.session);
+  return config.panelType === 'terminal';
 }
 
 export function getBottomBorderId(model: Model) {

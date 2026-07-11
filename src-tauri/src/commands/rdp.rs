@@ -122,6 +122,26 @@ struct RdpFrameEvent {
     y: u16,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RdpCursorEvent {
+    data: Option<String>,
+    height: Option<u16>,
+    hotspot_x: Option<u16>,
+    hotspot_y: Option<u16>,
+    kind: RdpCursorKind,
+    panel_id: String,
+    width: Option<u16>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+enum RdpCursorKind {
+    Bitmap,
+    Default,
+    Hidden,
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RdpKnownCertificates {
@@ -150,6 +170,9 @@ struct RdpCertificateFailure {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum SidecarMessage {
+    CertificateReady {
+        certificate_fingerprint: Option<String>,
+    },
     Connected {
         desktop_width: u16,
         desktop_height: u16,
@@ -178,10 +201,22 @@ enum SidecarMessage {
     },
     DisplayResizeError {
         message: String,
+    },
+    CursorDefault,
+    CursorHidden,
+    CursorBitmap {
+        width: u16,
+        height: u16,
+        hotspot_x: u16,
+        hotspot_y: u16,
+        data: String,
     },
 }
 
 enum SidecarOutput {
+    CertificateReady {
+        certificate_fingerprint: Option<String>,
+    },
     Connected {
         desktop_width: u16,
         desktop_height: u16,
@@ -211,7 +246,16 @@ enum SidecarOutput {
     DisplayResizeError {
         message: String,
     },
+    Cursor {
+        data: Option<String>,
+        height: Option<u16>,
+        hotspot_x: Option<u16>,
+        hotspot_y: Option<u16>,
+        kind: RdpCursorKind,
+        width: Option<u16>,
+    },
     Exited {
+        detail: String,
         message: String,
     },
 }
@@ -328,7 +372,7 @@ async fn run_rdp_session(
         &panel_id,
         RdpStatus::Connecting,
         None,
-        Some("starting embedded RDP session".to_string()),
+        Some("Connecting to remote desktop...".to_string()),
         true,
         None,
         None,
@@ -339,7 +383,7 @@ async fn run_rdp_session(
         .map_err(|error| format!("RDP worker failed: {error}"))
         .and_then(|value| value);
 
-    let (child, mut stdin, mut stdout_rx) = match spawned {
+    let (child, mut stdin, mut stdout_rx, password) = match spawned {
         Ok(value) => value,
         Err(error) => {
             emit_rdp_event(
@@ -363,9 +407,7 @@ async fn run_rdp_session(
         tokio::select! {
             message = stdout_rx.recv() => {
                 match message {
-                    Some(SidecarOutput::Connected {
-                        desktop_width,
-                        desktop_height,
+                    Some(SidecarOutput::CertificateReady {
                         certificate_fingerprint,
                     }) => {
                         match verify_or_trust_rdp_certificate(
@@ -375,7 +417,21 @@ async fn run_rdp_session(
                             certificate_fingerprint.as_deref(),
                             accept_new_certificate,
                         ) {
-                            Ok(RdpCertificateDecision::Trusted | RdpCertificateDecision::TrustedNew) => {}
+                            Ok(RdpCertificateDecision::Trusted | RdpCertificateDecision::TrustedNew) => {
+                                if let Err(error) = writeln!(stdin, "{password}").and_then(|_| stdin.flush()) {
+                                    emit_rdp_event(
+                                        &app,
+                                        &panel_id,
+                                        RdpStatus::Failed,
+                                        Some("connection_failed".to_string()),
+                                        Some(format!("Failed to continue RDP connection: {error}")),
+                                        true,
+                                        None,
+                                        None,
+                                    );
+                                    break;
+                                }
+                            }
                             Err(error) => {
                                 if let Ok(mut guard) = child.lock() {
                                     let _ = guard.kill();
@@ -394,13 +450,18 @@ async fn run_rdp_session(
                                 break;
                             }
                         }
-
+                    }
+                    Some(SidecarOutput::Connected {
+                        desktop_width,
+                        desktop_height,
+                        certificate_fingerprint,
+                    }) => {
                         emit_rdp_event(
                             &app,
                             &panel_id,
                             RdpStatus::Connected,
                             None,
-                            Some("IronRDP session established.".to_string()),
+                            Some("Connected.".to_string()),
                             true,
                             Some((desktop_width, desktop_height)),
                             certificate_fingerprint,
@@ -414,7 +475,7 @@ async fn run_rdp_session(
                                 &panel_id,
                                 RdpStatus::FrameReady,
                                 None,
-                                Some("Receiving desktop frames.".to_string()),
+                                Some("Desktop ready.".to_string()),
                                 true,
                                 None,
                                 None,
@@ -491,12 +552,31 @@ async fn run_rdp_session(
                             None,
                         );
                     }
-                    Some(SidecarOutput::Exited { message }) => {
+                    Some(SidecarOutput::Cursor {
+                        data,
+                        height,
+                        hotspot_x,
+                        hotspot_y,
+                        kind,
+                        width,
+                    }) => {
+                        emit_rdp_cursor(
+                            &app,
+                            &panel_id,
+                            kind,
+                            width,
+                            height,
+                            hotspot_x,
+                            hotspot_y,
+                            data,
+                        );
+                    }
+                    Some(SidecarOutput::Exited { detail, message }) => {
                         emit_rdp_event(
                             &app,
                             &panel_id,
                             RdpStatus::Failed,
-                            Some(classify_rdp_error(&message).to_string()),
+                            Some(classify_rdp_error(&detail).to_string()),
                             Some(message),
                             true,
                             None,
@@ -554,6 +634,7 @@ fn spawn_rdp_sidecar(
         SidecarChild,
         ChildStdin,
         mpsc::UnboundedReceiver<SidecarOutput>,
+        String,
     ),
     String,
 > {
@@ -586,21 +667,18 @@ fn spawn_rdp_sidecar(
         command.arg("--domain").arg(domain);
     }
 
-    // Debugging aid: always capture sidecar tracing output to a fixed log file
-    // (overwritten per connection) so issues can be diagnosed from a normal
-    // GUI session without needing to run the sidecar by hand. Respect an
-    // existing RUST_LOG from the parent's environment if the user already set
-    // one, otherwise default to a useful debug level.
+    // Keep sidecar protocol diagnostics quiet by default. Developers can opt
+    // into verbose sidecar logs by setting RUST_LOG/SHELLPILOT_RDP_DEBUG_LOG.
     command.env(
         "RUST_LOG",
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "ironrdp=debug".to_string()),
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".to_string()),
     );
 
     let mut child = command
         .spawn()
         .map_err(|error| format!("failed to start RDP sidecar: {error}"))?;
 
-    let mut stdin = child
+    let stdin = child
         .stdin
         .take()
         .ok_or_else(|| "RDP sidecar stdin unavailable".to_string())?;
@@ -617,13 +695,15 @@ fn spawn_rdp_sidecar(
     let (tx, rx) = mpsc::unbounded_channel();
     let child: SidecarChild = Arc::new(StdMutex::new(child));
 
-    writeln!(stdin, "{password}")
-        .and_then(|_| stdin.flush())
-        .map_err(|error| format!("failed to send RDP credentials to sidecar: {error}"))?;
-
     {
         let stderr_buffer = Arc::clone(&stderr_buffer);
-        let mut log_file = fs::File::create(rdp_sidecar_log_path()).ok();
+        let write_debug_log = std::env::var("SHELLPILOT_RDP_DEBUG_LOG")
+            .is_ok_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+        let mut log_file = if write_debug_log {
+            fs::File::create(rdp_sidecar_log_path()).ok()
+        } else {
+            None
+        };
 
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
@@ -654,6 +734,11 @@ fn spawn_rdp_sidecar(
                 };
 
                 let output = match message {
+                    SidecarMessage::CertificateReady {
+                        certificate_fingerprint,
+                    } => SidecarOutput::CertificateReady {
+                        certificate_fingerprint,
+                    },
                     SidecarMessage::Connected {
                         desktop_width,
                         desktop_height,
@@ -695,6 +780,36 @@ fn spawn_rdp_sidecar(
                     SidecarMessage::DisplayResizeError { message } => {
                         SidecarOutput::DisplayResizeError { message }
                     }
+                    SidecarMessage::CursorDefault => SidecarOutput::Cursor {
+                        data: None,
+                        height: None,
+                        hotspot_x: None,
+                        hotspot_y: None,
+                        kind: RdpCursorKind::Default,
+                        width: None,
+                    },
+                    SidecarMessage::CursorHidden => SidecarOutput::Cursor {
+                        data: None,
+                        height: None,
+                        hotspot_x: None,
+                        hotspot_y: None,
+                        kind: RdpCursorKind::Hidden,
+                        width: None,
+                    },
+                    SidecarMessage::CursorBitmap {
+                        data,
+                        height,
+                        hotspot_x,
+                        hotspot_y,
+                        width,
+                    } => SidecarOutput::Cursor {
+                        data: Some(data),
+                        height: Some(height),
+                        hotspot_x: Some(hotspot_x),
+                        hotspot_y: Some(hotspot_y),
+                        kind: RdpCursorKind::Bitmap,
+                        width: Some(width),
+                    },
                 };
 
                 if tx.send(output).is_err() {
@@ -709,18 +824,24 @@ fn spawn_rdp_sidecar(
                 .unwrap_or_default();
 
             let message = if !stderr_text.is_empty() {
-                format!("RDP sidecar failed: {stderr_text}")
+                sanitize_sidecar_failure_message(&stderr_text)
             } else if exit_status.is_some_and(|status| !status.success()) {
                 "RDP sidecar exited unexpectedly".to_string()
             } else {
                 "RDP sidecar connection ended".to_string()
             };
 
-            let _ = tx.send(SidecarOutput::Exited { message });
+            let detail = if stderr_text.is_empty() {
+                message.clone()
+            } else {
+                stderr_text
+            };
+
+            let _ = tx.send(SidecarOutput::Exited { detail, message });
         });
     }
 
-    Ok((child, stdin, rx))
+    Ok((child, stdin, rx, password))
 }
 
 #[derive(Serialize, Clone)]
@@ -1129,6 +1250,36 @@ fn classify_rdp_error(error: &str) -> &'static str {
     "connection_failed"
 }
 
+fn sanitize_sidecar_failure_message(detail: &str) -> String {
+    let lower = detail.to_ascii_lowercase();
+
+    if lower.contains("password")
+        || lower.contains("authentication")
+        || lower.contains("access denied")
+        || lower.contains("credssp")
+    {
+        return "RDP authentication failed.".to_string();
+    }
+
+    if lower.contains("certificate") || lower.contains("tls") {
+        return "RDP secure connection failed.".to_string();
+    }
+
+    if lower.contains("timeout") || lower.contains("timed out") {
+        return "RDP connection timed out.".to_string();
+    }
+
+    if lower.contains("refused") {
+        return "RDP connection was refused.".to_string();
+    }
+
+    if lower.contains("resolve") || lower.contains("address") || lower.contains("dns") {
+        return "RDP host could not be resolved.".to_string();
+    }
+
+    "RDP sidecar failed. Enable RDP debug logging for details.".to_string()
+}
+
 fn verify_or_trust_rdp_certificate(
     app: &AppHandle,
     host: &str,
@@ -1285,6 +1436,30 @@ fn emit_rdp_frame(
             width,
             x,
             y,
+        },
+    );
+}
+
+fn emit_rdp_cursor(
+    app: &AppHandle,
+    panel_id: &str,
+    kind: RdpCursorKind,
+    width: Option<u16>,
+    height: Option<u16>,
+    hotspot_x: Option<u16>,
+    hotspot_y: Option<u16>,
+    data: Option<String>,
+) {
+    let _ = app.emit(
+        "shellpilot-rdp-cursor",
+        RdpCursorEvent {
+            data,
+            height,
+            hotspot_x,
+            hotspot_y,
+            kind,
+            panel_id: panel_id.to_string(),
+            width,
         },
     );
 }

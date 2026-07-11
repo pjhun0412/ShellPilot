@@ -15,6 +15,7 @@ import type { WorkspaceLocalPtyTarget } from '@/types/workspace';
 export function MenuBar({
   isAiAssistantVisible,
   isTransferQueueVisible,
+  onCheckForUpdates,
   onOpenElevatedLocalTerminal,
   onOpenLocalTerminal,
   onOpenSettings,
@@ -23,6 +24,7 @@ export function MenuBar({
 }: {
   isAiAssistantVisible?: boolean;
   isTransferQueueVisible?: boolean;
+  onCheckForUpdates?: () => void;
   onOpenElevatedLocalTerminal: (shell: 'cmd' | 'powershell') => void;
   onOpenLocalTerminal: (request: { target: WorkspaceLocalPtyTarget; title: string }) => void;
   onOpenSettings: () => void;
@@ -30,8 +32,10 @@ export function MenuBar({
   onToggleTransferQueue?: () => void;
 }) {
   const appWindow = getCurrentWindow();
+  const helpMenuRef = useRef<HTMLDivElement>(null);
   const sessionMenuRef = useRef<HTMLDivElement>(null);
   const viewMenuRef = useRef<HTMLDivElement>(null);
+  const [isHelpMenuOpen, setIsHelpMenuOpen] = useState(false);
   const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(false);
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
   const [preferences, setPreferences] = useState(() => loadPreferences());
@@ -40,22 +44,28 @@ export function MenuBar({
   useEffect(() => subscribePreferences(setPreferences), []);
 
   useEffect(() => {
-    if (!isViewMenuOpen && !isSessionMenuOpen) {
+    if (!isViewMenuOpen && !isSessionMenuOpen && !isHelpMenuOpen) {
       return;
     }
 
     const closeOpenMenus = (event: PointerEvent) => {
       const target = event.target as Node;
 
-      if (viewMenuRef.current?.contains(target) || sessionMenuRef.current?.contains(target)) {
+      if (
+        viewMenuRef.current?.contains(target) ||
+        sessionMenuRef.current?.contains(target) ||
+        helpMenuRef.current?.contains(target)
+      ) {
         return;
       }
 
+      setIsHelpMenuOpen(false);
       setIsViewMenuOpen(false);
       setIsSessionMenuOpen(false);
     };
     const closeOpenMenusOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        setIsHelpMenuOpen(false);
         setIsViewMenuOpen(false);
         setIsSessionMenuOpen(false);
       }
@@ -68,7 +78,7 @@ export function MenuBar({
       window.removeEventListener('pointerdown', closeOpenMenus);
       window.removeEventListener('keydown', closeOpenMenusOnEscape);
     };
-  }, [isSessionMenuOpen, isViewMenuOpen]);
+  }, [isHelpMenuOpen, isSessionMenuOpen, isViewMenuOpen]);
 
   return (
     <div
@@ -104,6 +114,7 @@ export function MenuBar({
             title="View"
             onClick={() => {
               setIsViewMenuOpen((current) => !current);
+              setIsHelpMenuOpen(false);
               setIsSessionMenuOpen(false);
             }}
           >
@@ -147,6 +158,7 @@ export function MenuBar({
             title="Session"
             onClick={() => {
               setIsSessionMenuOpen((current) => !current);
+              setIsHelpMenuOpen(false);
               setIsViewMenuOpen(false);
             }}
           >
@@ -211,15 +223,34 @@ export function MenuBar({
         >
           Tools
         </Button>
-        <Button
-          className="h-7 px-2 text-xs"
-          variant="ghost"
-          size="sm"
-          type="button"
-          title="Help"
-        >
-          Help
-        </Button>
+        <div ref={helpMenuRef} className="relative">
+          <Button
+            className="h-7 px-2 text-xs"
+            variant="ghost"
+            size="sm"
+            type="button"
+            title="Help"
+            onClick={() => {
+              setIsHelpMenuOpen((current) => !current);
+              setIsSessionMenuOpen(false);
+              setIsViewMenuOpen(false);
+            }}
+          >
+            Help
+          </Button>
+          {isHelpMenuOpen && (
+            <div className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-xl">
+              <MenuButton
+                onClick={() => {
+                  onCheckForUpdates?.();
+                  setIsHelpMenuOpen(false);
+                }}
+              >
+                Check for Updates
+              </MenuButton>
+            </div>
+          )}
+        </div>
       </nav>
 
       <div className="h-full min-w-0" data-tauri-drag-region />

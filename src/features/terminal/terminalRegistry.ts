@@ -10,6 +10,20 @@ export function unregisterTerminal(panelId: string) {
   registry.delete(panelId);
 }
 
+export function focusRegisteredTerminal(panelId: string) {
+  const terminal = registry.get(panelId);
+
+  if (!terminal) {
+    return false;
+  }
+
+  window.requestAnimationFrame(() => {
+    terminal.focus();
+  });
+
+  return true;
+}
+
 export function readTerminalScrollbackText(panelId: string, maxLines = 150): string | undefined {
   const terminal = registry.get(panelId);
 

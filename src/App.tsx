@@ -11,6 +11,7 @@ import {
   requestSftpSidebarNavigation,
 } from '@/features/sftp/sftpSidebarState';
 import { openElevatedLocalTerminal } from '@/features/terminal/localPtyBridge';
+import { checkForShellPilotUpdate } from '@/features/updates/shellPilotUpdater';
 import { Workspace } from '@/features/workspace/Workspace';
 import {
   createBoundAiBinding,
@@ -51,6 +52,10 @@ export function App() {
   const previousActivePanelIdRef = useRef<string>();
 
   useEffect(() => initializeWindowStatePersistence(), []);
+
+  useEffect(() => {
+    void checkForShellPilotUpdate({ source: 'startup' });
+  }, []);
 
   useEffect(() => {
     const hydrationTimer = window.setTimeout(() => {
@@ -214,11 +219,11 @@ export function App() {
   );
   const activePanelId = useMemo(() => getSelectedPanelId(modelRef.current), [layoutVersion]);
   const isAiAssistantVisible = useMemo(
-    () => isBottomBorderTabVisible(modelRef.current, 'ai-assistant'),
+    () => isBottomBorderViewVisible(modelRef.current, 'ai-assistant'),
     [layoutVersion],
   );
   const isTransferQueueVisible = useMemo(
-    () => isBottomBorderTabVisible(modelRef.current, 'sftp-transfer-queue'),
+    () => isBottomBorderViewVisible(modelRef.current, 'sftp-transfer-queue'),
     [layoutVersion],
   );
   useEffect(() => {
@@ -245,18 +250,14 @@ export function App() {
     setLayoutVersion((version) => version + 1);
   };
   const toggleBottomBorderTab = (tabId: string) => {
-    if (isBottomBorderTabVisible(modelRef.current, tabId)) {
-      const bottomBorderId = getBottomBorderId(modelRef.current);
-
-      if (bottomBorderId) {
-        modelRef.current.doAction(Actions.updateNodeAttributes(bottomBorderId, { show: false } as never));
-        setLayoutVersion((version) => version + 1);
-      }
+    if (isBottomBorderViewVisible(modelRef.current, tabId)) {
+      closeBottomBorderTab(modelRef.current, tabId);
+      setLastAddedPanelId(undefined);
+      setLayoutVersion((version) => version + 1);
       return;
     }
 
-    ensureBottomBorderTab(modelRef.current, tabId);
-    focusWorkspaceTab(modelRef.current, tabId);
+    showBottomBorderTab(modelRef.current, tabId);
     setLastAddedPanelId(undefined);
     setLayoutVersion((version) => version + 1);
   };
@@ -361,6 +362,7 @@ export function App() {
         onOpenElevatedLocalTerminal={openElevatedTerminal}
         onOpenLocalTerminal={openLocalTerminal}
         onOpenSettings={openSettings}
+        onCheckForUpdates={() => void checkForShellPilotUpdate({ source: 'manual' })}
         onToggleAiAssistant={() => toggleBottomBorderTab('ai-assistant')}
         onToggleTransferQueue={() => toggleBottomBorderTab('sftp-transfer-queue')}
       />
@@ -421,13 +423,78 @@ export function App() {
   );
 }
 
-function isBottomBorderTabVisible(model: Model, tabId: string) {
-  const bottomBorder = model
+function getBottomBorder(model: Model) {
+  return model
     .getBorderSet()
     .getBorders()
     .find((border) => border.getLocation().getName() === 'bottom');
+}
 
-  return bottomBorder?.isShowing() === true && bottomBorder.getSelectedNode()?.getId() === tabId;
+function isBottomBorderViewVisible(model: Model, tabId: string) {
+  const bottomBorder = getBottomBorder(model);
+
+  return bottomBorder?.isShowing() === true && isBottomBorderViewOpen(model, tabId);
+}
+
+function isBottomBorderViewOpen(model: Model, tabId: string) {
+  const bottomBorder = getBottomBorder(model);
+
+  return Boolean(
+    bottomBorder
+      ?.getChildren()
+      .some((childNode) => childNode.getType() === 'tab' && childNode.getId() === tabId),
+  );
+}
+
+function closeBottomBorderTab(model: Model, tabId: string) {
+  const bottomBorder = getBottomBorder(model);
+
+  if (!bottomBorder) {
+    return;
+  }
+
+  const nextTabId = bottomBorder
+    .getChildren()
+    .find((childNode) => childNode.getType() === 'tab' && childNode.getId() !== tabId)
+    ?.getId();
+
+  if (model.getNodeById(tabId)?.getType() === 'tab') {
+    model.doAction(Actions.deleteTab(tabId));
+  }
+
+  if (nextTabId) {
+    focusWorkspaceTab(model, nextTabId);
+    return;
+  }
+
+  setBottomBorderVisible(model, false);
+}
+
+function showBottomBorderTab(model: Model, tabId: string) {
+  const bottomBorder = getBottomBorder(model);
+
+  if (bottomBorder?.isShowing() !== true) {
+    closeInactiveBuiltInBottomTabs(model, tabId);
+  }
+
+  ensureBottomBorderTab(model, tabId);
+  focusWorkspaceTab(model, tabId);
+}
+
+function closeInactiveBuiltInBottomTabs(model: Model, activeTabId: string) {
+  for (const tabId of ['sftp-transfer-queue', 'ai-assistant']) {
+    if (tabId !== activeTabId && model.getNodeById(tabId)?.getType() === 'tab') {
+      model.doAction(Actions.deleteTab(tabId));
+    }
+  }
+}
+
+function setBottomBorderVisible(model: Model, show: boolean) {
+  const bottomBorderId = getBottomBorderId(model);
+
+  if (bottomBorderId) {
+    model.doAction(Actions.updateNodeAttributes(bottomBorderId, { show } as never));
+  }
 }
 
 function ensureBottomBorderTab(model: Model, tabId: string) {

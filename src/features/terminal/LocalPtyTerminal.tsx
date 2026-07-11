@@ -2,7 +2,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Clipboard, Copy, Eraser } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ContextMenu,
@@ -14,7 +14,15 @@ import { pasteClipboardToLocalPty, type LocalPtyTarget } from './localPtyBridge'
 import { copyTerminalSelection } from './sshTerminalInput';
 import { useLocalPtyLifecycle, type LocalPtyStatus } from './useLocalPtyLifecycle';
 
-export function LocalPtyTerminal({ panelId, target }: { panelId: string; target: LocalPtyTarget }) {
+export function LocalPtyTerminal({
+  isActive = false,
+  panelId,
+  target,
+}: {
+  isActive?: boolean;
+  panelId: string;
+  target: LocalPtyTarget;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon>();
   const terminalRef = useRef<Terminal>();
@@ -27,6 +35,16 @@ export function LocalPtyTerminal({ panelId, target }: { panelId: string; target:
   }, []);
 
   useLocalPtyLifecycle({ containerRef, fitAddonRef, panelId, setStatus, target, terminalRef });
+
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      terminalRef.current?.focus();
+    });
+  }, [isActive]);
 
   const copySelection = () => {
     copyTerminalSelection(terminalRef.current);

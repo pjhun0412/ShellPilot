@@ -1,5 +1,5 @@
 import { Actions, Layout, Model, type TabNode } from 'flexlayout-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   subscribeConnectionStatus,
@@ -10,16 +10,18 @@ import {
   requestSftpSidebarReconnect,
   subscribeSftpSidebarDisconnect,
 } from '@/features/sftp/sftpSidebarState';
+import { requestRdpDisconnect, requestRdpReconnect } from '@/features/rdp/rdpPanelLifecycle';
 import type { WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
 import {
   notifyTerminalDisconnect,
   notifyTerminalReconnect,
   subscribeTerminalDisconnect,
 } from '@/features/terminal/terminalLifecycle';
+import { focusRegisteredTerminal } from '@/features/terminal/terminalRegistry';
 import { createPanelFactory } from './panelFactory';
 import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
 import { createWorkspaceActionHandler, getSelectedPanelId } from './workspaceLayoutActions';
-import { createShortPanelId, getBoundAiTabIds } from './workspaceNodeUtils';
+import { createShortPanelId, focusWorkspaceTab, getBoundAiTabIds } from './workspaceNodeUtils';
 import {
   closeFlexLayoutTabOnMiddleClick,
   closeLayoutNodeOnMiddleClick,
@@ -48,14 +50,27 @@ export function Workspace({
   const [activeContextPanelId, setActiveContextPanelId] = useState<string | undefined>();
   const effectiveActivePanelId = getSelectedPanelId(model) ?? activePanelId;
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
+  const activatePanel = useCallback(
+    (panelId: string) => {
+      if (effectiveActivePanelId === panelId) {
+        return;
+      }
+
+      focusWorkspaceTab(model, panelId);
+      setActivePanelId(panelId);
+      onModelChange(model);
+      setWorkspaceVersion((version) => version + 1);
+    },
+    [effectiveActivePanelId, model, onModelChange],
+  );
   const factory = useMemo(
     () =>
       createPanelFactory({
         activePanelId: effectiveActivePanelId,
-        onActivatePanel: setActivePanelId,
+        onActivatePanel: activatePanel,
         onOpenSftp,
       }),
-    [effectiveActivePanelId, onOpenSftp],
+    [activatePanel, effectiveActivePanelId, onOpenSftp],
   );
   const {
     closeOtherTabs,
@@ -126,6 +141,14 @@ export function Workspace({
       setActiveContextPanelId(selectedContextPanelId);
     }
   }, [effectiveActivePanelId, model, workspaceVersion]);
+
+  useEffect(() => {
+    if (!effectiveActivePanelId) {
+      return;
+    }
+
+    focusRegisteredTerminal(effectiveActivePanelId);
+  }, [effectiveActivePanelId]);
 
   useEffect(() => {
     if (!tabMenu) {
@@ -216,6 +239,8 @@ export function Workspace({
 
                 if (config.panelType === 'sftp') {
                   requestSftpSidebarDisconnect(tabMenu.node.getId());
+                } else if (config.panelType === 'rdp') {
+                  requestRdpDisconnect(tabMenu.node.getId());
                 } else {
                   notifyTerminalDisconnect(tabMenu.node.getId());
                 }
@@ -250,6 +275,8 @@ export function Workspace({
 
                 if (config.panelType === 'sftp') {
                   requestSftpSidebarReconnect(tabMenu.node.getId());
+                } else if (config.panelType === 'rdp') {
+                  requestRdpReconnect(tabMenu.node.getId());
                 } else {
                   notifyTerminalReconnect(tabMenu.node.getId());
                 }

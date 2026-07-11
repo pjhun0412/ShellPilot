@@ -9,11 +9,13 @@ import {
   closeRdpSession,
   forgetRdpCertificate,
   listenRdpClipboardText,
+  listenRdpCursor,
   listenRdpEvents,
   listenRdpFrames,
   openRdpSession,
   sendRdpInput,
   setLocalClipboardText,
+  type RdpCursorEvent,
   type RdpEvent,
   type RdpStatus,
 } from './rdpBridge';
@@ -28,6 +30,7 @@ import {
   mapRdpStatusToConnectionStatus,
   normalizeRdpOpenError,
 } from './rdpUiUtils';
+import { subscribeRdpDisconnect, subscribeRdpReconnect } from './rdpPanelLifecycle';
 import { useRdpFrameRenderer } from './useRdpFrameRenderer';
 import { useRdpInputHandlers } from './useRdpInputHandlers';
 import { useRdpViewportSize } from './useRdpViewportSize';
@@ -52,6 +55,7 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
   const [imageQuality, setImageQuality] = useState<RdpImageQuality>('balanced');
   const [resolution, setResolution] = useState<RdpResolutionOption>(() => getLocalScreenResolution());
   const [isDisplayMenuOpen, setIsDisplayMenuOpen] = useState(false);
+  const [cursorStyle, setCursorStyle] = useState('default');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const displayMenuRef = useRef<HTMLDivElement>(null);
   const { drawFrame, flushQueuedFrames, networkStats, resetFrames } = useRdpFrameRenderer(canvasRef);
@@ -87,9 +91,10 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
 
     return {
       ...canvasDisplaySize,
+      cursor: cursorStyle,
       imageRendering: imageQuality === 'speed' ? 'pixelated' : 'auto',
     };
-  }, [canvasDisplaySize, imageQuality]);
+  }, [canvasDisplaySize, cursorStyle, imageQuality]);
   const {
     focusCanvas,
     handleMouseButton,
@@ -130,6 +135,7 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
   useEffect(() => {
     let unlistenEvents: (() => void) | undefined;
     let unlistenFrames: (() => void) | undefined;
+    let unlistenCursor: (() => void) | undefined;
     let unlistenClipboard: (() => void) | undefined;
     let disposed = false;
 
@@ -163,6 +169,21 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
       unlistenFrames = unlisten;
     });
 
+    listenRdpCursor((event) => {
+      if (event.panelId !== panelId) {
+        return;
+      }
+
+      setCursorStyle(createRdpCursorStyle(event));
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+
+      unlistenCursor = unlisten;
+    });
+
     listenRdpClipboardText((event) => {
       if (event.panelId !== panelId) {
         return;
@@ -184,6 +205,7 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
       disposed = true;
       unlistenEvents?.();
       unlistenFrames?.();
+      unlistenCursor?.();
       unlistenClipboard?.();
       publishConnectionStatus({ panelId, status: 'closed' });
       void closeRdpSession(panelId);
@@ -255,6 +277,7 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
     publishConnectionStatus({ panelId, status: 'connecting' });
     setMessage(`Connecting to ${endpoint}...`);
     setErrorCode(undefined);
+    setCursorStyle('default');
     if (!options.acceptNewCertificate) {
       setCertificateFingerprint(undefined);
     }
@@ -283,7 +306,40 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
     publishConnectionStatus({ panelId, status: 'closed' });
     setMessage('RDP session closed.');
     setIsConnecting(false);
+    setCursorStyle('default');
   };
+
+  const connectRequestRef = useRef(connect);
+  const disconnectRequestRef = useRef(disconnect);
+
+  useEffect(() => {
+    connectRequestRef.current = connect;
+    disconnectRequestRef.current = disconnect;
+  });
+
+  useEffect(() => {
+    const unsubscribeDisconnect = subscribeRdpDisconnect((requestedPanelId) => {
+      if (requestedPanelId !== panelId) {
+        return false;
+      }
+
+      void disconnectRequestRef.current();
+      return true;
+    });
+    const unsubscribeReconnect = subscribeRdpReconnect((requestedPanelId) => {
+      if (requestedPanelId !== panelId) {
+        return false;
+      }
+
+      void connectRequestRef.current();
+      return true;
+    });
+
+    return () => {
+      unsubscribeDisconnect();
+      unsubscribeReconnect();
+    };
+  }, [panelId]);
 
   const trustCertificateAndConnect = () => {
     void connect({ acceptNewCertificate: true });
@@ -393,23 +449,53 @@ export function RdpPanel({ autoConnect = true, isActive = false, panelId, sessio
       />
 
       <main className="min-h-0 flex-1 bg-black p-0">
-        {displayMode === 'actual' ? (
-          <OverlayScrollArea
-            ref={viewportRef}
-            className="grid place-items-center bg-black p-0"
-            containerClassName="h-full min-h-0"
-          >
-            {content}
-          </OverlayScrollArea>
-        ) : (
-          <section
-            ref={viewportRef}
-            className="grid h-full min-h-0 place-items-center overflow-hidden bg-black p-0"
-          >
-            {content}
-          </section>
-        )}
+        <OverlayScrollArea
+          ref={viewportRef}
+          className={
+            displayMode === 'actual'
+              ? 'grid place-items-center bg-black p-0'
+              : 'grid place-items-center overflow-hidden bg-black p-0'
+          }
+          containerClassName="h-full min-h-0"
+        >
+          {content}
+        </OverlayScrollArea>
       </main>
     </div>
   );
+}
+
+function createRdpCursorStyle(event: RdpCursorEvent) {
+  if (event.kind === 'hidden') {
+    return 'none';
+  }
+
+  if (event.kind === 'default') {
+    return 'default';
+  }
+
+  if (!event.data || !event.width || !event.height) {
+    return 'default';
+  }
+
+  try {
+    const binary = atob(event.data);
+    const bytes = new Uint8ClampedArray(binary.length);
+
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+
+    const cursorCanvas = document.createElement('canvas');
+    cursorCanvas.width = event.width;
+    cursorCanvas.height = event.height;
+    cursorCanvas.getContext('2d')?.putImageData(new ImageData(bytes, event.width, event.height), 0, 0);
+
+    const hotspotX = Math.min(Math.max(event.hotspotX ?? 0, 0), event.width - 1);
+    const hotspotY = Math.min(Math.max(event.hotspotY ?? 0, 0), event.height - 1);
+
+    return `url("${cursorCanvas.toDataURL('image/png')}") ${hotspotX} ${hotspotY}, auto`;
+  } catch {
+    return 'default';
+  }
 }

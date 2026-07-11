@@ -2494,7 +2494,7 @@ dependencies = [
 
 [[package]]
 name = "shellpilot-rdp-probe"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "base64",
  "ironrdp",

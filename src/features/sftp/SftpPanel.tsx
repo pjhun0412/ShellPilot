@@ -46,10 +46,12 @@ const sftpParentEntryPath = '__sftp_parent__';
 
 export function SftpPanel({
   autoConnect = true,
+  isActive = false,
   panelId,
   session,
 }: {
   autoConnect?: boolean;
+  isActive?: boolean;
   panelId: string;
   session: SessionItem;
 }) {
@@ -262,6 +264,10 @@ export function SftpPanel({
     selectedEntries,
     selectedEntry,
   });
+  useEffect(() => {
+    isActivePanelRef.current = isActive;
+  }, [isActive]);
+
   useEffect(() => {
     const element = panelRef.current;
 

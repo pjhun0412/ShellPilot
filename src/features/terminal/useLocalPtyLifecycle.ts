@@ -3,6 +3,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
 
+import { publishConnectionStatus } from '@/features/connections/connectionStatus';
 import { createXtermTerminal } from './createXtermTerminal';
 import {
   closeLocalPty,
@@ -14,6 +15,7 @@ import {
 import { bindLocalPtyInput } from './localPtyInput';
 import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
 import { subscribeTerminalClosing } from './terminalLifecycle';
+import { registerTerminal, unregisterTerminal } from './terminalRegistry';
 
 export type LocalPtyStatus = 'closed' | 'connected' | 'connecting' | 'failed';
 
@@ -43,9 +45,11 @@ export function useLocalPtyLifecycle({
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
     fitTerminal(panelId, terminal, fitAddon);
     setStatus('connecting');
+    publishConnectionStatus({ panelId, status: 'connecting' });
 
     const inputBinding = bindLocalPtyInput({ container: containerRef.current, panelId, terminal });
     const resizeObserver = new ResizeObserver(() => {
@@ -73,6 +77,7 @@ export function useLocalPtyLifecycle({
 
         if (payload.status === 'connected') {
           setStatus('connected');
+          publishConnectionStatus({ panelId, status: 'connected' });
           terminal.focus();
           fitTerminal(panelId, terminal, fitAddon);
           return;
@@ -85,11 +90,13 @@ export function useLocalPtyLifecycle({
 
         if (payload.status === 'failed') {
           setStatus('failed', payload.message);
+          publishConnectionStatus({ panelId, status: 'failed' });
           return;
         }
 
         if (payload.status === 'closed') {
           setStatus('closed');
+          publishConnectionStatus({ panelId, status: 'closed' });
         }
       });
 
@@ -103,17 +110,20 @@ export function useLocalPtyLifecycle({
     void start().catch((error: unknown) => {
       if (!isDisposed) {
         setStatus('failed', error instanceof Error ? error.message : String(error));
+        publishConnectionStatus({ panelId, status: 'failed' });
       }
     });
 
     return () => {
       isDisposed = true;
+      publishConnectionStatus({ panelId, status: 'closed' });
       void closeLocalPty(panelId);
       inputBinding.dispose();
       diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
       unlisten?.();
+      unregisterTerminal(panelId);
       terminal.dispose();
     };
   }, [containerRef, fitAddonRef, panelId, setStatus, target, terminalRef]);
