@@ -255,6 +255,7 @@ export function App() {
       return;
     }
 
+    ensureBottomBorderTab(modelRef.current, tabId);
     focusWorkspaceTab(modelRef.current, tabId);
     setLastAddedPanelId(undefined);
     setLayoutVersion((version) => version + 1);
@@ -427,6 +428,52 @@ function isBottomBorderTabVisible(model: Model, tabId: string) {
     .find((border) => border.getLocation().getName() === 'bottom');
 
   return bottomBorder?.isShowing() === true && bottomBorder.getSelectedNode()?.getId() === tabId;
+}
+
+function ensureBottomBorderTab(model: Model, tabId: string) {
+  if (model.getNodeById(tabId)?.getType() === 'tab') {
+    return;
+  }
+
+  const bottomBorderId = getBottomBorderId(model);
+
+  if (!bottomBorderId) {
+    return;
+  }
+
+  const tabJson = createBottomBorderTabJson(tabId);
+
+  if (!tabJson) {
+    return;
+  }
+
+  model.doAction(Actions.addTab(tabJson, bottomBorderId, DockLocation.CENTER, -1, true));
+}
+
+function createBottomBorderTabJson(tabId: string) {
+  if (tabId === 'sftp-transfer-queue') {
+    return {
+      type: 'tab' as const,
+      id: 'sftp-transfer-queue',
+      name: 'Transfer Queue',
+      enableClose: false,
+      component: 'panel',
+      config: { panelType: 'sftp-transfer-queue' },
+    };
+  }
+
+  if (tabId === 'ai-assistant') {
+    return {
+      type: 'tab' as const,
+      id: 'ai-assistant',
+      name: 'AI Assistant',
+      enableClose: false,
+      component: 'panel',
+      config: { panelType: 'ai' },
+    };
+  }
+
+  return undefined;
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -6,6 +6,8 @@ import type { SessionItem } from '@/types/workspace';
 
 export const layoutStorageKey = 'shellpilot.layout.v2';
 
+const showTransferQueueOnStartup = loadPreferences().workspace.showTransferQueueOnStartup;
+
 export const initialLayout: IJsonModel = {
   global: {
     enableEdgeDock: true,
@@ -25,25 +27,8 @@ export const initialLayout: IJsonModel = {
       location: 'bottom',
       size: 190,
       selected: 0,
-      show: loadPreferences().workspace.showTransferQueueOnStartup,
-      children: [
-        {
-          type: 'tab',
-          id: 'sftp-transfer-queue',
-          name: 'Transfer Queue',
-          enableClose: false,
-          component: 'panel',
-          config: { panelType: 'sftp-transfer-queue' },
-        },
-        {
-          type: 'tab',
-          id: 'ai-assistant',
-          name: 'AI Assistant',
-          enableClose: false,
-          component: 'panel',
-          config: { panelType: 'ai' },
-        },
-      ],
+      show: showTransferQueueOnStartup,
+      children: showTransferQueueOnStartup ? [createTransferQueueTab()] : [],
     },
   ],
   layout: {
@@ -90,7 +75,7 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
 
   return {
     ...normalizedLayout,
-    borders: ensureBottomBorderTabs(
+    borders: ensureBottomBorder(
       normalizedLayout.borders?.filter((border) => {
         return !border.children?.some((child) => child.id === 'logs' || child.config?.panelType === 'logs');
       }) ?? [],
@@ -109,32 +94,7 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
   };
 }
 
-function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
-  const bottomTabs = [
-    {
-      type: 'tab' as const,
-      id: 'sftp-transfer-queue',
-      name: 'Transfer Queue',
-      enableClose: false,
-      component: 'panel',
-      config: { panelType: 'sftp-transfer-queue' },
-    },
-    {
-      type: 'tab' as const,
-      id: 'ai-assistant',
-      name: 'AI Assistant',
-      enableClose: false,
-      component: 'panel',
-      config: { panelType: 'ai' },
-    },
-  ];
-  const missingTabs = bottomTabs.filter(
-    (tab) =>
-      !borders.some((border) =>
-        border.children?.some((child) => child.id === tab.id || child.config?.panelType === tab.config.panelType),
-      ),
-  );
-
+function ensureBottomBorder(borders: NonNullable<IJsonModel['borders']>) {
   const bottomBorderIndex = borders.findIndex((border) => border.location === 'bottom');
 
   if (bottomBorderIndex >= 0) {
@@ -145,9 +105,10 @@ function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
 
       return {
         ...border,
-        children: [...(border.children ?? []), ...missingTabs],
+        children: border.children ?? [],
         selected: border.selected ?? 0,
         size: normalizeBottomBorderSize(border.size),
+        show: Boolean(border.show && (border.children?.length ?? 0) > 0),
       };
     });
   }
@@ -159,10 +120,21 @@ function ensureBottomBorderTabs(borders: NonNullable<IJsonModel['borders']>) {
       location: 'bottom' as const,
       size: 190,
       selected: 0,
-      show: loadPreferences().workspace.showTransferQueueOnStartup,
-      children: missingTabs,
+      show: showTransferQueueOnStartup,
+      children: showTransferQueueOnStartup ? [createTransferQueueTab()] : [],
     },
   ];
+}
+
+function createTransferQueueTab() {
+  return {
+    type: 'tab' as const,
+    id: 'sftp-transfer-queue',
+    name: 'Transfer Queue',
+    enableClose: false,
+    component: 'panel',
+    config: { panelType: 'sftp-transfer-queue' },
+  };
 }
 
 function normalizeBottomBorderSize(value: unknown) {
