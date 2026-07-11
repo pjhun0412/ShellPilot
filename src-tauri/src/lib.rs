@@ -1,9 +1,10 @@
 mod commands;
 
+use commands::ai::AiRunStore;
 use commands::local_pty::LocalPtySessionStore;
+use commands::rdp::RdpSessionStore;
 use commands::sftp::SftpSessionStore;
 use commands::ssh::SshSessionStore;
-use commands::ai::AiRunStore;
 
 #[tauri::command]
 fn app_ready() -> String {
@@ -15,6 +16,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(LocalPtySessionStore::default())
         .manage(AiRunStore::default())
+        .manage(RdpSessionStore::default())
         .manage(SftpSessionStore::default())
         .manage(SshSessionStore::default())
         .plugin(tauri_plugin_dialog::init())
@@ -33,6 +35,13 @@ pub fn run() {
             commands::local_pty::local_pty_resize,
             commands::local_pty::local_pty_write,
             commands::local_pty::open_elevated_local_terminal,
+            commands::rdp::rdp_close,
+            commands::rdp::rdp_forget_certificate,
+            commands::rdp::rdp_open,
+            commands::rdp::rdp_paste_clipboard_files,
+            commands::rdp::rdp_send_input,
+            commands::rdp::rdp_set_local_clipboard_text,
+            commands::rdp::rdp_set_windows_key_capture,
             commands::sessions::load_session_registry,
             commands::sessions::save_session_registry,
             commands::ssh::clear_ssh_known_hosts,
