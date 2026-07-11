@@ -1,5 +1,6 @@
 import { AiAssistantPanel } from '@/features/ai/AiAssistantPanel';
 import { BoundAiPanel } from '@/features/ai/BoundAiPanel';
+import { RdpPanel } from '@/features/rdp/RdpPanel';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
 import { SftpPanel } from '@/features/sftp/SftpPanel';
 import { LocalPtyTerminal } from '@/features/terminal/LocalPtyTerminal';
@@ -9,7 +10,6 @@ import {
   LocalTerminalPlaceholder,
   LogsPanelContent,
   PanelFocusFrame,
-  RdpPlaceholder,
 } from '@/features/panels/PanelSurfaces';
 import type { WorkspacePanel } from '@/types/workspace';
 
@@ -51,10 +51,15 @@ export function PanelBody({
     );
   }
 
-  if (panel.type === 'rdp') {
+  if (panel.type === 'rdp' && panel.session) {
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
-        <RdpPlaceholder />
+        <RdpPanel
+          autoConnect={panel.autoConnect !== false}
+          isActive={isActive}
+          panelId={panel.id}
+          session={panel.session}
+        />
       </PanelFocusFrame>
     );
   }
