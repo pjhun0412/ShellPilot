@@ -19,8 +19,8 @@ use russh::{
     ChannelMsg, Disconnect,
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::time;
 use tokio::sync::{mpsc, Mutex};
+use tokio::time;
 
 #[derive(Default)]
 pub struct SshSessionStore {
@@ -731,7 +731,10 @@ async fn exec_one_command(
             stdout: String::new(),
         },
         Err(_) => SshCommandResult {
-            error: Some(format!("remote command timed out after {} seconds", timeout.as_secs())),
+            error: Some(format!(
+                "remote command timed out after {} seconds",
+                timeout.as_secs()
+            )),
             exit_code: None,
             stderr: String::new(),
             stdout: String::new(),
@@ -752,12 +755,15 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
 
     // Block shell control operators. A single `&` can split foreground and
     // background jobs, so checking only `&&` is not sufficient.
-    let forbidden_tokens = [
-        ";", "&", "`", "$(", ">", "<", "|", "\n", "\r",
-    ];
+    let forbidden_tokens = [";", "&", "`", "$(", ">", "<", "|", "\n", "\r"];
 
-    if let Some(token) = forbidden_tokens.iter().find(|token| command.contains(**token)) {
-        return Err(format!("read-only command rejected: forbidden token `{token}`"));
+    if let Some(token) = forbidden_tokens
+        .iter()
+        .find(|token| command.contains(**token))
+    {
+        return Err(format!(
+            "read-only command rejected: forbidden token `{token}`"
+        ));
     }
 
     let first_word = command
@@ -802,7 +808,9 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
     ];
 
     if !allowed_commands.contains(&first_word) {
-        return Err(format!("read-only command rejected: `{first_word}` is not allowed"));
+        return Err(format!(
+            "read-only command rejected: `{first_word}` is not allowed"
+        ));
     }
 
     if first_word == "wmic" {
@@ -814,7 +822,9 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
             && !lower.contains(" set ");
 
         if !allowed_wmic_query {
-            return Err("read-only command rejected: only WMIC query commands are allowed".to_string());
+            return Err(
+                "read-only command rejected: only WMIC query commands are allowed".to_string(),
+            );
         }
     }
 
@@ -877,9 +887,13 @@ fn validate_readonly_command(command: &str) -> Result<&str, String> {
         "--rotate",
     ];
 
-    for word in command.split(|value: char| !value.is_ascii_alphanumeric() && value != '_' && value != '-') {
+    for word in
+        command.split(|value: char| !value.is_ascii_alphanumeric() && value != '_' && value != '-')
+    {
         if forbidden_words.contains(&word) {
-            return Err(format!("read-only command rejected: `{word}` is not allowed"));
+            return Err(format!(
+                "read-only command rejected: `{word}` is not allowed"
+            ));
         }
     }
 
@@ -898,16 +912,26 @@ fn validate_readonly_working_directory(directory: &str) -> Result<&str, String> 
     }
 
     if !directory.starts_with('/') && !directory.starts_with("~/") {
-        return Err("read-only command rejected: working directory must be absolute or home-relative".to_string());
+        return Err(
+            "read-only command rejected: working directory must be absolute or home-relative"
+                .to_string(),
+        );
     }
 
     if directory.contains("..") {
-        return Err("read-only command rejected: working directory cannot contain `..`".to_string());
+        return Err(
+            "read-only command rejected: working directory cannot contain `..`".to_string(),
+        );
     }
 
-    let forbidden_tokens = ["\"", "'", "`", "\\", ";", "&", "|", "$", ">", "<", "\n", "\r"];
+    let forbidden_tokens = [
+        "\"", "'", "`", "\\", ";", "&", "|", "$", ">", "<", "\n", "\r",
+    ];
 
-    if let Some(token) = forbidden_tokens.iter().find(|token| directory.contains(**token)) {
+    if let Some(token) = forbidden_tokens
+        .iter()
+        .find(|token| directory.contains(**token))
+    {
         return Err(format!(
             "read-only command rejected: working directory contains forbidden token `{token}`"
         ));
@@ -924,13 +948,18 @@ fn validate_readonly_working_directory(directory: &str) -> Result<&str, String> 
 // validated independently. Re-checking the directory here (instead of just
 // trusting the caller) means a future change to `validate_readonly_working_directory`
 // or to this function can't silently widen what reaches the remote shell.
-fn build_readonly_execution_string(command: &str, working_directory: Option<&str>) -> Result<String, String> {
+fn build_readonly_execution_string(
+    command: &str,
+    working_directory: Option<&str>,
+) -> Result<String, String> {
     let Some(directory) = working_directory else {
         return Ok(command.to_string());
     };
 
     if directory.is_empty() || directory.contains('"') {
-        return Err("read-only command rejected: working directory wrapper is malformed".to_string());
+        return Err(
+            "read-only command rejected: working directory wrapper is malformed".to_string(),
+        );
     }
 
     let prefix = format!("cd -- \"{directory}\" && ");
@@ -938,7 +967,9 @@ fn build_readonly_execution_string(command: &str, working_directory: Option<&str
 
     match assembled.strip_prefix(prefix.as_str()) {
         Some(remainder) if remainder == command => Ok(assembled),
-        _ => Err("read-only command rejected: working directory wrapper structure mismatch".to_string()),
+        _ => Err(
+            "read-only command rejected: working directory wrapper structure mismatch".to_string(),
+        ),
     }
 }
 

@@ -72,7 +72,10 @@ pub struct AiPromptStreamEvent {
 pub async fn ai_list_providers() -> Vec<AiProviderInfo> {
     // 프로세스 spawn+대기가 최대 5초씩 걸릴 수 있어 blocking 스레드로 분리 (안 그러면 UI가 멈춤)
     tauri::async_runtime::spawn_blocking(|| {
-        vec![probe_provider("claude-cli", "Claude CLI", "claude"), probe_provider("codex-cli", "Codex CLI", "codex")]
+        vec![
+            probe_provider("claude-cli", "Claude CLI", "claude"),
+            probe_provider("codex-cli", "Codex CLI", "codex"),
+        ]
     })
     .await
     .unwrap_or_default()
@@ -102,7 +105,10 @@ pub async fn ai_run_prompt(request: AiPromptRequest) -> Result<AiPromptResponse,
 }
 
 #[tauri::command]
-pub async fn ai_run_prompt_stream(app: AppHandle, request: AiPromptStreamRequest) -> Result<(), String> {
+pub async fn ai_run_prompt_stream(
+    app: AppHandle,
+    request: AiPromptStreamRequest,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         run_prompt_stream(app, request);
     });
@@ -131,7 +137,13 @@ pub async fn ai_cancel_prompt(app: AppHandle, run_id: String) -> Result<(), Stri
 }
 
 fn probe_provider(id: &str, label: &str, command: &str) -> AiProviderInfo {
-    match run_command(command, vec!["--version".to_string()], None, Duration::from_secs(5), None) {
+    match run_command(
+        command,
+        vec!["--version".to_string()],
+        None,
+        Duration::from_secs(5),
+        None,
+    ) {
         Ok(output) if output.status_success => AiProviderInfo {
             id: id.to_string(),
             label: label.to_string(),
@@ -170,7 +182,9 @@ impl From<&AiPromptStreamRequest> for AiPromptRequest {
     }
 }
 
-fn build_prompt_command(request: &AiPromptRequest) -> Result<(String, Vec<String>, Option<String>), String> {
+fn build_prompt_command(
+    request: &AiPromptRequest,
+) -> Result<(String, Vec<String>, Option<String>), String> {
     let prompt = build_prompt_payload(request);
 
     match request.provider_id.as_str() {
@@ -204,7 +218,11 @@ fn build_prompt_payload(request: &AiPromptRequest) -> String {
         escape_xml_text(&request.prompt)
     );
 
-    match request.context.as_deref().filter(|context| !context.trim().is_empty()) {
+    match request
+        .context
+        .as_deref()
+        .filter(|context| !context.trim().is_empty())
+    {
         Some(context) => format!("{context}\n\n{user_request}"),
         None => user_request,
     }
@@ -221,18 +239,17 @@ fn run_prompt_stream(app: AppHandle, request: AiPromptStreamRequest) {
     emit_stream_event(&app, &request, "started", None, None);
 
     let prompt_request = AiPromptRequest::from(&request);
-    let result = build_prompt_command(&prompt_request)
-        .and_then(|(command, args, stdin_input)| {
-            run_command_streaming(
-                &app,
-                &request,
-                &command,
-                args,
-                None,
-                Duration::from_secs(180),
-                stdin_input,
-            )
-        });
+    let result = build_prompt_command(&prompt_request).and_then(|(command, args, stdin_input)| {
+        run_command_streaming(
+            &app,
+            &request,
+            &command,
+            args,
+            None,
+            Duration::from_secs(180),
+            stdin_input,
+        )
+    });
 
     match result {
         Ok(()) => emit_stream_event(&app, &request, "completed", None, None),
@@ -294,7 +311,10 @@ fn run_command(
             let _ = child.wait();
             let _ = join_pipe_reader(stdout_reader.take());
             let _ = join_pipe_reader(stderr_reader.take());
-            return Err(format!("{command} timed out after {} seconds", timeout.as_secs()));
+            return Err(format!(
+                "{command} timed out after {} seconds",
+                timeout.as_secs()
+            ));
         }
 
         std::thread::sleep(Duration::from_millis(80));
@@ -387,7 +407,10 @@ fn run_command_streaming(
             }
             let _ = join_stream_reader(stdout_reader);
             let _ = join_stream_reader(stderr_reader);
-            return Err(format!("{command} timed out after {} seconds", timeout.as_secs()));
+            return Err(format!(
+                "{command} timed out after {} seconds",
+                timeout.as_secs()
+            ));
         }
 
         std::thread::sleep(Duration::from_millis(60));
@@ -401,7 +424,11 @@ fn spawn_child(
     pipe_stdin: bool,
 ) -> Result<Child, Error> {
     let candidates: Vec<String> = if cfg!(windows) {
-        vec![command.to_string(), format!("{command}.cmd"), format!("{command}.exe")]
+        vec![
+            command.to_string(),
+            format!("{command}.cmd"),
+            format!("{command}.exe"),
+        ]
     } else {
         vec![command.to_string()]
     };
@@ -411,7 +438,11 @@ fn spawn_child(
         let mut child_command = Command::new(&candidate);
         child_command
             .args(args)
-            .stdin(if pipe_stdin { Stdio::piped() } else { Stdio::null() })
+            .stdin(if pipe_stdin {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -516,7 +547,10 @@ fn read_pipe_streaming<T: Read>(
             Ok(0) => return Ok(()),
             Ok(read_count) => {
                 let data = String::from_utf8_lossy(&buffer[..read_count]).into_owned();
-                output.lock().map_err(|_| "failed to lock AI output".to_string())?.push_str(&data);
+                output
+                    .lock()
+                    .map_err(|_| "failed to lock AI output".to_string())?
+                    .push_str(&data);
                 emit_stream_event(&app, &request, status, Some(data), None);
             }
             Err(error) => return Err(format!("failed to read command output: {error}")),

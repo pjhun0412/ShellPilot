@@ -231,14 +231,18 @@ fn open_and_stream(app: &AppHandle, target: &LocalPtyTarget) -> Result<(), Strin
         .take_writer()
         .map_err(|error| format!("failed to open pty input: {error}"))?;
 
-    app.state::<LocalPtySessionStore>().sessions.lock().unwrap().insert(
-        panel_id.clone(),
-        LocalPtySessionHandle {
-            child,
-            master: pair.master,
-            writer,
-        },
-    );
+    app.state::<LocalPtySessionStore>()
+        .sessions
+        .lock()
+        .unwrap()
+        .insert(
+            panel_id.clone(),
+            LocalPtySessionHandle {
+                child,
+                master: pair.master,
+                writer,
+            },
+        );
 
     emit_event(app, panel_id, "connected", None, None);
 
