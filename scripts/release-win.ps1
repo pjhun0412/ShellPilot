@@ -68,9 +68,15 @@ Compress-Archive -Path (Join-Path $portableStagingDir "*") -DestinationPath $por
 Copy-Item -LiteralPath $setupSource.FullName -Destination $setupAsset -Force
 
 $setupSignatureSource = "$($setupSource.FullName).sig"
-if (-not (Test-Path -LiteralPath $setupSignatureSource)) {
-  Write-Host "Updater signature was not produced by the bundler. Signing setup executable..."
-  npm.cmd run tauri -- signer sign --private-key-path $env:TAURI_SIGNING_PRIVATE_KEY_PATH $setupSource.FullName
+if (-not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PATH) -or
+    -not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) {
+  Write-Host "Signing setup executable for updater..."
+  Remove-Item -LiteralPath $setupSignatureSource -Force -ErrorAction SilentlyContinue
+  if (-not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PATH)) {
+    npm.cmd run tauri -- signer sign --private-key-path $env:TAURI_SIGNING_PRIVATE_KEY_PATH $setupSource.FullName
+  } else {
+    npm.cmd run tauri -- signer sign --private-key $env:TAURI_SIGNING_PRIVATE_KEY $setupSource.FullName
+  }
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to sign updater package. Set TAURI_SIGNING_PRIVATE_KEY_PATH or TAURI_SIGNING_PRIVATE_KEY."
   }
@@ -82,20 +88,33 @@ if (-not (Test-Path -LiteralPath $setupSignatureSource)) {
 
 Copy-Item -LiteralPath $setupSignatureSource -Destination $setupSignatureAsset -Force
 
-if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+$ghCommand = Get-Command gh -ErrorAction SilentlyContinue
+if (-not $ghCommand) {
+  $commonGhPath = Join-Path $env:ProgramFiles "GitHub CLI\gh.exe"
+  if (Test-Path -LiteralPath $commonGhPath) {
+    $ghCommand = Get-Item -LiteralPath $commonGhPath
+  }
+}
+
+if (-not $ghCommand) {
   throw "GitHub CLI (gh) is required to upload releases. Install it and run 'gh auth login'."
 }
 
-$repo = (& gh repo view --json nameWithOwner --jq ".nameWithOwner").Trim()
+$gh = $ghCommand.Source
+if ([string]::IsNullOrWhiteSpace($gh)) {
+  $gh = $ghCommand.FullName
+}
+
+$repo = (& $gh repo view --json nameWithOwner --jq ".nameWithOwner").Trim()
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repo)) {
   throw "Failed to resolve GitHub repository with gh."
 }
 
 Write-Host "Preparing GitHub Release $Tag..."
-& gh release view $Tag *> $null
+& $gh release view $Tag *> $null
 
 if ($LASTEXITCODE -ne 0) {
-  & gh release create $Tag --title "ShellPilot $Tag" --notes "ShellPilot $Tag release"
+  & $gh release create $Tag --title "ShellPilot $Tag" --notes "ShellPilot $Tag release"
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to create GitHub Release $Tag."
   }
@@ -119,7 +138,7 @@ $latestJson = [ordered]@{
 Set-Content -LiteralPath $latestJsonAsset -Value $latestJson -Encoding UTF8
 
 Write-Host "Uploading release assets..."
-& gh release upload $Tag $setupAsset $setupSignatureAsset $portableAsset $latestJsonAsset --clobber
+& $gh release upload $Tag $setupAsset $setupSignatureAsset $portableAsset $latestJsonAsset --clobber
 if ($LASTEXITCODE -ne 0) {
   throw "Failed to upload release assets."
 }
