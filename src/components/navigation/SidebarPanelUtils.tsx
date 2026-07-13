@@ -243,7 +243,7 @@ export function getWorkspaceTabStatus(
     return 'restored';
   }
 
-  if (tab.type === 'rdp') {
+  if (tab.type === 'rdp' || tab.type === 'vnc') {
     return 'restored';
   }
 
@@ -327,6 +327,10 @@ function getWorkspaceTabTypeLabel(type: WorkspacePanelType) {
 
   if (type === 'rdp') {
     return 'RDP';
+  }
+
+  if (type === 'vnc') {
+    return 'VNC';
   }
 
   if (type === 'settings') {

@@ -60,23 +60,27 @@ export function CreateSessionDialog({
     const currentPort = form.getValues('port');
     const currentAuthMethod = form.getValues('authMethod');
 
-    if (kind === 'ssh' && (!currentPort || currentPort === 3389)) {
+    if (kind === 'ssh' && (!currentPort || currentPort === 3389 || currentPort === 5900)) {
       form.setValue('port', 22);
     }
 
-    if (kind === 'sftp' && (!currentPort || currentPort === 21 || currentPort === 3389)) {
+    if (kind === 'sftp' && (!currentPort || currentPort === 21 || currentPort === 3389 || currentPort === 5900)) {
       form.setValue('port', 22);
     }
 
-    if (kind === 'ftp' && (!currentPort || currentPort === 22 || currentPort === 3389)) {
+    if (kind === 'ftp' && (!currentPort || currentPort === 22 || currentPort === 3389 || currentPort === 5900)) {
       form.setValue('port', 21);
     }
 
-    if (kind === 'rdp' && (!currentPort || currentPort === 22)) {
+    if (kind === 'rdp' && (!currentPort || currentPort === 22 || currentPort === 5900)) {
       form.setValue('port', 3389);
     }
 
-    if ((kind === 'ftp' || kind === 'rdp') && currentAuthMethod !== 'password') {
+    if (kind === 'vnc' && (!currentPort || currentPort === 22 || currentPort === 3389)) {
+      form.setValue('port', 5900);
+    }
+
+    if ((kind === 'ftp' || kind === 'rdp' || kind === 'vnc') && currentAuthMethod !== 'password') {
       form.setValue('authMethod', 'password');
     }
   }, [form, kind]);

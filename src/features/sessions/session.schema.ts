@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const sessionKinds = ['ssh', 'sftp', 'ftp', 'rdp'] as const;
+export const sessionKinds = ['ssh', 'sftp', 'ftp', 'rdp', 'vnc'] as const;
 export const authMethods = ['password', 'key', 'agent', 'interactive', 'os-credential'] as const;
 
 export const createSessionSchema = z.object({
@@ -19,7 +19,7 @@ export const createSessionSchema = z.object({
   tags: z.string().trim().optional(),
   favorite: z.boolean().optional(),
 }).superRefine((input, context) => {
-  if ((input.kind === 'ssh' || input.kind === 'sftp' || input.kind === 'ftp' || input.kind === 'rdp') && !input.host?.trim()) {
+  if ((input.kind === 'ssh' || input.kind === 'sftp' || input.kind === 'ftp' || input.kind === 'rdp' || input.kind === 'vnc') && !input.host?.trim()) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Host is required',

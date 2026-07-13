@@ -45,7 +45,7 @@ export function getSessionFormValues({
   }
 
   return {
-    kind: initialSession.kind === 'sftp' || initialSession.kind === 'ftp' || initialSession.kind === 'rdp'
+    kind: initialSession.kind === 'sftp' || initialSession.kind === 'ftp' || initialSession.kind === 'rdp' || initialSession.kind === 'vnc'
       ? initialSession.kind
       : 'ssh',
     name: initialSession.name,
@@ -73,6 +73,10 @@ export function getSessionFormValues({
 function getDefaultPort(kind: SessionItem['kind']) {
   if (kind === 'rdp') {
     return 3389;
+  }
+
+  if (kind === 'vnc') {
+    return 5900;
   }
 
   if (kind === 'ftp') {

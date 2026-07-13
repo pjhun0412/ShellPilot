@@ -12,6 +12,7 @@ import {
 } from '@/features/sftp/sftpSidebarState';
 import { subscribeSessionPatch } from '@/features/sessions/sessionStorage';
 import { requestRdpDisconnect, requestRdpReconnect } from '@/features/rdp/rdpPanelLifecycle';
+import { requestVncDisconnect, requestVncReconnect } from '@/features/vnc/vncPanelLifecycle';
 import type { WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
 import {
   notifyTerminalDisconnect,
@@ -312,6 +313,8 @@ export function Workspace({
                   requestSftpSidebarDisconnect(tabMenu.node.getId());
                 } else if (config.panelType === 'rdp') {
                   requestRdpDisconnect(tabMenu.node.getId());
+                } else if (config.panelType === 'vnc') {
+                  requestVncDisconnect(tabMenu.node.getId());
                 } else {
                   notifyTerminalDisconnect(tabMenu.node.getId());
                 }
@@ -348,6 +351,8 @@ export function Workspace({
                   requestSftpSidebarReconnect(tabMenu.node.getId());
                 } else if (config.panelType === 'rdp') {
                   requestRdpReconnect(tabMenu.node.getId());
+                } else if (config.panelType === 'vnc') {
+                  requestVncReconnect(tabMenu.node.getId());
                 } else {
                   notifyTerminalReconnect(tabMenu.node.getId());
                 }

@@ -75,7 +75,7 @@ export function collectSftpExplorers(model: Model): SftpSidebarExplorer[] {
 }
 
 function isWorkspacePanelType(value: unknown): value is WorkspacePanelType {
-  return value === 'terminal' || value === 'sftp' || value === 'ai' || value === 'rdp' || value === 'settings';
+  return value === 'terminal' || value === 'sftp' || value === 'ai' || value === 'rdp' || value === 'vnc' || value === 'settings';
 }
 
 function readLocalPtyTargetConfig(value: unknown): WorkspaceTabItem['localPtyTarget'] {

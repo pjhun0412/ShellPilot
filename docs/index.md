@@ -6,6 +6,7 @@
 2. [RDP 현행 인계](rdp-handoff.md)
 3. [SFTP 현행 인계](sftp-handoff.md)
 4. [AI Tool Layer 설계](ai-tool-layer-design.md)
+5. [ShellPilot 1.0.1 릴리스 노트](release-1.0.1.md)
 
 참고:
 

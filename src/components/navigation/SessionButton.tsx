@@ -49,7 +49,7 @@ export const SessionButton = forwardRef<
 SessionButton.displayName = 'SessionButton';
 
 function getSessionIcon(kind: SessionItem['kind']) {
-  if (kind === 'rdp') {
+  if (kind === 'rdp' || kind === 'vnc') {
     return Monitor;
   }
 

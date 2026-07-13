@@ -9,6 +9,7 @@ const visibleSessionKinds: Array<{
   { kind: 'ssh', label: 'SSH' },
   { kind: 'sftp', label: 'File Transfer' },
   { kind: 'rdp', label: 'RDP' },
+  { kind: 'vnc', label: 'VNC' },
 ];
 
 export function SessionKindSelector({
@@ -21,7 +22,7 @@ export function SessionKindSelector({
   const selectedKind = kind === 'ftp' ? 'sftp' : kind;
 
   return (
-    <div className="grid grid-cols-3 gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1 shadow-inner shadow-black/25">
+    <div className="grid grid-cols-4 gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1 shadow-inner shadow-black/25">
       {visibleSessionKinds.map(({ kind: sessionKind, label }) => (
         <button
           className={[

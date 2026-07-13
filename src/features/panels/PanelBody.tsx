@@ -5,6 +5,7 @@ import { SettingsPanel } from '@/features/settings/SettingsPanel';
 import { SftpPanel } from '@/features/sftp/SftpPanel';
 import { LocalPtyTerminal } from '@/features/terminal/LocalPtyTerminal';
 import { SshTerminal } from '@/features/terminal/SshTerminal';
+import { VncPanel } from '@/features/vnc/VncPanel';
 import {
   FilePanelPlaceholder,
   LocalTerminalPlaceholder,
@@ -56,6 +57,19 @@ export function PanelBody({
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         <RdpPanel
+          autoConnect={panel.autoConnect !== false}
+          isActive={isActive}
+          panelId={panel.id}
+          session={panel.session}
+        />
+      </PanelFocusFrame>
+    );
+  }
+
+  if (panel.type === 'vnc' && panel.session) {
+    return (
+      <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
+        <VncPanel
           autoConnect={panel.autoConnect !== false}
           isActive={isActive}
           panelId={panel.id}

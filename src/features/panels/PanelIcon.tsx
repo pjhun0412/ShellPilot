@@ -11,7 +11,7 @@ export function PanelIcon({ type }: { type: WorkspacePanelType }) {
     return <Bot />;
   }
 
-  if (type === 'rdp') {
+  if (type === 'rdp' || type === 'vnc') {
     return <Monitor />;
   }
 

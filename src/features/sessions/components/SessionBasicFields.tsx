@@ -27,7 +27,7 @@ export function SessionBasicFields({
   const kind = form.watch('kind');
   const isFileTransferSession = kind === 'sftp' || kind === 'ftp';
   const authOptions =
-    kind === 'ftp' || kind === 'rdp'
+    kind === 'ftp' || kind === 'rdp' || kind === 'vnc'
       ? [{ label: 'Password', value: 'password' as const }]
       : [
           { label: 'Password', value: 'password' as const },

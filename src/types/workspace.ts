@@ -1,4 +1,4 @@
-export type SessionKind = 'ftp' | 'local' | 'ssh' | 'sftp' | 'rdp' | 'docker' | 'wsl';
+export type SessionKind = 'ftp' | 'local' | 'ssh' | 'sftp' | 'rdp' | 'vnc' | 'docker' | 'wsl';
 
 export type SessionStatus = 'online' | 'offline' | 'unknown' | 'connecting' | 'ready';
 
@@ -43,7 +43,7 @@ export interface WorkspaceLocalPtyTarget {
   cwd?: string;
 }
 
-export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'settings';
+export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'vnc' | 'settings';
 
 export interface AiPanelBinding {
   boundPanelId: string;

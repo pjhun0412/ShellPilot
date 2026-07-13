@@ -5,6 +5,7 @@ use commands::local_pty::LocalPtySessionStore;
 use commands::rdp::RdpSessionStore;
 use commands::sftp::SftpSessionStore;
 use commands::ssh::SshSessionStore;
+use commands::vnc::VncSessionStore;
 
 #[tauri::command]
 fn app_ready() -> String {
@@ -19,6 +20,7 @@ pub fn run() {
         .manage(RdpSessionStore::default())
         .manage(SftpSessionStore::default())
         .manage(SshSessionStore::default())
+        .manage(VncSessionStore::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
@@ -70,7 +72,11 @@ pub fn run() {
             commands::sftp::sftp_upload,
             commands::sftp::sftp_upload_stream_chunk,
             commands::sftp::sftp_upload_stream_close,
-            commands::sftp::sftp_upload_stream_open
+            commands::sftp::sftp_upload_stream_open,
+            commands::vnc::vnc_close,
+            commands::vnc::vnc_open,
+            commands::vnc::vnc_send_input,
+            commands::vnc::vnc_send_inputs
         ])
         .run(tauri::generate_context!())
         .expect("error while running ShellPilot");

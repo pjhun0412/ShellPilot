@@ -5,5 +5,6 @@ export const panelCatalog: WorkspacePanel[] = [
   { id: 'ai-assistant', title: 'AI Assistant', type: 'ai' },
   { id: 'sftp-explorer', title: 'SFTP Explorer', type: 'sftp' },
   { id: 'rdp-preview', title: 'RDP Preview', type: 'rdp' },
+  { id: 'vnc-preview', title: 'VNC Preview', type: 'vnc' },
   { id: 'settings', title: 'Settings', type: 'settings' },
 ];

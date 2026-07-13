@@ -5,6 +5,7 @@ node_modules/
 dist/
 target/
 src-tauri/target/
+src-tauri/vnc-sidecar/target*/
 release/win/*.exe
 release-assets/
 .tauri/

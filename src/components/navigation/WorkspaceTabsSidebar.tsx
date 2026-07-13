@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import { requestRdpDisconnect, requestRdpReconnect } from '@/features/rdp/rdpPanelLifecycle';
+import { requestVncDisconnect, requestVncReconnect } from '@/features/vnc/vncPanelLifecycle';
 import { subscribeConnectionStatus } from '@/features/connections/connectionStatus';
 import { requestSftpSidebarDisconnect, requestSftpSidebarReconnect, subscribeSftpSidebarPanelStates, type SftpSidebarPanelState } from '@/features/sftp/sftpSidebarState';
 import { notifyTerminalDisconnect, notifyTerminalReconnect } from '@/features/terminal/terminalLifecycle';
@@ -76,6 +77,12 @@ export function WorkspaceTabsSidebar({
     if (tab.type === 'rdp') {
       setConnectionStates((current) => ({ ...current, [tab.id]: 'queued' }));
       requestRdpReconnect(tab.id);
+      return;
+    }
+
+    if (tab.type === 'vnc') {
+      setConnectionStates((current) => ({ ...current, [tab.id]: 'queued' }));
+      requestVncReconnect(tab.id);
     }
   };
   const disconnectTab = (tab: WorkspaceTabItem) => {
@@ -94,6 +101,12 @@ export function WorkspaceTabsSidebar({
     if (tab.type === 'rdp') {
       setConnectionStates((current) => ({ ...current, [tab.id]: 'closed' }));
       requestRdpDisconnect(tab.id);
+      return;
+    }
+
+    if (tab.type === 'vnc') {
+      setConnectionStates((current) => ({ ...current, [tab.id]: 'closed' }));
+      requestVncDisconnect(tab.id);
     }
   };
   const cloneTab = (tab: WorkspaceTabItem) => {
@@ -264,7 +277,8 @@ function WorkspaceTabButton({
   const isSessionConnectionTab =
     (tab.type === 'terminal' && Boolean(tab.session)) ||
     tab.type === 'sftp' ||
-    tab.type === 'rdp';
+    tab.type === 'rdp' ||
+    tab.type === 'vnc';
   const canReconnect = isSessionConnectionTab && status !== 'queued' && status !== 'connecting';
   const canDisconnect =
     isSessionConnectionTab &&
@@ -340,7 +354,7 @@ function WorkspaceTabIcon({ type }: { type: WorkspacePanelType }) {
     return <Terminal className={className} />;
   }
 
-  if (type === 'rdp') {
+  if (type === 'rdp' || type === 'vnc') {
     return <Monitor className={className} />;
   }
 

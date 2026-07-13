@@ -13,13 +13,14 @@ import type { SessionGroup, SessionItem, WorkspacePanel } from '@/types/workspac
 import { CreateSessionDialog, type CreateSessionResult } from './CreateSessionDialog';
 import { SessionTree } from './SessionTree';
 
-type SessionFilter = 'all' | 'ssh' | 'file' | 'rdp' | 'favorites';
+type SessionFilter = 'all' | 'ssh' | 'file' | 'rdp' | 'vnc' | 'favorites';
 
 const sessionFilters: Array<{ id: SessionFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'ssh', label: 'SSH' },
   { id: 'file', label: 'Files' },
   { id: 'rdp', label: 'RDP' },
+  { id: 'vnc', label: 'VNC' },
   { id: 'favorites', label: 'Favorites' },
 ];
 
@@ -382,6 +383,15 @@ function getPanelForSession(session: SessionItem): WorkspacePanel | undefined {
       session,
       title: `RDP - ${session.name}`,
       type: 'rdp',
+    };
+  }
+
+  if (session.kind === 'vnc') {
+    return {
+      id: session.id,
+      session,
+      title: `VNC - ${session.name}`,
+      type: 'vnc',
     };
   }
 
