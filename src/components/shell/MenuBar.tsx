@@ -1,6 +1,6 @@
 ﻿import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Check, Minus, Square, Terminal, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -40,6 +40,20 @@ export function MenuBar({
   const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
   const [preferences, setPreferences] = useState(() => loadPreferences());
   const defaultLocalTerminalProfile = getLocalTerminalProfile(preferences.terminal.localTerminalProfileId);
+
+  const startWindowDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+
+    if (target.closest('.app-no-drag,button,a,input,select,textarea')) {
+      return;
+    }
+
+    void appWindow.startDragging().catch(() => undefined);
+  };
 
   useEffect(() => subscribePreferences(setPreferences), []);
 
@@ -84,6 +98,7 @@ export function MenuBar({
     <div
       className="app-drag-region grid h-9 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center border-b bg-background text-xs text-muted-foreground"
       data-tauri-drag-region
+      onPointerDown={startWindowDrag}
     >
       <div className="flex h-full items-center gap-2 px-2" data-tauri-drag-region>
         <div className="grid size-5 place-items-center rounded border border-primary/40 bg-primary/10 text-[0.58rem] font-black text-primary">
@@ -342,4 +357,3 @@ function WindowControlButton({
     </button>
   );
 }
-
