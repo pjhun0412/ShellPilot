@@ -60,8 +60,9 @@
 - Tauri `externalBin`에 `binaries/shellpilot-vnc-probe` 등록
 - Windows 배포 시 `shellpilot-vnc-probe-x86_64-pc-windows-msvc.exe` 형태로 번들링
 - release build 과정에서 VNC sidecar source가 external binary보다 최신이면 `build.rs`가 sidecar를 다시 빌드하고 `src-tauri/binaries/`로 복사
+- `scripts/release-win.ps1`은 release용 VNC sidecar도 빌드하고 portable zip에 `shellpilot-vnc-probe.exe`를 포함
 
-따라서 정상 release build 경로를 사용하면 ShellPilot 본체와 VNC sidecar exe가 함께 배포된다.
+따라서 정상 release build 경로를 사용하면 ShellPilot 설치형과 portable zip 모두에 VNC sidecar exe가 함께 배포된다.
 
 ## 보안 메모
 
@@ -91,4 +92,3 @@ npm run build
 cargo check --manifest-path src-tauri\Cargo.toml
 cargo check --manifest-path src-tauri\vnc-sidecar\Cargo.toml
 ```
-
