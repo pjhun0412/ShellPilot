@@ -1432,6 +1432,16 @@ fn write_known_hosts(path: &PathBuf, known_hosts: &KnownHosts) -> Result<(), Str
 
 fn classify_auth_error(error: String, auth: &SshAuthRequest) -> SshFailure {
     let label = auth.label();
+    let lower = error.to_ascii_lowercase();
+
+    if is_secure_storage_access_error(&lower) {
+        return SshFailure::auth_with_code(
+            "auth_missing",
+            format!(
+                "Saved {label} could not be read from the operating-system credential store. Enter the {label} again to continue. {error}"
+            ),
+        );
+    }
 
     if matches!(auth, SshAuthRequest::Agent) {
         return SshFailure::auth_with_code(
@@ -1441,6 +1451,15 @@ fn classify_auth_error(error: String, auth: &SshAuthRequest) -> SshFailure {
     }
 
     SshFailure::auth(format!("SSH {label} authentication failed. {error}"))
+}
+
+fn is_secure_storage_access_error(lower: &str) -> bool {
+    lower.contains("secure storage")
+        || lower.contains("credential store")
+        || lower.contains("keychain")
+        || lower.contains("keyring")
+        || lower.contains("user interaction is not allowed")
+        || lower.contains("interaction is not allowed")
 }
 
 fn classify_connect_error(error: String) -> SshFailure {
