@@ -165,7 +165,11 @@ export function useSshTerminalActions({
     terminalRef.current?.writeln('\r\nTrusting SSH host key and reconnecting...');
     closeIntentRef.current = 'reconnect';
     await closeSshShell(panelId).catch(() => undefined);
-    await openSshShell(panelId, session, { acceptNewHostKey: true }).catch((error: unknown) => {
+    await openSshShell(panelId, session, {
+      acceptNewHostKey: true,
+      password: pendingPasswordRef.current,
+      username: pendingUsernameRef.current,
+    }).catch((error: unknown) => {
       const failure = getSshOpenFailure(error);
 
       closeIntentRef.current = undefined;
@@ -176,6 +180,8 @@ export function useSshTerminalActions({
     closeIntentRef,
     lastHostKeyWarningRef,
     panelId,
+    pendingPasswordRef,
+    pendingUsernameRef,
     session,
     setTerminalStatus,
     terminalRef,
