@@ -1,6 +1,7 @@
 import type { TabNode } from 'flexlayout-react';
 
 import type { SessionItem } from '@/types/workspace';
+import { getCloseTabShortcutLabel } from './workspaceShortcuts';
 
 export interface WorkspaceTabMenuState {
   node: TabNode;
@@ -34,6 +35,7 @@ export function WorkspaceTabMenu({
   const isSessionTab = Boolean(session);
   const panelType = node.getConfig()?.panelType;
   const canAskAi = panelType === 'terminal' || panelType === 'sftp';
+  const closeTabShortcutLabel = getCloseTabShortcutLabel();
   const copyHost = () => {
     if (session?.host) {
       void navigator.clipboard.writeText(session.host).catch(() => undefined);
@@ -77,7 +79,9 @@ export function WorkspaceTabMenu({
         Copy SSH Command
       </WorkspaceTabMenuButton>
       <WorkspaceTabMenuSeparator />
-      <WorkspaceTabMenuButton onClick={onClose}>Close</WorkspaceTabMenuButton>
+      <WorkspaceTabMenuButton shortcut={closeTabShortcutLabel} onClick={onClose}>
+        Close
+      </WorkspaceTabMenuButton>
       <WorkspaceTabMenuButton onClick={onCloseOthers}>Close Others</WorkspaceTabMenuButton>
       <WorkspaceTabMenuButton onClick={onCloseRight}>Close Tabs to the Right</WorkspaceTabMenuButton>
     </div>
@@ -100,10 +104,12 @@ function WorkspaceTabMenuButton({
   children,
   disabled,
   onClick,
+  shortcut,
 }: {
   children: React.ReactNode;
   disabled?: boolean;
   onClick: () => void;
+  shortcut?: string;
 }) {
   return (
     <button
@@ -112,7 +118,8 @@ function WorkspaceTabMenuButton({
       disabled={disabled}
       onClick={onClick}
     >
-      {children}
+      <span className="min-w-0 flex-1">{children}</span>
+      {shortcut ? <span className="ml-4 text-[10px] text-muted-foreground">{shortcut}</span> : null}
     </button>
   );
 }

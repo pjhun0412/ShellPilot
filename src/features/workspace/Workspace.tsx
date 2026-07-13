@@ -10,6 +10,7 @@ import {
   requestSftpSidebarReconnect,
   subscribeSftpSidebarDisconnect,
 } from '@/features/sftp/sftpSidebarState';
+import { subscribeSessionPatch } from '@/features/sessions/sessionStorage';
 import { requestRdpDisconnect, requestRdpReconnect } from '@/features/rdp/rdpPanelLifecycle';
 import type { WorkspacePanelType, WorkspaceTabItem } from '@/types/workspace';
 import {
@@ -22,6 +23,7 @@ import { createPanelFactory } from './panelFactory';
 import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
 import { createWorkspaceActionHandler, getSelectedPanelId } from './workspaceLayoutActions';
 import { createShortPanelId, focusWorkspaceTab, getBoundAiTabIds } from './workspaceNodeUtils';
+import { isCloseTabShortcut, shouldIgnoreWorkspaceShortcut } from './workspaceShortcuts';
 import {
   closeFlexLayoutTabOnMiddleClick,
   closeLayoutNodeOnMiddleClick,
@@ -102,10 +104,79 @@ export function Workspace({
   }, []);
 
   useEffect(() => {
+    return subscribeSessionPatch(({ patch, sessionId }) => {
+      let didUpdate = false;
+
+      model.visitNodes((node) => {
+        if (node.getType() !== 'tab') {
+          return;
+        }
+
+        const tab = node as TabNode;
+        const config = tab.getConfig() as {
+          panelType?: WorkspacePanelType;
+          session?: unknown;
+        };
+
+        if (config.panelType !== 'terminal' && config.panelType !== 'sftp') {
+          return;
+        }
+
+        const session = readSessionConfig(config.session);
+
+        if (session?.id !== sessionId) {
+          return;
+        }
+
+        model.doAction(
+          Actions.updateNodeAttributes(tab.getId(), {
+            config: {
+              ...config,
+              session: {
+                ...session,
+                ...patch,
+                updatedAt: Date.now(),
+              },
+            },
+          } as never),
+        );
+        didUpdate = true;
+      });
+
+      if (didUpdate) {
+        onModelChange(model);
+        setWorkspaceVersion((version) => version + 1);
+      }
+    });
+  }, [model, onModelChange]);
+
+  useEffect(() => {
     if (lastAddedPanelId) {
       setActivePanelId(lastAddedPanelId);
     }
   }, [lastAddedPanelId]);
+
+  useEffect(() => {
+    const closeActiveTab = (event: KeyboardEvent) => {
+      if (!isCloseTabShortcut(event) || shouldIgnoreWorkspaceShortcut(event)) {
+        return;
+      }
+
+      const panelId = getSelectedPanelId(model) ?? effectiveActivePanelId;
+
+      if (!panelId || model.getNodeById(panelId)?.getType() !== 'tab') {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      requestTabClose(panelId);
+    };
+
+    window.addEventListener('keydown', closeActiveTab, true);
+
+    return () => window.removeEventListener('keydown', closeActiveTab, true);
+  }, [effectiveActivePanelId, model, requestTabClose]);
 
   useEffect(() => {
     const closeBoundAiTabs = (sourcePanelId: string) => {
