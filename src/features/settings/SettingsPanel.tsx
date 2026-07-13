@@ -228,7 +228,7 @@ function SettingsSectionContent({
       <SettingsList>
         <SettingsActionRow
           description="Used by Session > Open Local Terminal > Default and the Sessions sidebar local terminal action."
-          matches={matchesSetting(searchQuery, 'terminal local default powershell cmd wsl git bash')}
+          matches={matchesSetting(searchQuery, 'terminal local default powershell cmd wsl git bash zsh login shell')}
           title="Default local terminal"
         >
           <Select

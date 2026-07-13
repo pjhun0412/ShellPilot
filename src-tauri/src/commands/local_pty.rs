@@ -171,6 +171,10 @@ fn run_pty_session(app: AppHandle, target: LocalPtyTarget) {
 // portable-pty가 확장자 없는 파일을 실제 실행 파일로 착각해 열면 "올바른 Win32 응용
 // 프로그램이 아닙니다"(os error 193)가 나므로, PATH에서 .cmd/.exe/.bat를 직접 찾아 넘긴다.
 fn resolve_executable(command: &str) -> String {
+    if command == "__shellpilot_default_shell" {
+        return default_shell_command();
+    }
+
     if !cfg!(windows) {
         return command.to_string();
     }
@@ -193,6 +197,14 @@ fn resolve_executable(command: &str) -> String {
     }
 
     command.to_string()
+}
+
+fn default_shell_command() -> String {
+    if cfg!(windows) {
+        std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string())
+    } else {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
 }
 
 fn open_and_stream(app: &AppHandle, target: &LocalPtyTarget) -> Result<(), String> {

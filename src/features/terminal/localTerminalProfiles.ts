@@ -1,6 +1,6 @@
 import type { WorkspaceLocalPtyTarget } from '@/types/workspace';
 
-export type LocalTerminalProfileId = 'powershell' | 'cmd' | 'wsl' | 'git-bash';
+export type LocalTerminalProfileId = 'powershell' | 'cmd' | 'wsl' | 'git-bash' | 'zsh' | 'bash' | 'login-shell';
 
 export interface LocalTerminalProfile {
   id: LocalTerminalProfileId;
@@ -9,7 +9,7 @@ export interface LocalTerminalProfile {
   title: string;
 }
 
-export const localTerminalProfiles: LocalTerminalProfile[] = [
+const windowsLocalTerminalProfiles: LocalTerminalProfile[] = [
   {
     id: 'powershell',
     label: 'PowerShell',
@@ -36,7 +36,70 @@ export const localTerminalProfiles: LocalTerminalProfile[] = [
   },
 ];
 
-export const defaultLocalTerminalProfileId: LocalTerminalProfileId = 'powershell';
+const macosLocalTerminalProfiles: LocalTerminalProfile[] = [
+  {
+    id: 'zsh',
+    label: 'Zsh',
+    title: 'Zsh',
+    target: { args: ['-l'], command: '/bin/zsh' },
+  },
+  {
+    id: 'bash',
+    label: 'Bash',
+    title: 'Bash',
+    target: { args: ['-l'], command: '/bin/bash' },
+  },
+  {
+    id: 'login-shell',
+    label: 'Default Shell',
+    title: 'Local Shell',
+    target: { command: '__shellpilot_default_shell' },
+  },
+];
+
+const unixLocalTerminalProfiles: LocalTerminalProfile[] = [
+  {
+    id: 'bash',
+    label: 'Bash',
+    title: 'Bash',
+    target: { args: ['-l'], command: '/bin/bash' },
+  },
+  {
+    id: 'zsh',
+    label: 'Zsh',
+    title: 'Zsh',
+    target: { args: ['-l'], command: '/bin/zsh' },
+  },
+];
+
+function getHostPlatform(): 'windows' | 'macos' | 'unix' {
+  const platform = globalThis.navigator?.platform?.toLowerCase() ?? '';
+  const userAgent = globalThis.navigator?.userAgent?.toLowerCase() ?? '';
+  const value = `${platform} ${userAgent}`;
+
+  if (value.includes('mac')) {
+    return 'macos';
+  }
+
+  if (value.includes('win')) {
+    return 'windows';
+  }
+
+  return 'unix';
+}
+
+export const localTerminalProfiles: LocalTerminalProfile[] = (() => {
+  switch (getHostPlatform()) {
+    case 'macos':
+      return macosLocalTerminalProfiles;
+    case 'windows':
+      return windowsLocalTerminalProfiles;
+    default:
+      return unixLocalTerminalProfiles;
+  }
+})();
+
+export const defaultLocalTerminalProfileId: LocalTerminalProfileId = localTerminalProfiles[0]?.id ?? 'bash';
 
 export function getLocalTerminalProfile(profileId: unknown): LocalTerminalProfile {
   if (typeof profileId !== 'string') {
@@ -48,7 +111,10 @@ export function getLocalTerminalProfile(profileId: unknown): LocalTerminalProfil
 
 export const defaultLocalTerminalProfile = getLocalTerminalProfile(defaultLocalTerminalProfileId);
 
-export const elevatedLocalTerminalProfiles: Array<{ label: string; shell: 'cmd' | 'powershell' }> = [
+const windowsElevatedLocalTerminalProfiles = [
   { label: 'PowerShell', shell: 'powershell' },
   { label: 'CMD', shell: 'cmd' },
-];
+] satisfies Array<{ label: string; shell: 'cmd' | 'powershell' }>;
+
+export const elevatedLocalTerminalProfiles: Array<{ label: string; shell: 'cmd' | 'powershell' }> =
+  getHostPlatform() === 'windows' ? windowsElevatedLocalTerminalProfiles : [];

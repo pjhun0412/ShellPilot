@@ -7,13 +7,14 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "powershell -ExecutionPolicy Bypass -File scripts/tauri-with-rust-path.ps1",
-    "tauri:dev": "powershell -ExecutionPolicy Bypass -File scripts/tauri-with-rust-path.ps1 dev",
-    "tauri:build": "powershell -ExecutionPolicy Bypass -File scripts/tauri-with-rust-path.ps1 build",
+    "tauri": "node scripts/tauri-cli.mjs",
+    "tauri:dev": "node scripts/tauri-cli.mjs dev",
+    "tauri:build": "node scripts/tauri-cli.mjs build",
     "release:win": "powershell -ExecutionPolicy Bypass -File scripts/release-win.ps1",
-    "release:win:build": "powershell -ExecutionPolicy Bypass -File scripts/tauri-with-rust-path.ps1 build --bundles nsis",
-    "release:win:portable": "powershell -ExecutionPolicy Bypass -File scripts/tauri-with-rust-path.ps1 build --no-bundle",
-    "release:win:installer": "powershell -ExecutionPolicy Bypass -File scripts/tauri-with-rust-path.ps1 build --bundles nsis"
+    "release:win:build": "node scripts/tauri-cli.mjs build --bundles nsis",
+    "release:win:portable": "node scripts/tauri-cli.mjs build --no-bundle",
+    "release:win:installer": "node scripts/tauri-cli.mjs build --bundles nsis",
+    "release:mac": "bash scripts/release-macos.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -20,9 +20,14 @@ tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-keyring = { version = "3", features = ["windows-native"] }
 russh = { version = "0.62", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "2.3"
 tokio = { version = "1", features = ["macros", "net", "sync", "time"] }
 portable-pty = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
