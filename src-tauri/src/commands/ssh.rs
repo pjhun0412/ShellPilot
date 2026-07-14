@@ -22,7 +22,7 @@ use known_hosts::{
     trust_known_host, verify_known_host, KnownHostDecision, KnownHostEntry,
 };
 pub use shell::SshSessionStore;
-use shell::{close_shell, emit_terminal_warning, open_shell, resize_shell, write_shell};
+use shell::{close_shell, emit_terminal_warning, open_shell, query_cwd, resize_shell, write_shell};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -188,6 +188,14 @@ pub async fn ssh_resize(
 #[tauri::command]
 pub async fn ssh_close(store: State<'_, SshSessionStore>, panel_id: String) -> Result<(), String> {
     close_shell(store, panel_id).await
+}
+
+#[tauri::command]
+pub async fn ssh_query_cwd(
+    store: State<'_, SshSessionStore>,
+    panel_id: String,
+) -> Result<Option<String>, String> {
+    query_cwd(store, panel_id).await
 }
 
 #[tauri::command]

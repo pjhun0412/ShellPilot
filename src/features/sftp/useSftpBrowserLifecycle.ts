@@ -23,24 +23,27 @@ import {
 
 export function useSftpBrowserLifecycle({
   autoConnect,
+  initialPath,
   onClearBrowserUi,
   panelId,
   resetSelection,
   session,
 }: {
   autoConnect: boolean;
+  initialPath?: string;
   onClearBrowserUi: () => void;
   panelId: string;
   resetSelection: () => void;
   session: SessionItem;
 }) {
+  const initialRemotePath = initialPath?.trim() || '.';
   const directoryRequestIdRef = useRef(0);
   const hasOpenedSessionRef = useRef(false);
   const isMountedRef = useRef(true);
   const lifecycleGenerationRef = useRef(0);
   const openQueueRef = useRef<Promise<void>>(Promise.resolve());
   const sessionRef = useRef(session);
-  const currentPathRef = useRef('.');
+  const currentPathRef = useRef(initialRemotePath);
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [connectionState, setConnectionState] = useState<SftpConnectionState>(
     autoConnect ? 'connecting' : 'restored',
@@ -48,7 +51,7 @@ export function useSftpBrowserLifecycle({
   const [error, setError] = useState<string>();
   const [homePath, setHomePath] = useState('.');
   const [isLoading, setIsLoading] = useState(autoConnect);
-  const [path, setPath] = useState('.');
+  const [path, setPath] = useState(initialRemotePath);
   const [sftpKeepaliveIntervalSeconds, setSftpKeepaliveIntervalSeconds] = useState(
     () => loadPreferences().connection.keepaliveIntervalSeconds,
   );
@@ -233,7 +236,7 @@ export function useSftpBrowserLifecycle({
       hasOpenedSessionRef.current = true;
       setConnectionState('connected');
       publishConnectionStatus({ panelId, status: 'connected' });
-      await loadDirectory('.', { recordHistory: false });
+      await loadDirectory(initialRemotePath, { recordHistory: false });
     } catch (error) {
       if (!isMountedRef.current || lifecycleGenerationRef.current !== generation) {
         return;
@@ -244,7 +247,7 @@ export function useSftpBrowserLifecycle({
       setError(error instanceof Error ? error.message : String(error));
       setIsLoading(false);
     }
-  }, [loadDirectory, openQueuedSftpSession, panelId]);
+  }, [initialRemotePath, loadDirectory, openQueuedSftpSession, panelId]);
 
   const runBrowserAction = useCallback(async (action: () => Promise<void>) => {
     setIsLoading(true);
@@ -428,7 +431,7 @@ export function useSftpBrowserLifecycle({
         setConnectionState('connected');
         publishConnectionStatus({ panelId, status: 'connected' });
         if (!disposed) {
-          await loadDirectory('.', { recordHistory: false });
+          await loadDirectory(initialRemotePath, { recordHistory: false });
         }
       } catch (error) {
         if (disposed || !isMountedRef.current || lifecycleGenerationRef.current !== generation) {
@@ -457,7 +460,7 @@ export function useSftpBrowserLifecycle({
         void closeSftpSession(panelId);
       }
     };
-  }, [autoConnect, openQueuedSftpSession, panelId, sessionConnectionKey]);
+  }, [autoConnect, initialRemotePath, openQueuedSftpSession, panelId, sessionConnectionKey]);
 
   return {
     backStack,

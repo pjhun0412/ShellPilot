@@ -61,6 +61,7 @@ export interface WorkspacePanel {
   aiBinding?: AiPanelBinding;
   autoConnect?: boolean;
   id: string;
+  initialPath?: string;
   localPtyTarget?: WorkspaceLocalPtyTarget;
   session?: SessionItem;
   title: string;
@@ -70,6 +71,7 @@ export interface WorkspacePanel {
 export interface WorkspaceTabItem {
   aiBinding?: AiPanelBinding;
   id: string;
+  initialPath?: string;
   localPtyTarget?: WorkspaceLocalPtyTarget;
   session?: SessionItem;
   title: string;

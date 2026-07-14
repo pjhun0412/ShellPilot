@@ -54,6 +54,7 @@ pub fn run() {
             commands::ssh::probe_ssh_connection,
             commands::ssh::ssh_close,
             commands::ssh::ssh_open_shell,
+            commands::ssh::ssh_query_cwd,
             commands::ssh::ssh_run_readonly_commands,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_write,

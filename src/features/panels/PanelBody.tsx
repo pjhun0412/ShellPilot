@@ -21,7 +21,7 @@ export function PanelBody({
 }: {
   isActive?: boolean;
   onActivate?: () => void;
-  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>) => void;
+  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>, options?: { initialPath?: string }) => void;
   panel: WorkspacePanel;
 }) {
   if (panel.type === 'terminal') {
@@ -91,6 +91,7 @@ export function PanelBody({
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         <SftpPanel
           autoConnect={panel.autoConnect !== false}
+          initialPath={panel.initialPath}
           isActive={isActive}
           panelId={panel.id}
           session={panel.session}

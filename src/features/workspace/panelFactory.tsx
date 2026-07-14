@@ -12,7 +12,7 @@ export function createPanelFactory({
 }: {
   activePanelId?: string;
   onActivatePanel: (panelId: string) => void;
-  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>) => void;
+  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>, options?: { initialPath?: string }) => void;
 }) {
   return function panelFactory(node: TabNode) {
     const panelId = node.getId();
@@ -47,6 +47,7 @@ export function panelFactory(node: TabNode) {
 type PanelNodeConfig = {
   aiBinding?: WorkspacePanel['aiBinding'];
   autoConnect?: boolean;
+  initialPath?: WorkspacePanel['initialPath'];
   localPtyTarget?: WorkspacePanel['localPtyTarget'];
   panelType?: WorkspacePanelType | 'sftp-transfer-queue';
   session?: WorkspacePanel['session'];
@@ -67,6 +68,7 @@ function createWorkspacePanelFromNode(
       aiBinding: config.aiBinding,
       id: node.getId(),
       autoConnect: config.autoConnect,
+      initialPath: config.initialPath,
       localPtyTarget: config.localPtyTarget,
       session: config.session,
       title: node.getName(),

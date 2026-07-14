@@ -19,6 +19,7 @@ import {
   notifyTerminalReconnect,
   subscribeTerminalDisconnect,
 } from '@/features/terminal/terminalLifecycle';
+import { querySshCurrentDirectory } from '@/features/terminal/sshTerminalBridge';
 import { focusRegisteredTerminal } from '@/features/terminal/terminalRegistry';
 import { createPanelFactory } from './panelFactory';
 import { readSessionConfig, WorkspaceTabMenu, type WorkspaceTabMenuState } from './WorkspaceTabMenu';
@@ -357,7 +358,10 @@ export function Workspace({
                 setTabMenu(undefined);
               }}
               onOpenSftp={(session) => {
-                onOpenSftp?.(session);
+                const panelId = tabMenu.node.getId();
+                void querySshCurrentDirectory(panelId).then((initialPath) => {
+                  onOpenSftp?.(session, initialPath ? { initialPath } : undefined);
+                });
                 setTabMenu(undefined);
               }}
               onReconnect={() => {

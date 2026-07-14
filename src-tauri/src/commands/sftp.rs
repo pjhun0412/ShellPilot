@@ -139,16 +139,17 @@ pub async fn sftp_list(
     let mut entries = Vec::new();
 
     let requested_path = normalize_remote_path(&path);
-    let is_home_path = requested_path == ".";
-    let list_path = if is_home_path {
-        connection
-            .session
-            .canonicalize(".")
-            .await
-            .map_err(|error| format!("failed to resolve remote home directory: {error}"))?
-    } else {
-        requested_path.clone()
-    };
+    let list_path = connection
+        .session
+        .canonicalize(requested_path.clone())
+        .await
+        .map_err(|error| {
+            if requested_path == "." {
+                format!("failed to resolve remote home directory: {error}")
+            } else {
+                format!("failed to resolve remote directory {requested_path}: {error}")
+            }
+        })?;
     let read_dir = connection
         .session
         .read_dir(list_path.clone())

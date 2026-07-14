@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Button } from '@/components/ui/button';
 import type { SessionItem } from '@/types/workspace';
-import { pasteClipboardToSsh } from './sshTerminalBridge';
+import { pasteClipboardToSsh, querySshCurrentDirectory } from './sshTerminalBridge';
 import { SshClosedCard, SshFailureCard, SshRestoredCard } from './SshTerminalStatusCards';
 import {
   getSshEndpointLabel,
@@ -39,7 +39,7 @@ export function SshTerminal({
 }: {
   autoConnect?: boolean;
   isActive?: boolean;
-  onOpenSftp?: (session: SessionItem) => void;
+  onOpenSftp?: (session: SessionItem, options?: { initialPath?: string }) => void;
   panelId: string;
   session: SessionItem;
 }) {
@@ -89,7 +89,6 @@ export function SshTerminal({
     setTerminalStatus,
     terminalRef,
   });
-
   useSshTerminalLifecycle({
     autoConnect,
     closeIntentRef,
@@ -120,6 +119,11 @@ export function SshTerminal({
     terminalRef.current?.focus();
   };
 
+  const openSftp = async () => {
+    const initialPath = await querySshCurrentDirectory(panelId);
+    onOpenSftp?.(session, { initialPath });
+  };
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -145,7 +149,7 @@ export function SshTerminal({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                onOpenSftp(session);
+                void openSftp();
               }}
             >
               <FolderOpen className="size-3.5" />
@@ -201,7 +205,7 @@ export function SshTerminal({
           Clear
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem disabled={!onOpenSftp} onSelect={() => onOpenSftp?.(session)}>
+        <ContextMenuItem disabled={!onOpenSftp} onSelect={() => void openSftp()}>
           <FolderOpen className="size-3.5" />
           Open SFTP
         </ContextMenuItem>

@@ -49,11 +49,13 @@ const sftpParentEntryPath = '__sftp_parent__';
 
 export function SftpPanel({
   autoConnect = true,
+  initialPath,
   isActive = false,
   panelId,
   session,
 }: {
   autoConnect?: boolean;
+  initialPath?: string;
   isActive?: boolean;
   panelId: string;
   session: SessionItem;
@@ -108,6 +110,7 @@ export function SftpPanel({
     onClearBrowserUi: () => {
       resetPathUiRef.current();
     },
+    initialPath,
     panelId,
     resetSelection: resetSelectionFromLifecycle,
     session,

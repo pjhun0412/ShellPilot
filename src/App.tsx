@@ -154,6 +154,7 @@ export function App() {
           component: 'panel',
           config: {
             autoConnect: true,
+            initialPath: panel.initialPath,
             localPtyTarget: panel.localPtyTarget,
             panelType: panel.type,
             session: panel.session,
@@ -169,13 +170,17 @@ export function App() {
     setLastAddedPanelId(tabId);
     setLayoutVersion((version) => version + 1);
   };
-  const openSftpForSession = (session: NonNullable<WorkspacePanel['session']>) => {
+  const openSftpForSession = (
+    session: NonNullable<WorkspacePanel['session']>,
+    options: { initialPath?: string } = {},
+  ) => {
     if (session.kind !== 'ssh' && session.kind !== 'sftp') {
       return;
     }
 
     addPanel({
       id: `sftp-${session.id}`,
+      initialPath: options.initialPath,
       session,
       title: `SFTP - ${session.name}`,
       type: 'sftp',
@@ -301,6 +306,7 @@ export function App() {
           component: 'panel',
           config: {
             autoConnect: true,
+            initialPath: tab.initialPath,
             localPtyTarget: tab.localPtyTarget,
             panelType: tab.type,
             session: tab.session,

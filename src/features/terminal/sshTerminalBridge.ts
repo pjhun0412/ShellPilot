@@ -151,6 +151,12 @@ export async function resizeSshPty(panelId: string, terminal: Terminal) {
     .catch(() => undefined);
 }
 
+export async function querySshCurrentDirectory(panelId: string): Promise<string | undefined> {
+  return invoke<string | null>('ssh_query_cwd', { panelId })
+    .then((path) => path ?? undefined)
+    .catch(() => undefined);
+}
+
 export async function closeSshShell(panelId: string) {
   lastSshPtySizeByPanel.delete(panelId);
   await invoke('ssh_close', { panelId });
