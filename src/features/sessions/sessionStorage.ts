@@ -16,11 +16,15 @@ interface StoredSessionRegistry {
 
 interface StoredSessionUiState {
   collapsedGroupIds: string[];
+  detailsPanelCollapsed?: boolean;
+  detailsPanelHeight?: number;
   version: 1;
 }
 
 export interface SessionPatchDetail {
-  patch: Partial<Pick<SessionItem, 'credentialRef' | 'username'>>;
+  patch: Partial<
+    Pick<SessionItem, 'credentialRef' | 'favorite' | 'host' | 'kind' | 'metadata' | 'name' | 'port' | 'username'>
+  >;
   sessionId: string;
 }
 
@@ -100,6 +104,8 @@ export function loadSessionUiState() {
 
     return {
       collapsedGroupIds: state.collapsedGroupIds.filter((id): id is string => typeof id === 'string'),
+      detailsPanelCollapsed: Boolean(state.detailsPanelCollapsed),
+      detailsPanelHeight: typeof state.detailsPanelHeight === 'number' ? state.detailsPanelHeight : undefined,
     };
   } catch {
     return {
@@ -108,13 +114,19 @@ export function loadSessionUiState() {
   }
 }
 
-export function saveSessionUiState(state: { collapsedGroupIds: string[] }) {
+export function saveSessionUiState(state: {
+  collapsedGroupIds: string[];
+  detailsPanelCollapsed?: boolean;
+  detailsPanelHeight?: number;
+}) {
   if (typeof window === 'undefined') {
     return;
   }
 
   const storedState: StoredSessionUiState = {
     collapsedGroupIds: state.collapsedGroupIds,
+    detailsPanelCollapsed: state.detailsPanelCollapsed,
+    detailsPanelHeight: state.detailsPanelHeight,
     version: 1,
   };
 

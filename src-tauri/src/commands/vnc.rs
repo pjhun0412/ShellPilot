@@ -12,6 +12,12 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::commands::credentials::read_credential_secret;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 #[derive(Default)]
 pub struct VncSessionStore {
     next_run_id: AtomicU64,
@@ -550,10 +556,17 @@ fn spawn_vnc_sidecar(
     validate_sidecar_secret(&password)?;
 
     let binary_path = resolve_vnc_sidecar_binary()?;
-    let mut child = Command::new(binary_path)
+    let mut command = Command::new(binary_path);
+
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let mut child = command
         .spawn()
         .map_err(|error| format!("failed to start VNC sidecar: {error}"))?;
     let mut stdin = child

@@ -119,7 +119,12 @@ export function Workspace({
           session?: unknown;
         };
 
-        if (config.panelType !== 'terminal' && config.panelType !== 'sftp') {
+        if (
+          config.panelType !== 'terminal' &&
+          config.panelType !== 'sftp' &&
+          config.panelType !== 'rdp' &&
+          config.panelType !== 'vnc'
+        ) {
           return;
         }
 
@@ -141,6 +146,9 @@ export function Workspace({
             },
           } as never),
         );
+        if (typeof patch.name === 'string' && patch.name.trim()) {
+          model.doAction(Actions.renameTab(tab.getId(), createSessionPanelTitle(config.panelType, patch.name.trim())));
+        }
         didUpdate = true;
       });
 
@@ -382,6 +390,22 @@ function getSelectedContextPanelId(model: Model, selectedPanelId: string | undef
   return config.panelType === 'terminal' || config.panelType === 'sftp'
     ? selectedNode.getId()
     : undefined;
+}
+
+function createSessionPanelTitle(panelType: WorkspacePanelType | undefined, sessionName: string) {
+  if (panelType === 'sftp') {
+    return `SFTP - ${sessionName}`;
+  }
+
+  if (panelType === 'rdp') {
+    return `RDP - ${sessionName}`;
+  }
+
+  if (panelType === 'vnc') {
+    return `VNC - ${sessionName}`;
+  }
+
+  return `SSH - ${sessionName}`;
 }
 
 function collectWorkspaceTabIdentities(model: Model) {

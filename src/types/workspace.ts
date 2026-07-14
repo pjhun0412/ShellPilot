@@ -76,4 +76,4 @@ export interface WorkspaceTabItem {
   type: WorkspacePanelType;
 }
 
-export type ActivityId = 'sessions' | 'tabs' | 'files' | 'ai' | 'logs';
+export type ActivityId = 'sessions' | 'tabs' | 'files' | 'ai';

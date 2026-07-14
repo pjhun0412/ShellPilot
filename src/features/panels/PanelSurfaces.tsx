@@ -56,7 +56,7 @@ export function FilePanelPlaceholder() {
       {[
         ['/var/www', 'remote path'],
         ['app', 'folder'],
-        ['logs', 'folder'],
+        ['var', 'folder'],
         ['deploy.sh', 'script'],
       ].map(([name, kind]) => (
         <div
@@ -70,23 +70,6 @@ export function FilePanelPlaceholder() {
           <small className="shrink-0 text-muted-foreground">{kind}</small>
         </div>
       ))}
-    </div>
-  );
-}
-
-export function LogsPanelContent() {
-  return (
-    <div className="app-scrollbar terminal-panel h-full overflow-auto p-3 font-mono text-xs leading-5 text-muted-foreground">
-      <div>
-        <span className="text-primary">[system]</span> ShellPilot workspace initialized
-      </div>
-      <div>
-        <span className="text-primary">[layout]</span> FlexLayout model loaded
-      </div>
-      <div>
-        <span className="text-primary">[hint]</span> Drag tabs to split left, right, top, bottom, or
-        center
-      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { TabNode } from 'flexlayout-react';
 
-import { LogsPanel, PanelBody } from '@/features/panels/PanelBody';
+import { PanelBody } from '@/features/panels/PanelBody';
 import { panelCatalog } from '@/features/panels/panelCatalog';
 import { SftpTransferQueuePanel } from '@/features/sftp/SftpTransferQueuePanel';
 import type { WorkspacePanel, WorkspacePanelType } from '@/types/workspace';
@@ -21,10 +21,6 @@ export function createPanelFactory({
     const config = readPanelConfig(node);
     const panelType = config.panelType ?? resolvePanelType(panelId);
 
-    if (panelType === 'logs') {
-      return <LogsPanel isActive={isActive} onActivate={activatePanel} />;
-    }
-
     if (panelType === 'sftp-transfer-queue') {
       return <SftpTransferQueuePanel />;
     }
@@ -39,10 +35,6 @@ export function panelFactory(node: TabNode) {
   const config = readPanelConfig(node);
   const panelType = config.panelType ?? resolvePanelType(node.getId());
 
-  if (panelType === 'logs') {
-    return <LogsPanel />;
-  }
-
   if (panelType === 'sftp-transfer-queue') {
     return <SftpTransferQueuePanel />;
   }
@@ -56,7 +48,7 @@ type PanelNodeConfig = {
   aiBinding?: WorkspacePanel['aiBinding'];
   autoConnect?: boolean;
   localPtyTarget?: WorkspacePanel['localPtyTarget'];
-  panelType?: WorkspacePanelType | 'logs' | 'sftp-transfer-queue';
+  panelType?: WorkspacePanelType | 'sftp-transfer-queue';
   session?: WorkspacePanel['session'];
 };
 

@@ -11,6 +11,7 @@ import { useSessionRegistry } from '@/features/sessions/useSessionRegistry';
 import { t } from '@/i18n';
 import type { SessionGroup, SessionItem, WorkspacePanel } from '@/types/workspace';
 import { CreateSessionDialog, type CreateSessionResult } from './CreateSessionDialog';
+import { clampSessionDetailsPanelHeight, SessionDetailsPanel } from './SessionDetailsPanel';
 import { SessionTree } from './SessionTree';
 
 type SessionFilter = 'all' | 'ssh' | 'file' | 'rdp' | 'vnc' | 'favorites';
@@ -25,10 +26,17 @@ const sessionFilters: Array<{ id: SessionFilter; label: string }> = [
 ];
 
 export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePanel) => void }) {
+  const initialSessionUiState = useMemo(() => loadSessionUiState(), []);
   const [activeFilter, setActiveFilter] = useState<SessionFilter>('all');
   const [query, setQuery] = useState('');
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<Set<string>>(
-    () => new Set(loadSessionUiState().collapsedGroupIds),
+    () => new Set(initialSessionUiState.collapsedGroupIds),
+  );
+  const [isDetailsPanelCollapsed, setIsDetailsPanelCollapsed] = useState(
+    () => initialSessionUiState.detailsPanelCollapsed ?? false,
+  );
+  const [detailsPanelHeight, setDetailsPanelHeight] = useState(() =>
+    clampSessionDetailsPanelHeight(initialSessionUiState.detailsPanelHeight ?? 180),
   );
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [createDialogGroupId, setCreateDialogGroupId] = useState<string | undefined>();
@@ -57,6 +65,10 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
   const filteredGroups = useMemo(
     () => filterSessionGroups(groups, activeFilter, query),
     [activeFilter, groups, query],
+  );
+  const selectedSessionLocation = useMemo(
+    () => findSessionWithGroup(groups, selectedSessionId),
+    [groups, selectedSessionId],
   );
   const defaultLocalTerminalProfile = getLocalTerminalProfile(preferences.terminal.localTerminalProfileId);
 
@@ -89,12 +101,14 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
 
     saveSessionUiState({
       collapsedGroupIds: nextCollapsedGroupIds,
+      detailsPanelCollapsed: isDetailsPanelCollapsed,
+      detailsPanelHeight,
     });
 
     if (nextCollapsedGroupIds.length !== collapsedGroupIds.size) {
       setCollapsedGroupIds(new Set(nextCollapsedGroupIds));
     }
-  }, [collapsedGroupIds, groups]);
+  }, [collapsedGroupIds, detailsPanelHeight, groups, isDetailsPanelCollapsed]);
 
   const toggleGroup = (groupId: string) => {
     setCollapsedGroupIds((current) => {
@@ -228,26 +242,49 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
         <span className="truncate text-[11px] text-slate-500">{defaultLocalTerminalProfile.label}</span>
       </button>
 
-      <SessionTree
-        collapsedGroupIds={collapsedGroupIds}
-        groups={filteredGroups}
-        selectedGroupId={selectedGroupId}
-        selectedSessionId={selectedSessionId}
-        onCreateFolder={createFolder}
-        onCreateSession={openCreateDialog}
-        onDeleteFolder={(group) => void deleteFolder(group)}
-        onDeleteSession={deleteSession}
-        onDuplicateSession={duplicateSession}
-        onEditSession={openEditDialog}
-        onMoveGroup={moveGroup}
-        onMoveSession={moveSession}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <SessionTree
+          collapsedGroupIds={collapsedGroupIds}
+          groups={filteredGroups}
+          selectedGroupId={selectedGroupId}
+          selectedSessionId={selectedSessionId}
+          onCreateFolder={createFolder}
+          onCreateSession={openCreateDialog}
+          onDeleteFolder={(group) => void deleteFolder(group)}
+          onDeleteSession={deleteSession}
+          onDuplicateSession={duplicateSession}
+          onEditSession={openEditDialog}
+          onMoveGroup={moveGroup}
+          onMoveSession={moveSession}
+          onOpenSession={openSession}
+          onOpenSftpSession={openSftpSession}
+          onRenameFolder={renameFolder}
+          onSelectGroup={setSelectedGroupId}
+          onSelectSession={selectSession}
+          onTreeContextMenu={openTreeContextMenu}
+          onToggleGroup={toggleGroup}
+        />
+      </div>
+      <SessionDetailsPanel
+        groupId={selectedSessionLocation?.group.id}
+        groups={groups}
+        isCollapsed={isDetailsPanelCollapsed}
+        panelHeight={detailsPanelHeight}
+        session={selectedSessionLocation?.session}
+        onEditAdvanced={openEditDialog}
+        onChangeGroup={(session, groupId) => {
+          if (selectedSessionLocation?.group.id === groupId) {
+            return;
+          }
+
+          moveSession({
+            activeSessionId: session.id,
+            overGroupId: groupId,
+          });
+        }}
         onOpenSession={openSession}
-        onOpenSftpSession={openSftpSession}
-        onRenameFolder={renameFolder}
-        onSelectGroup={setSelectedGroupId}
-        onSelectSession={selectSession}
-        onTreeContextMenu={openTreeContextMenu}
-        onToggleGroup={toggleGroup}
+        onResize={setDetailsPanelHeight}
+        onToggleCollapsed={() => setIsDetailsPanelCollapsed((current) => !current)}
       />
       {treeMenu && (
         <SessionTreeBlankMenu
@@ -446,4 +483,20 @@ function matchesSessionFilter(session: SessionItem, filter: SessionFilter) {
   }
 
   return session.kind === filter;
+}
+
+function findSessionWithGroup(groups: SessionGroup[], sessionId?: string) {
+  if (!sessionId) {
+    return undefined;
+  }
+
+  for (const group of groups) {
+    const session = group.sessions.find((item) => item.id === sessionId);
+
+    if (session) {
+      return { group, session };
+    }
+  }
+
+  return undefined;
 }

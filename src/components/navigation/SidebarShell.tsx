@@ -5,7 +5,6 @@ import { AiSidebar } from '@/features/ai/AiSidebar';
 import type { SftpSidebarExplorer } from '@/features/sftp/sftpSidebarState';
 import {
   SessionsView,
-  SidebarPanelList,
   SidebarStaticList,
 } from '@/features/sessions/components/SessionsView';
 import { t } from '@/i18n';
@@ -126,10 +125,6 @@ function SidebarContent({
 
   if (activeActivity === 'ai') {
     return <AiSidebar onAddPanel={onAddPanel} />;
-  }
-
-  if (activeActivity === 'logs') {
-    return <SidebarStaticList items={['Terminal History', 'Transfer Logs', 'AI Conversations']} />;
   }
 
   return <SidebarStaticList items={['General', 'Credentials', 'AI Providers']} />;

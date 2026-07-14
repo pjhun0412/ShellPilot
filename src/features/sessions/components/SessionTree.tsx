@@ -31,6 +31,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
+import { requestSessionPatch } from '@/features/sessions/sessionStorage';
 import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { SessionGroup, SessionItem } from '@/types/workspace';
@@ -184,9 +186,11 @@ export function SessionTree({
       onDragOver={moveDragOver}
       onDragStart={startDrag}
     >
-      <nav
-        className="app-scrollbar flex min-h-0 flex-1 flex-col overflow-auto"
+      <OverlayScrollArea
+        className="flex flex-col"
+        containerClassName="min-h-0 flex-1"
         aria-label={t('session.tree')}
+        role="navigation"
         onContextMenu={(event) => {
           if ((event.target as Element).closest('[data-session-tree-item="true"]')) {
             return;
@@ -233,7 +237,7 @@ export function SessionTree({
             No sessions found.
           </div>
         )}
-      </nav>
+      </OverlayScrollArea>
       <DragOverlay>
         {activeOverlayLabel && (
           <div className="rounded border border-primary/40 bg-card px-2 py-1 text-xs text-foreground shadow-lg">
@@ -528,6 +532,12 @@ function SessionContextMenu({
       void navigator.clipboard.writeText(command).catch(() => undefined);
     }
   };
+  const toggleFavorite = () => {
+    requestSessionPatch({
+      patch: { favorite: !session.favorite },
+      sessionId: session.id,
+    });
+  };
 
   return (
     <ContextMenu>
@@ -537,6 +547,9 @@ function SessionContextMenu({
         <ContextMenuItem onSelect={onOpenSession}>Connect</ContextMenuItem>
         <ContextMenuItem disabled={session.kind !== 'ssh' && session.kind !== 'sftp'} onSelect={onOpenSftpSession}>
           Open SFTP
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={toggleFavorite}>
+          {session.favorite ? 'Remove from Favorites' : 'Add to Favorites'}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={!session.host} onSelect={copyHost}>Copy Host</ContextMenuItem>

@@ -103,7 +103,8 @@ if (-not [string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY_PATH) -or
       Select-Object -Last 1
 
     if (-not [string]::IsNullOrWhiteSpace($signature)) {
-      Set-Content -LiteralPath $setupSignatureSource -Value $signature -Encoding UTF8
+      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+      [System.IO.File]::WriteAllText($setupSignatureSource, "$signature`n", $utf8NoBom)
     }
   }
 }
@@ -137,9 +138,13 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($repo)) {
 }
 
 Write-Host "Preparing GitHub Release $Tag..."
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 & $gh release view $Tag *> $null
+$releaseExists = $LASTEXITCODE -eq 0
+$ErrorActionPreference = $previousErrorActionPreference
 
-if ($LASTEXITCODE -ne 0) {
+if (-not $releaseExists) {
   & $gh release create $Tag --title "ShellPilot $Tag" --notes "ShellPilot $Tag release"
   if ($LASTEXITCODE -ne 0) {
     throw "Failed to create GitHub Release $Tag."
@@ -161,7 +166,8 @@ $latestJson = [ordered]@{
   }
 } | ConvertTo-Json -Depth 6
 
-Set-Content -LiteralPath $latestJsonAsset -Value $latestJson -Encoding UTF8
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($latestJsonAsset, "$latestJson`n", $utf8NoBom)
 
 Write-Host "Uploading release assets..."
 & $gh release upload $Tag $setupAsset $setupSignatureAsset $portableAsset $latestJsonAsset --clobber

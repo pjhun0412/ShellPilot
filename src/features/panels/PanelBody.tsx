@@ -9,7 +9,6 @@ import { VncPanel } from '@/features/vnc/VncPanel';
 import {
   FilePanelPlaceholder,
   LocalTerminalPlaceholder,
-  LogsPanelContent,
   PanelFocusFrame,
 } from '@/features/panels/PanelSurfaces';
 import type { WorkspacePanel } from '@/types/workspace';
@@ -113,18 +112,4 @@ function AiPanelContent({ panel }: { panel: WorkspacePanel }) {
   }
 
   return <AiAssistantPanel panelId={panel.id} />;
-}
-
-export function LogsPanel({
-  isActive,
-  onActivate,
-}: {
-  isActive?: boolean;
-  onActivate?: () => void;
-}) {
-  return (
-    <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
-      <LogsPanelContent />
-    </PanelFocusFrame>
-  );
 }

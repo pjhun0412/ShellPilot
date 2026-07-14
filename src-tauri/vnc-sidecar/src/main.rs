@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use std::io::Write as _;
 use std::pin::Pin;
 use std::task::{Context, Poll};
