@@ -21,6 +21,9 @@
     --font-size: 11px;
     --font-family: "Segoe UI", Inter, ui-sans-serif, system-ui, sans-serif;
     --font-weight: 400;
+    --color-mini-scroll-indicator: hsl(var(--scrollbar-thumb) / 0.55);
+    --color-mini-scroll-indicator-hovered: hsl(var(--scrollbar-thumb-hover) / 0.9);
+    --size-mini-scroll-indicator: 3px;
     --color-drag1: hsl(var(--primary) / 0.18);
     --color-drag2: hsl(var(--primary) / 0.34);
     position: absolute;
@@ -51,7 +54,7 @@
   .workspace-frame .flexlayout__tabset_tabbar_outer,
   .workspace-frame .flexlayout__tab_toolbar,
   .workspace-frame .flexlayout__border {
-    height: 26px;
+    height: 28px;
     border-color: hsl(var(--workspace-tab-border)) !important;
     background: hsl(var(--workspace-tabbar)) !important;
     background-color: hsl(var(--workspace-tabbar)) !important;
@@ -61,6 +64,7 @@
 
   .workspace-frame .flexlayout__tabset_tabbar_outer_top {
     border-bottom: 1px solid hsl(var(--workspace-tab-border)) !important;
+    overflow: visible !important;
     padding: 0 !important;
   }
 
@@ -71,6 +75,7 @@
 
   .workspace-frame .flexlayout__tabset_tabbar_outer_bottom {
     border-top: 1px solid hsl(var(--workspace-tab-border)) !important;
+    overflow: visible !important;
     padding: 0 !important;
   }
 
@@ -80,8 +85,30 @@
   }
 
   .workspace-frame .flexlayout__tabset_tabbar_inner {
-    height: 26px !important;
+    height: 28px !important;
+    min-width: 0;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
     padding: 0 !important;
+    scrollbar-width: none;
+  }
+
+  .workspace-frame .flexlayout__tabset_tabbar_inner::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  .workspace-frame .flexlayout__tabset_tabbar_inner ~ .flexlayout__mini_scrollbar {
+    bottom: 1px !important;
+    height: 3px !important;
+    border-radius: 999px !important;
+    background-color: hsl(var(--scrollbar-thumb) / 0.55) !important;
+    box-shadow: none !important;
+  }
+
+  .workspace-frame .flexlayout__tabset_tabbar_inner ~ .flexlayout__mini_scrollbar:hover {
+    background-color: hsl(var(--scrollbar-thumb-hover) / 0.9) !important;
   }
 
   .workspace-frame .flexlayout__tabset_tabbar_inner_tab_container,
@@ -147,16 +174,25 @@
   .workspace-frame .flexlayout__tab_button--unselected .flexlayout__tab_button_trailing,
   .workspace-frame .flexlayout__border_button--unselected .flexlayout__tab_button_content,
   .workspace-frame .flexlayout__border_button--unselected .flexlayout__tab_button_trailing,
+  .workspace-frame .flexlayout__border_button--unselected .flexlayout__border_button_content,
+  .workspace-frame .flexlayout__border_button--unselected .flexlayout__border_button_trailing,
   .workspace-frame .flexlayout__tab_button--selected .flexlayout__tab_button_content,
   .workspace-frame .flexlayout__tab_button--selected .flexlayout__tab_button_trailing,
   .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_content,
-  .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_trailing {
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_trailing,
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__border_button_content,
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__border_button_trailing {
     color: hsl(var(--muted-foreground) / 0.72) !important;
   }
 
   .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_content,
-  .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_trailing {
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_trailing,
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__tab_button_textbox,
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__border_button_content,
+  .workspace-frame .flexlayout__border_button--selected .flexlayout__border_button_trailing,
+  .workspace-frame .flexlayout__border_button--selected .shellpilot-tab-title {
     color: hsl(var(--foreground)) !important;
+    font-weight: 600 !important;
   }
 
   .workspace-frame .flexlayout__tab_button:has(.shellpilot-tab-title--active),
@@ -171,7 +207,9 @@
   .workspace-frame .flexlayout__tab_button:has(.shellpilot-tab-title--active) .flexlayout__tab_button_content,
   .workspace-frame .flexlayout__tab_button:has(.shellpilot-tab-title--active) .flexlayout__tab_button_trailing,
   .workspace-frame .flexlayout__border_button:has(.shellpilot-tab-title--active) .flexlayout__tab_button_content,
-  .workspace-frame .flexlayout__border_button:has(.shellpilot-tab-title--active) .flexlayout__tab_button_trailing {
+  .workspace-frame .flexlayout__border_button:has(.shellpilot-tab-title--active) .flexlayout__tab_button_trailing,
+  .workspace-frame .flexlayout__border_button:has(.shellpilot-tab-title--active) .flexlayout__border_button_content,
+  .workspace-frame .flexlayout__border_button:has(.shellpilot-tab-title--active) .flexlayout__border_button_trailing {
     color: hsl(var(--foreground)) !important;
   }
 
@@ -184,7 +222,10 @@
   }
 
   .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__tab_button_content,
-  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__tab_button_trailing {
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__tab_button_trailing,
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__border_button_content,
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .flexlayout__border_button_trailing,
+  .workspace-frame .flexlayout__border_button--selected:has(.shellpilot-tab-title--context-mismatch) .shellpilot-tab-title {
     color: hsl(var(--muted-foreground) / 0.72) !important;
   }
 
@@ -245,11 +286,41 @@
   }
 
   .workspace-frame .flexlayout__tab_toolbar {
+    align-items: flex-start !important;
     padding: 0 4px !important;
   }
 
   .workspace-frame .flexlayout__tab_toolbar_sticky_buttons_container {
     gap: 2px !important;
+  }
+
+  .workspace-frame .flexlayout__tab_button_overflow,
+  .workspace-frame .flexlayout__tab_toolbar_button {
+    margin-top: 3px !important;
+  }
+
+  .workspace-frame .flexlayout__popup_menu_container {
+    z-index: 6000 !important;
+    max-height: min(20rem, calc(100vh - 3rem)) !important;
+    min-width: 11rem !important;
+    overflow: auto !important;
+    border: 1px solid hsl(var(--workspace-tab-border)) !important;
+    border-radius: 6px !important;
+    background: hsl(var(--popover)) !important;
+    color: hsl(var(--popover-foreground)) !important;
+    box-shadow: 0 18px 40px hsl(0 0% 0% / 0.55) !important;
+  }
+
+  .workspace-frame .flexlayout__popup_menu_item {
+    padding: 5px 8px !important;
+    border-radius: 4px !important;
+    color: hsl(var(--popover-foreground)) !important;
+  }
+
+  .workspace-frame .flexlayout__popup_menu_item:hover,
+  .workspace-frame .flexlayout__popup_menu_item--selected {
+    background: hsl(var(--accent)) !important;
+    color: hsl(var(--accent-foreground)) !important;
   }
 
   .workspace-frame .flexlayout__splitter {

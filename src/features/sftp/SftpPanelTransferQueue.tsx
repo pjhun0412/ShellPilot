@@ -1,164 +1,122 @@
-import { Download, FolderOpen, RotateCcw, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, ListChecks, Upload, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import type { SftpTransferItem } from './sftpTransferTypes';
 
-export function SftpTransferQueue({
-  onCancel,
-  onClearFinished,
-  onReveal,
-  onRetry,
+export function SftpPanelTransferSummary({
+  onOpenQueue,
+  summary,
   transfers,
 }: {
-  onCancel: (transferId: string) => void;
-  onClearFinished: () => void;
-  onReveal: (transfer: SftpTransferItem) => void;
-  onRetry: (transfer: SftpTransferItem) => void;
+  onOpenQueue: () => void;
+  summary: {
+    canceled: number;
+    completed: number;
+    failed: number;
+    running: number;
+    total: number;
+  };
   transfers: SftpTransferItem[];
 }) {
-  const runningCount = transfers.filter((item) => item.status === 'progress' || item.status === 'started').length;
-  const failedCount = transfers.filter((item) => item.status === 'failed').length;
-  const completedCount = transfers.filter((item) => item.status === 'completed').length;
-  const canceledCount = transfers.filter((item) => item.status === 'canceled').length;
+  if (summary.total === 0) {
+    return null;
+  }
+
+  const activeTransfers = transfers
+    .filter((transfer) => transfer.status !== 'completed')
+    .slice(0, 2);
 
   return (
-    <div className="shrink-0 border-t border-border/60 bg-slate-950/60 px-3 py-2">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0 text-xs font-semibold text-slate-200">
-          Transfer Queue
-          <span className="ml-2 font-mono text-[11px] font-normal text-slate-500" title="Transfer summary">
-            {runningCount} running
-            {failedCount > 0 && ` / ${failedCount} failed`}
-            {canceledCount > 0 && ` / ${canceledCount} canceled`}
-            {completedCount > 0 && ` / ${completedCount} done`}
+    <div className="shrink-0 border-t border-border/60 bg-slate-950/75 px-3 py-2 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <ListChecks className="size-3.5 shrink-0 text-primary" />
+          <span className="shrink-0 font-semibold text-slate-200">Transfers</span>
+          <span className="min-w-0 truncate font-mono text-[11px] text-slate-300">
+            {summary.running} running
+            {summary.failed > 0 && ` / ${summary.failed} failed`}
+            {summary.canceled > 0 && ` / ${summary.canceled} stopped`}
+            {summary.completed > 0 && ` / ${summary.completed} done`}
           </span>
         </div>
         <Button
           size="sm"
           variant="secondary"
           type="button"
-          onClick={onClearFinished}
-          disabled={completedCount + failedCount + canceledCount === 0}
+          onClick={onOpenQueue}
+          title="Open global Transfer Queue"
         >
-          Clear Finished
+          Open Queue
         </Button>
       </div>
-      <div className="h-36 min-h-0">
-        <OverlayScrollArea>
-          <div className="grid gap-1 pr-2">
-            {transfers.map((transfer) => {
-              const progress = getTransferProgress(transfer);
-              const isRunning = transfer.status === 'progress' || transfer.status === 'started';
-              const canRetry = Boolean(
-                transfer.retryPayload &&
-                (transfer.status === 'failed' || transfer.status === 'canceled'),
-              );
-              const canReveal = transfer.direction === 'download' && transfer.status === 'completed';
-              const displayName = getTransferFileName(transfer);
-              const detailText = getTransferDetailText(transfer);
-              const statusStyle = getTransferStatusStyle(transfer);
 
-              return (
-                <div
-                  className={[
-                    'grid gap-1 rounded border border-border/70 bg-background/70 px-2 py-1.5 text-xs',
-                    transfer.status === 'completed' ? 'opacity-70' : '',
-                    transfer.status === 'failed' ? 'border-destructive/35 bg-destructive/5' : '',
-                  ].join(' ')}
-                  key={transfer.transferId}
-                >
-                  <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
-                    {transfer.direction === 'upload' ? (
-                      <Upload className="size-3.5 text-primary" />
-                    ) : (
-                      <Download className="size-3.5 text-primary" />
-                    )}
-                    <div className="grid min-w-0 gap-0.5">
-                      <div className="min-w-0 truncate font-medium text-slate-200" title={getTransferDisplayName(transfer)}>
-                        {displayName}
-                      </div>
-                      <div className="min-w-0 truncate font-mono text-[10px] text-slate-500" title={detailText}>
-                        {detailText}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={[
-                          'rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase',
-                          statusStyle,
-                        ].join(' ')}
-                      >
-                        {formatTransferStatus(transfer)}
-                      </span>
-                      {isRunning && (
-                        <button
-                          className="grid size-6 place-items-center rounded text-slate-500 hover:bg-destructive/10 hover:text-destructive"
-                          type="button"
-                          title="Cancel transfer"
-                          aria-label="Cancel transfer"
-                          onClick={() => onCancel(transfer.transferId)}
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      )}
-                      {canRetry && (
-                        <button
-                          className="grid size-6 place-items-center rounded text-slate-500 hover:bg-primary/10 hover:text-primary"
-                          type="button"
-                          title="Retry transfer"
-                          aria-label="Retry transfer"
-                          onClick={() => onRetry(transfer)}
-                        >
-                          <RotateCcw className="size-3.5" />
-                        </button>
-                      )}
-                      {canReveal && (
-                        <button
-                          className="grid size-6 place-items-center rounded text-slate-500 hover:bg-primary/10 hover:text-primary"
-                          type="button"
-                          title="Reveal in Explorer"
-                          aria-label="Reveal in Explorer"
-                          onClick={() => onReveal(transfer)}
-                        >
-                          <FolderOpen className="size-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded bg-slate-800">
-                    <div
-                      className={[
-                        'h-full rounded transition-[width]',
-                        transfer.status === 'failed'
-                          ? 'bg-destructive'
-                          : transfer.status === 'canceled'
-                            ? 'bg-slate-600'
-                            : 'bg-primary',
-                      ].join(' ')}
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                  {transfer.message && (
-                    <div className="truncate text-[11px] text-destructive" title={transfer.message}>
-                      {transfer.message}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </OverlayScrollArea>
-      </div>
+      {activeTransfers.length > 0 && (
+        <div className="mt-2 grid gap-1.5">
+        {activeTransfers.map((transfer) => {
+          const progress = getTransferProgress(transfer);
+          const detailText = getTransferDetailText(transfer);
+          const errorText = getTransferErrorText(transfer);
+
+          return (
+            <button
+              className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded border border-border/60 bg-background/45 px-2 py-1.5 text-left hover:bg-accent/60"
+              key={transfer.transferId}
+              type="button"
+              title={`${detailText}\nOpen global Transfer Queue`}
+              onClick={onOpenQueue}
+            >
+              {getTransferIcon(transfer)}
+              <span className="grid min-w-0 gap-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-medium text-slate-200">{getTransferFileName(transfer)}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-slate-300">{formatTransferStatus(transfer)}</span>
+                </span>
+                {errorText && (
+                  <span className="truncate text-[11px] font-medium text-destructive" title={errorText}>
+                    {errorText}
+                  </span>
+                )}
+                <span className="h-1 overflow-hidden rounded bg-slate-800">
+                  <span
+                    className={[
+                      'block h-full rounded transition-[width]',
+                      transfer.status === 'failed'
+                        ? 'bg-destructive'
+                        : transfer.status === 'canceled'
+                          ? 'bg-slate-600'
+                          : 'bg-primary',
+                    ].join(' ')}
+                    style={{ width: `${progress}%` }}
+                  />
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        </div>
+      )}
     </div>
   );
 }
 
-function getTransferDisplayName(transfer: SftpTransferItem) {
-  const sourceName = getLocalFileName(transfer.localPath);
-  const targetName = getLocalFileName(transfer.remotePath);
+function getTransferIcon(transfer: SftpTransferItem) {
+  if (transfer.status === 'failed') {
+    return <AlertTriangle className="size-3.5 text-destructive" />;
+  }
 
-  return transfer.direction === 'upload' ? `${sourceName} -> ${transfer.remotePath}` : `${targetName} -> ${transfer.localPath}`;
+  if (transfer.status === 'canceled') {
+    return <XCircle className="size-3.5 text-slate-500" />;
+  }
+
+  if (transfer.status === 'completed') {
+    return <CheckCircle2 className="size-3.5 text-primary" />;
+  }
+
+  return transfer.direction === 'upload' ? (
+    <Upload className="size-3.5 text-primary" />
+  ) : (
+    <Download className="size-3.5 text-primary" />
+  );
 }
 
 function getTransferFileName(transfer: SftpTransferItem) {
@@ -172,6 +130,11 @@ function getTransferDetailText(transfer: SftpTransferItem) {
     ? `to ${transfer.remotePath}`
     : `to ${transfer.localPath}`;
   const metricText = getTransferMetricText(transfer);
+  const errorText = getTransferErrorText(transfer);
+
+  if (errorText) {
+    return `${pathText}\n${errorText}`;
+  }
 
   return metricText ? `${pathText} / ${metricText}` : pathText;
 }
@@ -208,22 +171,6 @@ function formatTransferStatus(transfer: SftpTransferItem) {
   return `${getTransferProgress(transfer)}%`;
 }
 
-function getTransferStatusStyle(transfer: SftpTransferItem) {
-  if (transfer.status === 'failed') {
-    return 'border-destructive/35 bg-destructive/10 text-destructive';
-  }
-
-  if (transfer.status === 'canceled') {
-    return 'border-slate-700 bg-slate-900 text-slate-400';
-  }
-
-  if (transfer.status === 'completed') {
-    return 'border-primary/25 bg-primary/10 text-primary';
-  }
-
-  return 'border-slate-700 bg-slate-900 text-slate-300';
-}
-
 function getTransferMetricText(transfer: SftpTransferItem) {
   if (!transfer.startedAt || transfer.transferredBytes <= 0) {
     return '';
@@ -250,6 +197,14 @@ function getTransferMetricText(transfer: SftpTransferItem) {
   const remainingSeconds = Math.max(0, (transfer.totalBytes - transfer.transferredBytes) / bytesPerSecond);
 
   return `${speedText} / ${formatDuration(remainingSeconds)} left`;
+}
+
+function getTransferErrorText(transfer: SftpTransferItem) {
+  if (transfer.status !== 'failed' || !transfer.message?.trim()) {
+    return '';
+  }
+
+  return transfer.message.trim();
 }
 
 function getLocalFileName(path: string) {

@@ -14,6 +14,7 @@ import type { SessionItem } from '@/types/workspace';
 import { SftpClosedCard, SftpRestoredCard } from './SftpPanelChrome';
 import { SftpFileTable } from './SftpFileTable';
 import { SftpPanelHeader, SftpPathBar } from './SftpPanelHeader';
+import { SftpPanelTransferSummary } from './SftpPanelTransferQueue';
 import {
   getSftpParentPath,
   getSftpPathSegments,
@@ -32,6 +33,7 @@ import { useSftpBrowserLifecycle } from './useSftpBrowserLifecycle';
 import { useSftpFileActions } from './useSftpFileActions';
 import { useSftpKeyboardShortcuts } from './useSftpKeyboardShortcuts';
 import { useSftpPathActions } from './useSftpPathActions';
+import { useSftpScrollRestoration } from './useSftpScrollRestoration';
 import { useSftpSelection } from './useSftpSelection';
 import { useSftpTransfers } from './useSftpTransfers';
 import { useSftpUploadDrop } from './useSftpUploadDrop';
@@ -40,6 +42,7 @@ import {
   publishSftpAiContextSnapshot,
 } from './sftpAiContext';
 import { publishSftpSidebarPanelState } from './sftpSidebarState';
+import { requestSftpTransferQueueOpen } from './sftpTransferQueueState';
 import type { SftpEntry } from './sftpBridge';
 
 const sftpParentEntryPath = '__sftp_parent__';
@@ -122,6 +125,7 @@ export function SftpPanel({
     deleteTransferWaiter,
     markTransferFailed,
     transferSummary,
+    transfers,
     waitForTransferCompletion,
   } = useSftpTransfers({
     onError: setError,
@@ -131,8 +135,8 @@ export function SftpPanel({
     panelId,
   });
   const isMeasured = panelWidth > 0;
-  const isCompact = isMeasured && panelWidth < 720;
-  const isNarrow = isMeasured && panelWidth < 520;
+  const isCompact = isMeasured && panelWidth < 900;
+  const isNarrow = isMeasured && panelWidth < 640;
   const isTiny = isMeasured && panelWidth < 380;
   const columnVisibility = useMemo(
     () => getSftpColumnVisibility({ isCompact, isNarrow, showPermissions }),
@@ -165,6 +169,34 @@ export function SftpPanel({
   const parentPath = getSftpParentPath(path);
   const tableRows = table.getRowModel().rows;
   const tableEntries = tableRows.map((row) => row.original);
+  const tableContentVersion = useMemo(() => {
+    const firstPath = tableEntries[0]?.path ?? '';
+    const lastPath = tableEntries[tableEntries.length - 1]?.path ?? '';
+
+    return `${tableEntries.length}:${firstPath}:${lastPath}`;
+  }, [tableEntries]);
+  const {
+    saveScrollPosition,
+    scrollViewportRef: fileTableScrollViewportRef,
+  } = useSftpScrollRestoration({
+    contentVersion: tableContentVersion,
+    path,
+  });
+  const loadSftpDirectory = useCallback((
+    nextPath?: string,
+    options?: Parameters<typeof loadDirectory>[1],
+  ) => {
+    saveScrollPosition();
+    return loadDirectory(nextPath, options);
+  }, [loadDirectory, saveScrollPosition]);
+  const goBackWithScrollSave = useCallback(() => {
+    saveScrollPosition();
+    return goBack();
+  }, [goBack, saveScrollPosition]);
+  const goForwardWithScrollSave = useCallback(() => {
+    saveScrollPosition();
+    return goForward();
+  }, [goForward, saveScrollPosition]);
   const {
     beginMarqueeSelection,
     endMarqueeSelection,
@@ -211,7 +243,7 @@ export function SftpPanel({
     submitPathEdit,
   } = useSftpPathActions({
     homePath,
-    loadDirectory,
+    loadDirectory: loadSftpDirectory,
     path,
     selectedEntries,
     setActionMenuOpen: setIsActionMenuOpen,
@@ -352,17 +384,17 @@ export function SftpPanel({
 
   const openEntry = (entry: SftpEntry) => {
     if (entry.isDirectory) {
-      void loadDirectory(entry.path);
+      void loadSftpDirectory(entry.path);
     }
   };
   const openSelectedPath = () => {
     if (selectedEntryPath === sftpParentEntryPath && parentPath) {
-      void loadDirectory(parentPath);
+      void loadSftpDirectory(parentPath);
       return;
     }
 
     if (selectedEntry?.isDirectory) {
-      void loadDirectory(selectedEntry.path);
+      void loadSftpDirectory(selectedEntry.path);
     }
   };
   const handlePanelKeyDown = useSftpKeyboardShortcuts({
@@ -373,12 +405,12 @@ export function SftpPanel({
     navigablePaths,
     onBeginPathEdit: beginPathEdit,
     onDelete: () => void deleteEntry(),
-    onGoBack: () => void goBack(),
-    onGoForward: () => void goForward(),
+    onGoBack: () => void goBackWithScrollSave(),
+    onGoForward: () => void goForwardWithScrollSave(),
     onMoveSelection: moveSelection,
-    onOpenParent: (nextPath) => void loadDirectory(nextPath),
+    onOpenParent: (nextPath) => void loadSftpDirectory(nextPath),
     onOpenSelectedPath: openSelectedPath,
-    onRefresh: () => void loadDirectory(),
+    onRefresh: () => void loadSftpDirectory(),
     onRename: () => void renameEntry(),
     onSelectAll: selectAllEntries,
     onSelectEntryPath: selectEntryPath,
@@ -426,9 +458,9 @@ export function SftpPanel({
           setIsActionMenuOpen(false);
           void startDownload();
         }}
-        onGoBack={() => void goBack()}
-        onGoForward={() => void goForward()}
-        onRefresh={() => void loadDirectory()}
+        onGoBack={() => void goBackWithScrollSave()}
+        onGoForward={() => void goForwardWithScrollSave()}
+        onRefresh={() => void loadSftpDirectory()}
         onRename={() => {
           setIsActionMenuOpen(false);
           void renameEntry();
@@ -464,7 +496,7 @@ export function SftpPanel({
           setPathDraft(value);
           setPathInputError(undefined);
         }}
-        onNavigate={(nextPath) => void loadDirectory(nextPath)}
+        onNavigate={(nextPath) => void loadSftpDirectory(nextPath)}
         onSubmitEdit={() => void submitPathEdit()}
         pathDraft={pathDraft}
         segments={pathSegments}
@@ -486,57 +518,70 @@ export function SftpPanel({
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {isLoading ? (
+          {isLoading && entries.length === 0 && !parentPath ? (
             <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">Loading SFTP directory...</div>
           ) : entries.length === 0 && !parentPath ? (
             <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">No remote entries.</div>
           ) : (
             <>
-              <SftpFileTable
-                canDelete={canDelete}
-                canDownload={canDownload}
-                canRename={canRename}
-                dragUploadTargetPath={dragUploadTargetPath}
-                isLoading={isLoading}
-                isRemoteReady={isRemoteReady}
-                isUploadDragOver={isUploadDragOver}
-                marqueeBox={marqueeBox}
-                onBeginMarqueeSelection={beginMarqueeSelection}
-                onCleanResidualUploadFiles={() => void cleanResidualUploadFiles()}
-                onContextSelectEntry={(entryPath, event) => {
-                  if (!selectedEntryPaths.includes(entryPath)) {
-                    selectEntryPath(entryPath, event);
-                  }
-                }}
-                onCopySelectedPath={() => void copySelectedPath()}
-                onCreateFolder={() => void createFolder()}
-                onDelete={() => void deleteEntry()}
-                onDownload={() => void startDownload()}
-                onDragLeave={handleUploadDragLeave}
-                onDragOver={handleUploadDragOver}
-                onDrop={handleUploadDrop}
-                onEndMarqueeSelection={endMarqueeSelection}
-                onOpenEntry={openEntry}
-                onOpenParent={(nextPath) => void loadDirectory(nextPath)}
-                onRefresh={() => void loadDirectory()}
-                onRename={() => void renameEntry()}
-                onSelectEntry={selectEntryPath}
-                onSetShowHiddenEntries={(value) => setShowHiddenEntries(value)}
-                onSetShowPermissions={(value) => setShowPermissions(value)}
-                onUpdateMarqueeSelection={updateMarqueeSelection}
-                onUploadFiles={() => void startUpload()}
-                onUploadFolder={() => void startUploadFolder()}
-                parentEntryPathKey={sftpParentEntryPath}
-                parentPath={parentPath}
-                path={path}
-                residualUploadEntries={residualUploadEntries}
-                selectedEntriesCount={selectedEntries.length}
-                selectedEntryPath={selectedEntryPath}
-                selectedEntryPaths={selectedEntryPaths}
-                showHiddenEntries={showHiddenEntries}
-                showPermissions={showPermissions}
-                table={table}
-                tableGridTemplateColumns={tableGridTemplateColumns}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <SftpFileTable
+                  canDelete={canDelete}
+                  canDownload={canDownload}
+                  canRename={canRename}
+                  dragUploadTargetPath={dragUploadTargetPath}
+                  isLoading={isLoading}
+                  isRemoteReady={isRemoteReady}
+                  isUploadDragOver={isUploadDragOver}
+                  marqueeBox={marqueeBox}
+                  onBeginMarqueeSelection={beginMarqueeSelection}
+                  onCleanResidualUploadFiles={() => void cleanResidualUploadFiles()}
+                  onContextSelectEntry={(entryPath, event) => {
+                    if (!selectedEntryPaths.includes(entryPath)) {
+                      selectEntryPath(entryPath, event);
+                    }
+                  }}
+                  onCopySelectedPath={() => void copySelectedPath()}
+                  onCreateFolder={() => void createFolder()}
+                  onDelete={() => void deleteEntry()}
+                  onDownload={() => void startDownload()}
+                  onDragLeave={handleUploadDragLeave}
+                  onDragOver={handleUploadDragOver}
+                  onDrop={handleUploadDrop}
+                  onEndMarqueeSelection={endMarqueeSelection}
+                  onOpenEntry={openEntry}
+                  onOpenParent={(nextPath) => void loadSftpDirectory(nextPath)}
+                  onRefresh={() => void loadSftpDirectory()}
+                  onRename={() => void renameEntry()}
+                  onSelectEntry={selectEntryPath}
+                  onSetShowHiddenEntries={(value) => setShowHiddenEntries(value)}
+                  onSetShowPermissions={(value) => setShowPermissions(value)}
+                  onUpdateMarqueeSelection={updateMarqueeSelection}
+                  onUploadFiles={() => void startUpload()}
+                  onUploadFolder={() => void startUploadFolder()}
+                  parentEntryPathKey={sftpParentEntryPath}
+                  parentPath={parentPath}
+                  path={path}
+                  residualUploadEntries={residualUploadEntries}
+                  selectedEntriesCount={selectedEntries.length}
+                  selectedEntryPath={selectedEntryPath}
+                  selectedEntryPaths={selectedEntryPaths}
+                  showHiddenEntries={showHiddenEntries}
+                  showPermissions={showPermissions}
+                  scrollViewportRef={fileTableScrollViewportRef}
+                  table={table}
+                  tableGridTemplateColumns={tableGridTemplateColumns}
+                />
+                {isLoading && (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-primary/20 bg-slate-950/80 px-3 py-1 text-[11px] font-medium text-primary">
+                    Loading SFTP directory...
+                  </div>
+                )}
+              </div>
+              <SftpPanelTransferSummary
+                summary={transferSummary}
+                transfers={transfers}
+                onOpenQueue={requestSftpTransferQueueOpen}
               />
             </>
           )}

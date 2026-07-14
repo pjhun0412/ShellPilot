@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { listenSftpTransferEvents, revealLocalPath } from './sftpBridge';
+import { revealLocalPath } from './sftpBridge';
+import { isSftpTerminalTransferStatus } from './sftpPanelUtils';
 import {
-  isSftpTerminalTransferStatus,
-  mergeTransferEvent,
-} from './sftpPanelUtils';
+  addSftpPendingTransfer,
+  getSftpTransferStoreSnapshot,
+  markSftpTransferFailed,
+  removeSftpTransfer,
+  subscribeSftpTransferStore,
+} from './sftpTransferStore';
 import type { SftpTransferItem } from './sftpTransferTypes';
 
 export function useSftpTransfers({
@@ -21,7 +25,9 @@ export function useSftpTransfers({
   const transferWaitersRef = useRef(new Map<string, () => void>());
   const onUploadCompletedRef = useRef(onUploadCompleted);
   const onErrorRef = useRef(onError);
-  const [transfers, setTransfers] = useState<SftpTransferItem[]>([]);
+  const [transfers, setTransfers] = useState<SftpTransferItem[]>(() =>
+    getPanelTransfers(getSftpTransferStoreSnapshot(), panelId, maxItems)
+  );
   const transferSummary = useMemo(
     () => ({
       canceled: transfers.filter((item) => item.status === 'canceled').length,
@@ -42,22 +48,12 @@ export function useSftpTransfers({
   }, [onError]);
 
   useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
+    return subscribeSftpTransferStore((items, event) => {
+      setTransfers(getPanelTransfers(items, panelId, maxItems));
 
-    void listenSftpTransferEvents((event) => {
-      if (disposed || event.panelId !== panelId) {
+      if (!event || event.panelId !== panelId) {
         return;
       }
-
-      setTransfers((items) => {
-        const nextEvent = mergeTransferEvent(items.find((item) => item.transferId === event.transferId), event);
-        const nextItems = items.some((item) => item.transferId === event.transferId)
-          ? items.map((item) => (item.transferId === event.transferId ? nextEvent : item))
-          : [nextEvent, ...items];
-
-        return nextItems.slice(0, maxItems);
-      });
 
       if (isSftpTerminalTransferStatus(event.status)) {
         transferWaitersRef.current.get(event.transferId)?.();
@@ -67,33 +63,11 @@ export function useSftpTransfers({
       if (event.status === 'completed' && event.direction === 'upload') {
         onUploadCompletedRef.current();
       }
-    }).then((dispose) => {
-      unlisten = dispose;
-      if (disposed) {
-        dispose();
-      }
     });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
   }, [maxItems, panelId]);
 
   const addPendingTransfer = (transfer: SftpTransferItem, replaceTransferId?: string) => {
-    const pendingTransfer = {
-      ...transfer,
-      startedAt: Date.now(),
-    };
-
-    setTransfers((items) =>
-      [
-        pendingTransfer,
-        ...items.filter((item) =>
-          item.transferId !== transfer.transferId && item.transferId !== replaceTransferId
-        ),
-      ].slice(0, maxItems),
-    );
+    addSftpPendingTransfer(transfer, replaceTransferId);
   };
 
   const waitForTransferCompletion = (transferId: string) =>
@@ -102,17 +76,11 @@ export function useSftpTransfers({
     });
 
   const markTransferFailed = (transferId: string, message: string) => {
-    setTransfers((items) =>
-      items.map((item) =>
-        item.transferId === transferId
-          ? { ...item, message, status: 'failed' }
-          : item,
-      ),
-    );
+    markSftpTransferFailed(transferId, message);
   };
 
   const removeTransfer = (transferId: string) => {
-    setTransfers((items) => items.filter((item) => item.transferId !== transferId));
+    removeSftpTransfer(transferId);
   };
 
   const deleteTransferWaiter = (transferId: string) => {
@@ -137,4 +105,8 @@ export function useSftpTransfers({
     transfers,
     waitForTransferCompletion,
   };
+}
+
+function getPanelTransfers(transfers: SftpTransferItem[], panelId: string, maxItems: number) {
+  return transfers.filter((item) => item.panelId === panelId).slice(0, maxItems);
 }

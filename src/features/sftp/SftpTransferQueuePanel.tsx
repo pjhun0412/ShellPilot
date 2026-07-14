@@ -1,20 +1,21 @@
-import { Download, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, Upload, X, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
-import { cancelSftpTransfer, listenSftpTransferEvents, type SftpTransferEvent } from './sftpBridge';
+import { cancelSftpTransfer } from './sftpBridge';
 import {
   subscribeSftpSidebarPanelStates,
   type SftpSidebarPanelState,
 } from './sftpSidebarState';
-
-type SftpTransferItem = SftpTransferEvent & {
-  startedAt?: number;
-  updatedAt?: number;
-};
+import {
+  clearFinishedSftpTransfers,
+  getSftpTransferStoreSnapshot,
+  subscribeSftpTransferStore,
+} from './sftpTransferStore';
+import type { SftpTransferItem } from './sftpTransferTypes';
 
 export function SftpTransferQueuePanel() {
-  const [transfers, setTransfers] = useState<SftpTransferItem[]>([]);
+  const [transfers, setTransfers] = useState<SftpTransferItem[]>(() => getSftpTransferStoreSnapshot());
   const [panelStates, setPanelStates] = useState<Record<string, SftpSidebarPanelState>>({});
   const summary = useMemo(
     () => ({
@@ -27,51 +28,16 @@ export function SftpTransferQueuePanel() {
     [transfers],
   );
 
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-
-    void listenSftpTransferEvents((event) => {
-      if (disposed) {
-        return;
-      }
-
-      setTransfers((items) => {
-        const current = items.find((item) => item.transferId === event.transferId);
-        const nextItem = mergeTransferEvent(current, event);
-        const nextItems = current
-          ? items.map((item) => (item.transferId === event.transferId ? nextItem : item))
-          : [nextItem, ...items];
-
-        return nextItems.slice(0, 300);
-      });
-    }).then((dispose) => {
-      unlisten = dispose;
-      if (disposed) {
-        dispose();
-      }
-    });
-
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
+  useEffect(() => subscribeSftpTransferStore(setTransfers), []);
 
   useEffect(() => subscribeSftpSidebarPanelStates(setPanelStates), []);
 
-  const clearFinished = () => {
-    setTransfers((items) =>
-      items.filter((item) => item.status === 'progress' || item.status === 'started'),
-    );
-  };
-
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--workspace-terminal))] text-xs">
-      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border/70 px-3">
+    <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--workspace-terminal))] text-xs text-slate-200">
+      <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-slate-950/55 px-3">
         <div className="flex min-w-0 items-center gap-3">
           <span className="font-semibold text-slate-100">Transfer Queue</span>
-          <span className="font-mono text-[11px] text-slate-500">
+          <span className="font-mono text-[11px] text-slate-300">
             {summary.running} running
             {summary.failed > 0 && ` / ${summary.failed} failed`}
             {summary.canceled > 0 && ` / ${summary.canceled} stopped`}
@@ -79,19 +45,19 @@ export function SftpTransferQueuePanel() {
           </span>
         </div>
         <button
-          className="rounded px-2 py-1 text-[11px] font-semibold text-slate-400 hover:bg-accent hover:text-slate-100 disabled:pointer-events-none disabled:opacity-40"
+          className="rounded px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-accent hover:text-slate-100 disabled:pointer-events-none disabled:opacity-40"
           type="button"
           disabled={summary.total === summary.running}
-          onClick={clearFinished}
+          onClick={clearFinishedSftpTransfers}
         >
           Clear Finished
         </button>
       </div>
       <div className="min-h-0 flex-1">
         <OverlayScrollArea>
-          <div className="grid min-w-[58rem] gap-0.5 p-2 pr-4">
+          <div className="grid min-w-[46rem] gap-2 p-2 pr-4">
             {transfers.length === 0 ? (
-              <div className="grid h-24 place-items-center rounded border border-dashed border-border/70 text-slate-500">
+              <div className="grid h-24 place-items-center rounded border border-dashed border-border/70 text-slate-400">
                 File transfers will appear here.
               </div>
             ) : (
@@ -126,57 +92,111 @@ function SftpTransferQueueRow({
   const detailText = transfer.direction === 'upload'
     ? `${transfer.localPath} -> ${transfer.remotePath}`
     : `${transfer.remotePath} -> ${transfer.localPath}`;
+  const errorText = getTransferErrorText(transfer);
 
   return (
-    <div className="grid grid-cols-[1.2rem_10rem_minmax(10rem,1fr)_7rem_7rem_5rem_auto] items-center gap-3 rounded px-2 py-1.5 hover:bg-accent/70">
-      {transfer.direction === 'upload' ? (
-        <Upload className="size-4 text-primary" />
-      ) : (
-        <Download className="size-4 text-primary" />
-      )}
-      <span
-        className="truncate rounded border border-border/70 bg-background/40 px-2 py-1 font-mono text-[10px] text-slate-400"
-        title={serverLabel}
-      >
-        {serverLabel}
-      </span>
-      <div className="grid min-w-0 gap-0.5">
-        <span className="truncate font-semibold text-slate-100">{getTransferFileName(transfer)}</span>
-        <span className="truncate font-mono text-[10px] text-slate-500" title={detailText}>
-          {detailText}
-        </span>
-      </div>
-      <span className="font-mono text-[11px] text-slate-400">{formatTransferStatus(transfer)}</span>
-      <span className="font-mono text-[11px] text-slate-500">{getTransferMetricText(transfer)}</span>
-      <span className="font-mono text-[11px] text-slate-500">{formatBytes(transfer.transferredBytes)}</span>
-      <div className="flex items-center gap-2">
-        <div className="h-1.5 w-28 overflow-hidden rounded bg-slate-800">
-          <div
-            className={[
-              'h-full rounded',
-              transfer.status === 'failed'
-                ? 'bg-destructive'
-                : transfer.status === 'canceled'
-                  ? 'bg-slate-600'
-                  : 'bg-primary',
-            ].join(' ')}
-            style={{ width: `${progress}%` }}
-          />
+    <div className="rounded-lg border border-border/70 bg-slate-950/55 px-3 py-2.5 shadow-sm shadow-black/20 hover:border-primary/35 hover:bg-slate-900/45">
+      <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3">
+        <div className="mt-0.5 grid size-7 place-items-center rounded-md border border-primary/20 bg-primary/10">
+          {transfer.direction === 'upload' ? (
+            <Upload className="size-4 text-primary" />
+          ) : (
+            <Download className="size-4 text-primary" />
+          )}
         </div>
-        {isRunning && (
-          <button
-            className="grid size-6 place-items-center rounded text-slate-500 hover:bg-destructive/10 hover:text-destructive"
-            type="button"
-            title="Cancel transfer"
-            aria-label="Cancel transfer"
-            onClick={onCancel}
-          >
-            <X className="size-3.5" />
-          </button>
-        )}
+
+        <div className="grid min-w-0 gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="truncate text-[13px] font-semibold text-slate-50">{getTransferFileName(transfer)}</span>
+            <span
+              className="max-w-[18rem] truncate rounded border border-border/70 bg-background/50 px-2 py-0.5 font-mono text-[10px] text-slate-300"
+              title={serverLabel}
+            >
+              {serverLabel}
+            </span>
+            <span className={getTransferStatusClassName(transfer)}>
+              {getTransferStatusIcon(transfer)}
+              {formatTransferStatus(transfer)}
+            </span>
+          </div>
+          <span className="truncate font-mono text-[11px] text-slate-300" title={detailText}>
+            {detailText}
+          </span>
+          {errorText && (
+            <span className="truncate text-[11px] font-medium text-destructive" title={errorText}>
+              {errorText}
+            </span>
+          )}
+        </div>
+
+        <div className="grid min-w-[12rem] justify-items-end gap-1 text-right font-mono text-[11px] text-slate-300">
+          <div className="flex items-center gap-3">
+            <span>{getTransferMetricText(transfer) || '—'}</span>
+            <span>{formatBytes(transfer.transferredBytes)}</span>
+            {isRunning && (
+              <button
+                className="grid size-6 place-items-center rounded text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                type="button"
+                title="Cancel transfer"
+                aria-label="Cancel transfer"
+                onClick={onCancel}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <span className="text-[10px] text-slate-300">{progress}%</span>
+        </div>
+      </div>
+      <div className="mt-2 h-1 overflow-hidden rounded bg-slate-800/80">
+        <div
+          className={[
+            'h-full rounded',
+            transfer.status === 'failed'
+              ? 'bg-destructive'
+              : transfer.status === 'canceled'
+                ? 'bg-slate-600'
+                : 'bg-primary',
+          ].join(' ')}
+          style={{ width: `${progress}%` }}
+        />
       </div>
     </div>
   );
+}
+
+function getTransferStatusIcon(transfer: SftpTransferItem) {
+  if (transfer.status === 'completed') {
+    return <CheckCircle2 className="size-3 text-primary" />;
+  }
+
+  if (transfer.status === 'failed') {
+    return <AlertTriangle className="size-3 text-destructive" />;
+  }
+
+  if (transfer.status === 'canceled') {
+    return <XCircle className="size-3 text-slate-400" />;
+  }
+
+  return null;
+}
+
+function getTransferStatusClassName(transfer: SftpTransferItem) {
+  const baseClassName = 'inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold';
+
+  if (transfer.status === 'failed') {
+    return `${baseClassName} bg-destructive/10 text-destructive`;
+  }
+
+  if (transfer.status === 'completed') {
+    return `${baseClassName} bg-primary/10 text-primary`;
+  }
+
+  if (transfer.status === 'canceled') {
+    return `${baseClassName} bg-slate-800 text-slate-300`;
+  }
+
+  return `${baseClassName} bg-primary/10 text-slate-100`;
 }
 
 function formatTransferServerLabel(
@@ -203,14 +223,6 @@ function isConnectionAlias(alias: string, endpoint: string, host?: string) {
   const normalizedAlias = alias.toLowerCase();
 
   return normalizedAlias === endpoint.toLowerCase() || normalizedAlias === host?.toLowerCase();
-}
-
-function mergeTransferEvent(current: SftpTransferItem | undefined, event: SftpTransferEvent): SftpTransferItem {
-  return {
-    ...event,
-    startedAt: current?.startedAt ?? Date.now(),
-    updatedAt: Date.now(),
-  };
 }
 
 function getTransferProgress(transfer: SftpTransferItem) {
@@ -254,6 +266,14 @@ function getTransferMetricText(transfer: SftpTransferItem) {
   }
 
   return `${formatBytes(bytesPerSecond)}/s`;
+}
+
+function getTransferErrorText(transfer: SftpTransferItem) {
+  if (transfer.status !== 'failed' || !transfer.message?.trim()) {
+    return '';
+  }
+
+  return transfer.message.trim();
 }
 
 function getTransferFileName(transfer: SftpTransferItem) {

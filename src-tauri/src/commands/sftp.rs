@@ -115,16 +115,16 @@ pub async fn sftp_open(
     store: State<'_, SftpSessionStore>,
     target: SshShellTarget,
 ) -> Result<(), String> {
-    sftp_close(store.clone(), target.panel_id.clone()).await?;
-
     let panel_id = target.panel_id.clone();
     let connection = open_sftp_connection(app, target).await?;
-
-    store
+    let previous_connection = store
         .sessions
         .lock()
         .await
-        .insert(panel_id, Arc::new(Mutex::new(connection)));
+        .insert(panel_id.clone(), Arc::new(Mutex::new(connection)));
+
+    cleanup_sftp_stream_uploads_for_panel(&store, &panel_id, previous_connection.clone()).await;
+    close_sftp_connection(previous_connection).await;
     Ok(())
 }
 
@@ -1458,6 +1458,18 @@ pub async fn sftp_close(
     panel_id: String,
 ) -> Result<(), String> {
     let connection = store.sessions.lock().await.remove(&panel_id);
+
+    cleanup_sftp_stream_uploads_for_panel(&store, &panel_id, connection.clone()).await;
+    close_sftp_connection(connection).await;
+
+    Ok(())
+}
+
+async fn cleanup_sftp_stream_uploads_for_panel(
+    store: &State<'_, SftpSessionStore>,
+    panel_id: &str,
+    connection: Option<Arc<Mutex<SftpConnection>>>,
+) {
     let stream_transfer_ids: Vec<String> = {
         let uploads = store.stream_uploads.lock().await;
         uploads
@@ -1485,7 +1497,9 @@ pub async fn sftp_close(
             store.transfers.lock().await.remove(&transfer_id);
         }
     }
+}
 
+async fn close_sftp_connection(connection: Option<Arc<Mutex<SftpConnection>>>) {
     if let Some(connection) = connection {
         let connection = connection.lock().await;
         let _ = connection.session.close().await;
@@ -1494,8 +1508,6 @@ pub async fn sftp_close(
             .disconnect(Disconnect::ByApplication, "sftp closed", "en")
             .await;
     }
-
-    Ok(())
 }
 
 async fn open_sftp_connection(

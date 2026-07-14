@@ -166,6 +166,16 @@ export function Workspace({
   }, [lastAddedPanelId]);
 
   useEffect(() => {
+    if (model.toJson().global?.tabSetEnableTabScrollbar === true) {
+      return;
+    }
+
+    model.doAction(Actions.updateModelAttributes({ tabSetEnableTabScrollbar: true }));
+    onModelChange(model);
+    setWorkspaceVersion((version) => version + 1);
+  }, [model, onModelChange]);
+
+  useEffect(() => {
     const closeActiveTab = (event: KeyboardEvent) => {
       if (!isCloseTabShortcut(event) || shouldIgnoreWorkspaceShortcut(event)) {
         return;

@@ -10,6 +10,7 @@ import { panelCatalog } from '@/features/panels/panelCatalog';
 import {
   requestSftpSidebarNavigation,
 } from '@/features/sftp/sftpSidebarState';
+import { subscribeSftpTransferQueueOpen } from '@/features/sftp/sftpTransferQueueState';
 import { openElevatedLocalTerminal } from '@/features/terminal/localPtyBridge';
 import { checkForShellPilotUpdate } from '@/features/updates/shellPilotUpdater';
 import { Workspace } from '@/features/workspace/Workspace';
@@ -261,6 +262,13 @@ export function App() {
     setLastAddedPanelId(undefined);
     setLayoutVersion((version) => version + 1);
   };
+  useEffect(() => {
+    return subscribeSftpTransferQueueOpen(() => {
+      showBottomBorderTab(modelRef.current, 'sftp-transfer-queue');
+      setLastAddedPanelId(undefined);
+      setLayoutVersion((version) => version + 1);
+    });
+  }, []);
   const closeWorkspaceTab = (panelId: string) => {
     const node = modelRef.current.getNodeById(panelId);
 

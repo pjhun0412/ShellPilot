@@ -34,7 +34,12 @@ export function useSftpBrowserLifecycle({
   resetSelection: () => void;
   session: SessionItem;
 }) {
+  const directoryRequestIdRef = useRef(0);
   const hasOpenedSessionRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const lifecycleGenerationRef = useRef(0);
+  const openQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const sessionRef = useRef(session);
   const currentPathRef = useRef('.');
   const [entries, setEntries] = useState<SftpEntry[]>([]);
   const [connectionState, setConnectionState] = useState<SftpConnectionState>(
@@ -87,16 +92,44 @@ export function useSftpBrowserLifecycle({
     resetSelection();
   }, [resetSelection]);
 
+  const isCurrentDirectoryRequest = useCallback((requestId: number) =>
+    isMountedRef.current && directoryRequestIdRef.current === requestId,
+  []);
+
+  const openQueuedSftpSession = useCallback(async () => {
+    const previousOpen = openQueueRef.current.catch(() => undefined);
+    const nextOpen = previousOpen.then(() => openSftpSession(panelId, sessionRef.current));
+
+    openQueueRef.current = nextOpen.catch(() => undefined);
+    await nextOpen;
+  }, [panelId]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      directoryRequestIdRef.current += 1;
+      lifecycleGenerationRef.current += 1;
+    };
+  }, []);
+
   const loadDirectory = useCallback(async (
     nextPath = path,
     options: { onError?: (message: string) => void; recordHistory?: boolean } = {},
   ) => {
+    const requestId = directoryRequestIdRef.current + 1;
+    directoryRequestIdRef.current = requestId;
     const previousPath = path;
     setIsLoading(true);
     setError(undefined);
 
     try {
       const result = await listSftpDirectory(panelId, nextPath);
+
+      if (!isCurrentDirectoryRequest(requestId)) {
+        return false;
+      }
 
       applyDirectoryResult(result, nextPath);
 
@@ -111,20 +144,28 @@ export function useSftpBrowserLifecycle({
 
       if (isSftpSessionClosedError(message)) {
         try {
+          const generation = lifecycleGenerationRef.current + 1;
+          lifecycleGenerationRef.current = generation;
+
           setConnectionState('connecting');
           publishConnectionStatus({ panelId, status: 'connecting' });
 
-          if (hasOpenedSessionRef.current) {
+          await openQueuedSftpSession();
+
+          if (!isMountedRef.current || lifecycleGenerationRef.current !== generation) {
             await closeSftpSession(panelId);
-            hasOpenedSessionRef.current = false;
+            return false;
           }
 
-          await openSftpSession(panelId, session);
           hasOpenedSessionRef.current = true;
           setConnectionState('connected');
           publishConnectionStatus({ panelId, status: 'connected' });
 
           const result = await listSftpDirectory(panelId, nextPath);
+
+          if (!isCurrentDirectoryRequest(requestId) || lifecycleGenerationRef.current !== generation) {
+            return false;
+          }
 
           applyDirectoryResult(result, nextPath);
 
@@ -138,6 +179,10 @@ export function useSftpBrowserLifecycle({
           const reconnectMessage =
             reconnectError instanceof Error ? reconnectError.message : String(reconnectError);
 
+          if (!isCurrentDirectoryRequest(requestId)) {
+            return false;
+          }
+
           setConnectionState('failed');
           publishConnectionStatus({ panelId, status: 'failed' });
           setError(`SFTP session closed. Reconnect failed: ${reconnectMessage}`);
@@ -146,13 +191,19 @@ export function useSftpBrowserLifecycle({
         }
       }
 
+      if (!isCurrentDirectoryRequest(requestId)) {
+        return false;
+      }
+
       setError(message);
       options.onError?.(message);
       return false;
     } finally {
-      setIsLoading(false);
+      if (isCurrentDirectoryRequest(requestId)) {
+        setIsLoading(false);
+      }
     }
-  }, [applyDirectoryResult, panelId, path, session]);
+  }, [applyDirectoryResult, isCurrentDirectoryRequest, openQueuedSftpSession, panelId, path]);
 
   const clearRemoteBrowserState = useCallback(() => {
     setEntries([]);
@@ -163,29 +214,37 @@ export function useSftpBrowserLifecycle({
   }, [onClearBrowserUi, resetSelection]);
 
   const connectSftp = useCallback(async () => {
+    const generation = lifecycleGenerationRef.current + 1;
+    lifecycleGenerationRef.current = generation;
+
     setConnectionState('connecting');
     setIsLoading(true);
     setError(undefined);
     publishConnectionStatus({ panelId, status: 'connecting' });
 
     try {
-      if (hasOpenedSessionRef.current) {
+      await openQueuedSftpSession();
+
+      if (!isMountedRef.current || lifecycleGenerationRef.current !== generation) {
         await closeSftpSession(panelId);
-        hasOpenedSessionRef.current = false;
+        return;
       }
 
-      await openSftpSession(panelId, session);
       hasOpenedSessionRef.current = true;
       setConnectionState('connected');
       publishConnectionStatus({ panelId, status: 'connected' });
       await loadDirectory('.', { recordHistory: false });
     } catch (error) {
+      if (!isMountedRef.current || lifecycleGenerationRef.current !== generation) {
+        return;
+      }
+
       setConnectionState('failed');
       publishConnectionStatus({ panelId, status: 'failed' });
       setError(error instanceof Error ? error.message : String(error));
       setIsLoading(false);
     }
-  }, [loadDirectory, panelId, session]);
+  }, [loadDirectory, openQueuedSftpSession, panelId]);
 
   const runBrowserAction = useCallback(async (action: () => Promise<void>) => {
     setIsLoading(true);
@@ -239,6 +298,10 @@ export function useSftpBrowserLifecycle({
   useEffect(() => {
     currentPathRef.current = path;
   }, [path]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
     return subscribePreferences((preferences) => {
@@ -319,6 +382,7 @@ export function useSftpBrowserLifecycle({
         return;
       }
 
+      lifecycleGenerationRef.current += 1;
       hasOpenedSessionRef.current = false;
       clearRemoteBrowserState();
       setConnectionState('closed');
@@ -331,9 +395,15 @@ export function useSftpBrowserLifecycle({
 
   useEffect(() => {
     let disposed = false;
+    const generation = lifecycleGenerationRef.current + 1;
+    lifecycleGenerationRef.current = generation;
 
     const open = async () => {
       if (!autoConnect) {
+        if (disposed || lifecycleGenerationRef.current !== generation) {
+          return;
+        }
+
         setConnectionState('restored');
         setIsLoading(false);
         setError(undefined);
@@ -347,12 +417,13 @@ export function useSftpBrowserLifecycle({
       publishConnectionStatus({ panelId, status: 'connecting' });
 
       try {
-        if (hasOpenedSessionRef.current) {
+        await openQueuedSftpSession();
+
+        if (disposed || !isMountedRef.current || lifecycleGenerationRef.current !== generation) {
           await closeSftpSession(panelId);
-          hasOpenedSessionRef.current = false;
+          return;
         }
 
-        await openSftpSession(panelId, session);
         hasOpenedSessionRef.current = true;
         setConnectionState('connected');
         publishConnectionStatus({ panelId, status: 'connected' });
@@ -360,6 +431,10 @@ export function useSftpBrowserLifecycle({
           await loadDirectory('.', { recordHistory: false });
         }
       } catch (error) {
+        if (disposed || !isMountedRef.current || lifecycleGenerationRef.current !== generation) {
+          return;
+        }
+
         setConnectionState('failed');
         publishConnectionStatus({ panelId, status: 'failed' });
         if (!disposed) {
@@ -373,6 +448,8 @@ export function useSftpBrowserLifecycle({
 
     return () => {
       disposed = true;
+      directoryRequestIdRef.current += 1;
+      lifecycleGenerationRef.current += 1;
       publishConnectionStatus({ panelId, status: 'closed' });
       removeSftpSidebarPanelState(panelId);
       if (hasOpenedSessionRef.current) {
@@ -380,7 +457,7 @@ export function useSftpBrowserLifecycle({
         void closeSftpSession(panelId);
       }
     };
-  }, [autoConnect, panelId, sessionConnectionKey]);
+  }, [autoConnect, openQueuedSftpSession, panelId, sessionConnectionKey]);
 
   return {
     backStack,

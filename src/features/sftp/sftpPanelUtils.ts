@@ -26,7 +26,13 @@ export function scrollSftpRowIntoView(row: HTMLElement) {
 }
 
 export function isSftpSessionClosedError(message: string) {
-  return message.toLowerCase().includes('session closed');
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('session closed') ||
+    normalized.includes('session is not open') ||
+    normalized.includes('sftp session is not open')
+  );
 }
 
 export function isSftpResidualUploadEntry(entry: SftpEntry) {

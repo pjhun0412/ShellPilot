@@ -1,6 +1,6 @@
 import { flexRender, type Table } from '@tanstack/react-table';
 import { Download, FolderOpen, Trash2, Upload } from 'lucide-react';
-import type { DragEvent, MouseEvent } from 'react';
+import type { DragEvent, MouseEvent, Ref } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -62,6 +62,7 @@ export function SftpFileTable({
   selectedEntriesCount,
   showHiddenEntries,
   showPermissions,
+  scrollViewportRef,
   table,
   tableGridTemplateColumns,
 }: {
@@ -103,6 +104,7 @@ export function SftpFileTable({
   selectedEntriesCount: number;
   showHiddenEntries: boolean;
   showPermissions: boolean;
+  scrollViewportRef?: Ref<HTMLDivElement>;
   table: Table<SftpEntry>;
   tableGridTemplateColumns: string;
 }) {
@@ -130,7 +132,7 @@ export function SftpFileTable({
       )}
       {table.getHeaderGroups().map((headerGroup) => (
         <div
-          className="grid shrink-0 items-center gap-x-2 border-b border-border/60 bg-[hsl(var(--workspace-terminal))] px-3 py-1 text-[11px] font-semibold uppercase text-muted-foreground"
+          className="grid shrink-0 items-center gap-x-2 border-b border-border/70 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-200"
           key={headerGroup.id}
           style={{ gridTemplateColumns: tableGridTemplateColumns }}
         >
@@ -138,9 +140,9 @@ export function SftpFileTable({
             <div className="relative min-w-0 pr-2" key={header.id}>
               <button
                 className={[
-                  'flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-muted-foreground hover:bg-slate-900/70 hover:text-slate-100',
+                  'flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
                   header.column.id === 'size' ? 'justify-end text-right' : 'justify-start',
-                  header.column.getIsSorted() ? 'text-slate-100' : '',
+                  header.column.getIsSorted() ? 'text-primary' : '',
                 ].join(' ')}
                 type="button"
                 onClick={header.column.getToggleSortingHandler()}
@@ -183,14 +185,14 @@ export function SftpFileTable({
               onMouseMove={onUpdateMarqueeSelection}
               onMouseUp={onEndMarqueeSelection}
             >
-              <OverlayScrollArea data-sftp-scroll-viewport>
-                <div className="grid min-w-full gap-0.5 py-1 pl-2 pr-1">
+              <OverlayScrollArea data-sftp-scroll-viewport ref={scrollViewportRef}>
+                <div className="grid min-w-full gap-1 py-1.5 pl-2 pr-1">
                   {parentPath && (
                     <button
                       className={[
-                        'mr-2 grid min-h-8 items-center gap-x-2 rounded px-2.5 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800/75 hover:text-white',
-                        selectedEntryPath === parentEntryPathKey ? 'bg-slate-800 text-white ring-1 ring-inset ring-primary/60' : '',
-                        isUploadDragOver && dragUploadTargetPath === parentPath ? 'bg-primary/15 ring-1 ring-inset ring-primary/70' : '',
+                        'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
+                        selectedEntryPath === parentEntryPathKey ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+                        isUploadDragOver && dragUploadTargetPath === parentPath ? 'border-primary/70 bg-primary/20' : '',
                       ].join(' ')}
                       data-sftp-entry-path={parentEntryPathKey}
                       style={{ gridTemplateColumns: tableGridTemplateColumns }}
@@ -203,12 +205,12 @@ export function SftpFileTable({
                       <span className="min-w-0 px-1">
                         <span className="flex min-w-0 items-center gap-2">
                           <FolderOpen className="size-4 shrink-0 text-amber-300" />
-                          <span className="truncate font-medium">..</span>
+                          <span className="truncate font-semibold text-slate-100">..</span>
                         </span>
                       </span>
                       {visibleColumns.some((column) => column.id === 'kind') && (
                         <span className="min-w-0 px-1">
-                          <span className="truncate font-mono text-[11px] text-slate-500">parent</span>
+                          <span className="truncate font-mono text-[11px] text-slate-300">parent</span>
                         </span>
                       )}
                       {visibleColumns.some((column) => column.id === 'modifiedAt') && <span className="min-w-0 px-1" />}
@@ -221,10 +223,10 @@ export function SftpFileTable({
                   {tableRows.map((row) => (
                     <button
                       className={[
-                        'mr-2 grid min-h-8 items-center gap-x-2 rounded px-2.5 py-1.5 text-left text-xs text-slate-200 hover:bg-slate-800/75 hover:text-white',
-                        selectedEntryPaths.includes(row.original.path) ? 'bg-slate-800 text-white ring-1 ring-inset ring-primary/60' : '',
-                        selectedEntryPath === row.original.path && !selectedEntryPaths.includes(row.original.path) ? 'ring-1 ring-inset ring-primary/40' : '',
-                        isUploadDragOver && row.original.isDirectory && dragUploadTargetPath === row.original.path ? 'bg-primary/15 ring-1 ring-inset ring-primary/70' : '',
+                        'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors odd:bg-slate-950/20 hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
+                        selectedEntryPaths.includes(row.original.path) ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+                        selectedEntryPath === row.original.path && !selectedEntryPaths.includes(row.original.path) ? 'border-primary/40 bg-slate-800/45' : '',
+                        isUploadDragOver && row.original.isDirectory && dragUploadTargetPath === row.original.path ? 'border-primary/70 bg-primary/20' : '',
                       ].join(' ')}
                       data-sftp-entry-path={row.original.path}
                       key={row.original.path}

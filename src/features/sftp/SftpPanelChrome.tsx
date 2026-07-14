@@ -1,4 +1,22 @@
-import { File, FileSymlink, Folder } from 'lucide-react';
+import {
+  Braces,
+  Database,
+  File,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileCog,
+  FileImage,
+  FileJson,
+  FileText,
+  FileType,
+  FileVideo,
+  Folder,
+  Package,
+  ScrollText,
+  TerminalSquare,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import type { SftpEntry } from './sftpBridge';
@@ -41,8 +59,129 @@ export function SftpEntryIcon({ entry }: { entry: SftpEntry }) {
   }
 
   if (entry.kind === 'symlink') {
-    return <FileSymlink className="size-4 shrink-0 text-slate-400" />;
+    return <TerminalSquare className="size-4 shrink-0 text-sky-300" />;
   }
 
-  return <File className="size-4 shrink-0 text-slate-400" />;
+  const { Icon, className } = getSftpFileIcon(entry.filename);
+
+  return <Icon className={['size-4 shrink-0', className].join(' ')} />;
 }
+
+function getSftpFileIcon(filename: string): { className: string; Icon: LucideIcon } {
+  const normalizedName = filename.toLowerCase();
+  const extension = normalizedName.split('.').filter(Boolean).pop() ?? '';
+
+  if (archiveExtensions.has(extension)) {
+    return { Icon: FileArchive, className: 'text-amber-300' };
+  }
+
+  if (imageExtensions.has(extension)) {
+    return { Icon: FileImage, className: 'text-fuchsia-300' };
+  }
+
+  if (videoExtensions.has(extension)) {
+    return { Icon: FileVideo, className: 'text-rose-300' };
+  }
+
+  if (audioExtensions.has(extension)) {
+    return { Icon: FileAudio, className: 'text-violet-300' };
+  }
+
+  if (codeExtensions.has(extension)) {
+    return { Icon: FileCode, className: 'text-cyan-300' };
+  }
+
+  if (jsonExtensions.has(extension)) {
+    return { Icon: FileJson, className: 'text-lime-300' };
+  }
+
+  if (configExtensions.has(extension) || configFilenames.has(normalizedName)) {
+    return { Icon: FileCog, className: 'text-teal-300' };
+  }
+
+  if (databaseExtensions.has(extension)) {
+    return { Icon: Database, className: 'text-emerald-300' };
+  }
+
+  if (packageExtensions.has(extension) || packageFilenames.has(normalizedName)) {
+    return { Icon: Package, className: 'text-orange-300' };
+  }
+
+  if (logExtensions.has(extension)) {
+    return { Icon: ScrollText, className: 'text-slate-200' };
+  }
+
+  if (documentExtensions.has(extension)) {
+    return { Icon: FileText, className: 'text-blue-200' };
+  }
+
+  if (fontExtensions.has(extension)) {
+    return { Icon: FileType, className: 'text-indigo-300' };
+  }
+
+  if (scriptFilenames.has(normalizedName)) {
+    return { Icon: Braces, className: 'text-cyan-300' };
+  }
+
+  return { Icon: File, className: 'text-slate-300' };
+}
+
+const archiveExtensions = new Set([
+  '7z',
+  'bz2',
+  'gz',
+  'rar',
+  'tar',
+  'tgz',
+  'xz',
+  'zip',
+]);
+const imageExtensions = new Set(['avif', 'bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
+const videoExtensions = new Set(['avi', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'webm']);
+const audioExtensions = new Set(['aac', 'flac', 'm4a', 'mp3', 'ogg', 'wav']);
+const codeExtensions = new Set([
+  'c',
+  'cpp',
+  'cs',
+  'css',
+  'go',
+  'h',
+  'hpp',
+  'html',
+  'java',
+  'js',
+  'jsx',
+  'kt',
+  'lua',
+  'php',
+  'py',
+  'rb',
+  'rs',
+  'scss',
+  'sh',
+  'sql',
+  'svelte',
+  'swift',
+  'tsx',
+  'ts',
+  'vue',
+]);
+const jsonExtensions = new Set(['json', 'jsonc']);
+const configExtensions = new Set(['conf', 'config', 'env', 'ini', 'properties', 'toml', 'yaml', 'yml']);
+const databaseExtensions = new Set(['db', 'sqlite', 'sqlite3']);
+const packageExtensions = new Set(['deb', 'jar', 'rpm', 'war']);
+const logExtensions = new Set(['log', 'out']);
+const documentExtensions = new Set(['csv', 'doc', 'docx', 'md', 'pdf', 'rtf', 'txt', 'xls', 'xlsx']);
+const fontExtensions = new Set(['eot', 'otf', 'ttf', 'woff', 'woff2']);
+const configFilenames = new Set([
+  '.bash_profile',
+  '.bashrc',
+  '.env',
+  '.gitconfig',
+  '.npmrc',
+  '.profile',
+  'dockerfile',
+  'makefile',
+]);
+const packageFilenames = new Set(['package-lock.json', 'package.json', 'pnpm-lock.yaml', 'yarn.lock']);
+const scriptFilenames = new Set(['gradlew']);

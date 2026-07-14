@@ -19,6 +19,7 @@ export const initialLayout: IJsonModel = {
     tabSetEnableDrag: true,
     tabSetEnableMaximize: true,
     tabSetEnableDrop: true,
+    tabSetEnableTabScrollbar: true,
     borderSize: 180,
   },
   borders: [
@@ -89,6 +90,7 @@ function normalizeWorkspaceLayout(layout: IJsonModel): IJsonModel {
       tabSetEnableDivide: true,
       tabSetEnableDrag: true,
       tabSetEnableDrop: true,
+      tabSetEnableTabScrollbar: true,
       borderSize: 180,
     },
   };
