@@ -3,10 +3,11 @@
 새 작업 스레드나 사용자는 아래 순서로 읽으면 됩니다.
 
 1. [프로젝트 구조와 작업 인계](project-overview.md)
-2. [RDP 현행 인계](rdp-handoff.md)
-3. [SFTP 현행 인계](sftp-handoff.md)
-4. [AI Tool Layer 설계](ai-tool-layer-design.md)
-5. [ShellPilot 1.0.1 릴리스 노트](release-1.0.1.md)
+2. [SSH 현행 인계](ssh-handoff.md)
+3. [RDP 현행 인계](rdp-handoff.md)
+4. [SFTP 현행 인계](sftp-handoff.md)
+5. [AI Tool Layer 설계](ai-tool-layer-design.md)
+6. [ShellPilot 1.0.1 릴리스 노트](release-1.0.1.md)
 
 참고:
 

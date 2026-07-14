@@ -64,11 +64,14 @@ export interface SshShellOpenOptions {
   username?: string;
 }
 
+const lastSshPtySizeByPanel = new Map<string, string>();
+
 export async function openSshShell(
   panelId: string,
   session: SessionItem,
   options: SshShellOpenOptions = {},
 ) {
+  lastSshPtySizeByPanel.delete(panelId);
   const privateKeyPath = typeof session.metadata?.privateKeyPath === 'string' ? session.metadata.privateKeyPath : null;
   const username = options.username?.trim() || session.username?.trim() || '';
   const usesPasswordCredential =
@@ -131,14 +134,25 @@ export async function resizeSshPty(panelId: string, terminal: Terminal) {
     return;
   }
 
+  const sizeKey = `${terminal.cols}x${terminal.rows}`;
+
+  if (lastSshPtySizeByPanel.get(panelId) === sizeKey) {
+    return;
+  }
+
   await invoke('ssh_resize', {
     cols: terminal.cols,
     panelId,
     rows: terminal.rows,
-  }).catch(() => undefined);
+  })
+    .then(() => {
+      lastSshPtySizeByPanel.set(panelId, sizeKey);
+    })
+    .catch(() => undefined);
 }
 
 export async function closeSshShell(panelId: string) {
+  lastSshPtySizeByPanel.delete(panelId);
   await invoke('ssh_close', { panelId });
 }
 

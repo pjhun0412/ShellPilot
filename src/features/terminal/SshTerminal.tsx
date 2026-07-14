@@ -2,7 +2,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Clipboard, Copy, Eraser, FolderOpen, PlugZap, RotateCcw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import {
   ContextMenu,
@@ -26,6 +26,7 @@ import {
   type SshHostKeyWarning,
 } from './sshTerminalEventHandler';
 import { copyTerminalSelection } from './sshTerminalInput';
+import { useActiveTerminalFocus } from './useActiveTerminalFocus';
 import { useSshTerminalActions } from './useSshTerminalActions';
 import { useSshTerminalLifecycle } from './useSshTerminalLifecycle';
 
@@ -48,6 +49,7 @@ export function SshTerminal({
   const pendingUsernameRef = useRef<string>();
   const lastHostKeyWarningRef = useRef<SshHostKeyWarning>();
   const closeIntentRef = useRef<SshCloseIntent>();
+  const failedAttemptRef = useRef(false);
   const shouldRememberPasswordRef = useRef(true);
   const shouldRememberUsernameRef = useRef(true);
   const terminalRef = useRef<Terminal>();
@@ -72,6 +74,7 @@ export function SshTerminal({
   } = useSshTerminalActions({
     closeIntentRef,
     endpointLabel,
+    failedAttemptRef,
     failure,
     lastHostKeyWarningRef,
     manualPassword,
@@ -92,6 +95,7 @@ export function SshTerminal({
     closeIntentRef,
     containerRef,
     endpointLabel,
+    failedAttemptRef,
     fitAddonRef,
     lastHostKeyWarningRef,
     panelId,
@@ -105,15 +109,7 @@ export function SshTerminal({
     terminalRef,
   });
 
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      terminalRef.current?.focus();
-    });
-  }, [isActive]);
+  useActiveTerminalFocus({ focusKey: status, isActive, terminalRef });
 
   const copySelection = () => {
     copyTerminalSelection(terminalRef.current);

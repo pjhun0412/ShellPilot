@@ -1,5 +1,6 @@
 import type { IDisposable, Terminal } from '@xterm/xterm';
 
+import { loadPreferences } from '@/features/settings/appPreferences';
 import { copyTerminalSelection } from './sshTerminalInput';
 import { pasteClipboardToLocalPty, writeLocalPtyData } from './localPtyBridge';
 
@@ -16,11 +17,20 @@ export function bindLocalPtyInput({
   panelId: string;
   terminal: Terminal;
 }): LocalPtyInputBinding {
+  const autoCopySelection = loadPreferences().terminal.autoCopySelection;
   const disposables: IDisposable[] = [
     terminal.onData((data) => {
       void writeLocalPtyData(panelId, data);
     }),
   ];
+
+  if (autoCopySelection) {
+    disposables.push(
+      terminal.onSelectionChange(() => {
+        copyTerminalSelection(terminal);
+      }),
+    );
+  }
 
   const shortcutHandler = (event: KeyboardEvent) => {
     const shortcut = getScopedShortcut(event, container);

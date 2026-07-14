@@ -1,4 +1,3 @@
-import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import type { MutableRefObject } from 'react';
 
@@ -12,6 +11,7 @@ import { requestSessionPatch } from '@/features/sessions/sessionStorage';
 import type { SessionItem } from '@/types/workspace';
 import { resizeSshPty, type SshTerminalEvent } from './sshTerminalBridge';
 import { isSshHostKeyFailure, type SshTerminalFailure } from './sshTerminalUi';
+import type { TerminalWriteBuffer } from './terminalPerformance';
 
 export type SshCloseIntent = 'dispose' | 'manual' | 'reconnect';
 
@@ -23,8 +23,8 @@ export interface SshHostKeyWarning {
 interface HandleSshTerminalEventOptions {
   closeIntentRef: MutableRefObject<SshCloseIntent | undefined>;
   event: SshTerminalEvent;
-  fitAddon: FitAddon;
-  fitTerminal: (panelId: string, terminal: Terminal, fitAddon: FitAddon) => void;
+  failedAttemptRef: MutableRefObject<boolean>;
+  fitTerminal: () => void;
   lastHostKeyWarningRef: MutableRefObject<SshHostKeyWarning | undefined>;
   panelId: string;
   pendingPasswordRef: MutableRefObject<string | undefined>;
@@ -34,12 +34,13 @@ interface HandleSshTerminalEventOptions {
   shouldRememberPasswordRef: MutableRefObject<boolean>;
   shouldRememberUsernameRef: MutableRefObject<boolean>;
   terminal: Terminal;
+  writeBuffer: TerminalWriteBuffer;
 }
 
 export function handleSshTerminalEvent({
   closeIntentRef,
   event,
-  fitAddon,
+  failedAttemptRef,
   fitTerminal,
   lastHostKeyWarningRef,
   panelId,
@@ -50,13 +51,16 @@ export function handleSshTerminalEvent({
   shouldRememberPasswordRef,
   shouldRememberUsernameRef,
   terminal,
+  writeBuffer,
 }: HandleSshTerminalEventOptions) {
   if (event.panelId !== panelId) {
     return;
   }
 
   if (event.status === 'connected') {
+    writeBuffer.flush();
     closeIntentRef.current = undefined;
+    failedAttemptRef.current = false;
     setTerminalStatus('connected');
     terminal.clear();
     terminal.focus();
@@ -68,7 +72,7 @@ export function handleSshTerminalEvent({
       shouldRememberUsernameRef,
     });
     void resizeSshPty(panelId, terminal);
-    fitTerminal(panelId, terminal, fitAddon);
+    fitTerminal();
     return;
   }
 
@@ -77,6 +81,7 @@ export function handleSshTerminalEvent({
   }
 
   if (event.status === 'warning') {
+    writeBuffer.flush();
     if (isSshHostKeyFailure(event.code)) {
       lastHostKeyWarningRef.current = {
         code: event.code,
@@ -88,12 +93,14 @@ export function handleSshTerminalEvent({
   }
 
   if (event.status === 'data' && event.data) {
-    terminal.write(event.data);
+    writeBuffer.write(event.data);
     return;
   }
 
   if (event.status === 'failed') {
+    writeBuffer.flush();
     closeIntentRef.current = undefined;
+    failedAttemptRef.current = true;
     const hostKeyWarning = lastHostKeyWarningRef.current;
     const message =
       hostKeyWarning && isSshHostKeyFailure(event.code)
@@ -110,6 +117,12 @@ export function handleSshTerminalEvent({
   }
 
   if (event.status === 'closed') {
+    writeBuffer.flush();
+    if (failedAttemptRef.current) {
+      closeIntentRef.current = undefined;
+      return;
+    }
+
     if (closeIntentRef.current === 'reconnect' || closeIntentRef.current === 'dispose') {
       return;
     }

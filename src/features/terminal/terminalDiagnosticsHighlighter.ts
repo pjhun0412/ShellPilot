@@ -10,6 +10,8 @@ interface DiagnosticRule {
   underline: boolean;
 }
 
+const WRITE_SCAN_THROTTLE_MS = 80;
+
 export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
   const preferences = loadPreferences().terminal;
 
@@ -26,6 +28,8 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
   const decorations = new Set<IDecoration>();
   let lastVisibleSignature = '';
   let scanFrame: number | undefined;
+  let scanTimer: number | undefined;
+  let lastScanAt = 0;
 
   const clearDecorations = () => {
     for (const decoration of Array.from(decorations)) {
@@ -127,10 +131,11 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
 
   const runScheduledScan = () => {
     scanFrame = undefined;
+    lastScanAt = performance.now();
     scanVisibleRows();
   };
 
-  const scheduleScan = () => {
+  const requestScanFrame = () => {
     if (scanFrame !== undefined) {
       return;
     }
@@ -138,21 +143,49 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
     scanFrame = window.requestAnimationFrame(runScheduledScan);
   };
 
-  const parsedDisposable = terminal.onWriteParsed(scheduleScan);
-  const renderDisposable = terminal.onRender(scheduleScan);
-  const scrollDisposable = terminal.onScroll(scheduleScan);
+  const scheduleScan = ({ throttle = true }: { throttle?: boolean } = {}) => {
+    if (scanFrame !== undefined || scanTimer !== undefined) {
+      return;
+    }
+
+    if (!throttle) {
+      requestScanFrame();
+      return;
+    }
+
+    const elapsed = performance.now() - lastScanAt;
+    const delay = Math.max(WRITE_SCAN_THROTTLE_MS - elapsed, 0);
+
+    if (delay === 0) {
+      requestScanFrame();
+      return;
+    }
+
+    scanTimer = window.setTimeout(() => {
+      scanTimer = undefined;
+      requestScanFrame();
+    }, delay);
+  };
+
+  const parsedDisposable = terminal.onWriteParsed(() => scheduleScan());
+  const renderDisposable = terminal.onRender(() => scheduleScan());
+  const scrollDisposable = terminal.onScroll(() => scheduleScan({ throttle: false }));
   const resizeDisposable = terminal.onResize(() => {
     clearDecorations();
     lastVisibleSignature = '';
-    scheduleScan();
+    scheduleScan({ throttle: false });
   });
 
-  scheduleScan();
+  scheduleScan({ throttle: false });
 
   return {
     dispose() {
       if (scanFrame !== undefined) {
         window.cancelAnimationFrame(scanFrame);
+      }
+
+      if (scanTimer !== undefined) {
+        window.clearTimeout(scanTimer);
       }
 
       parsedDisposable.dispose();

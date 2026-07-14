@@ -12,6 +12,7 @@ export interface ShellPilotPreferences {
     showHiddenFiles: boolean;
   };
   terminal: {
+    autoCopySelection: boolean;
     cursorBlink: boolean;
     diagnosticRules: DiagnosticHighlightRule[];
     diagnosticsHighlight: boolean;
@@ -138,6 +139,7 @@ export const defaultPreferences: ShellPilotPreferences = {
     showHiddenFiles: true,
   },
   terminal: {
+    autoCopySelection: false,
     cursorBlink: true,
     diagnosticRules: defaultDiagnosticRules,
     diagnosticsHighlight: true,
@@ -204,6 +206,7 @@ function normalizePreferences(value: Partial<ShellPilotPreferences>): ShellPilot
       showHiddenFiles: value.sftp?.showHiddenFiles ?? defaultPreferences.sftp.showHiddenFiles,
     },
     terminal: {
+      autoCopySelection: value.terminal?.autoCopySelection ?? defaultPreferences.terminal.autoCopySelection,
       cursorBlink: value.terminal?.cursorBlink ?? defaultPreferences.terminal.cursorBlink,
       diagnosticRules: normalizeDiagnosticRules(value.terminal?.diagnosticRules),
       diagnosticsHighlight: value.terminal?.diagnosticsHighlight ?? defaultPreferences.terminal.diagnosticsHighlight,

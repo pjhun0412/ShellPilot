@@ -32,7 +32,6 @@ pub fn run() {
             commands::ai::ai_run_prompt,
             commands::ai::ai_run_prompt_stream,
             commands::credentials::delete_credential,
-            commands::credentials::get_credential,
             commands::credentials::save_credential,
             commands::local_pty::local_pty_close,
             commands::local_pty::local_pty_open,

@@ -21,6 +21,7 @@ import type { SshTerminalUiStatus } from './useSshTerminalStatus';
 interface UseSshTerminalActionsOptions {
   closeIntentRef: MutableRefObject<SshCloseIntent | undefined>;
   endpointLabel: string;
+  failedAttemptRef: MutableRefObject<boolean>;
   failure: SshTerminalFailure | undefined;
   lastHostKeyWarningRef: MutableRefObject<SshHostKeyWarning | undefined>;
   manualPassword: string;
@@ -39,6 +40,7 @@ interface UseSshTerminalActionsOptions {
 export function useSshTerminalActions({
   closeIntentRef,
   endpointLabel,
+  failedAttemptRef,
   failure,
   lastHostKeyWarningRef,
   manualPassword,
@@ -56,6 +58,7 @@ export function useSshTerminalActions({
   const reconnectSession = useCallback(async () => {
     const terminal = terminalRef.current;
 
+    failedAttemptRef.current = false;
     setTerminalStatus('connecting');
     lastHostKeyWarningRef.current = undefined;
     terminal?.clear();
@@ -66,12 +69,14 @@ export function useSshTerminalActions({
       const failure = getSshOpenFailure(error);
 
       closeIntentRef.current = undefined;
+      failedAttemptRef.current = true;
       setTerminalStatus('failed', failure);
     });
     terminal?.focus();
   }, [
     closeIntentRef,
     endpointLabel,
+    failedAttemptRef,
     lastHostKeyWarningRef,
     panelId,
     session,
@@ -106,6 +111,7 @@ export function useSshTerminalActions({
         return;
       }
 
+      failedAttemptRef.current = false;
       setTerminalStatus('connecting');
       lastHostKeyWarningRef.current = undefined;
       pendingPasswordRef.current = manualPassword || undefined;
@@ -117,6 +123,7 @@ export function useSshTerminalActions({
       }).catch((error: unknown) => {
         const failure = getSshOpenFailure(error);
 
+        failedAttemptRef.current = true;
         setTerminalStatus('failed', {
           ...failure,
           authPrompt: true,
@@ -127,6 +134,7 @@ export function useSshTerminalActions({
     },
     [
       failure?.code,
+      failedAttemptRef,
       lastHostKeyWarningRef,
       manualPassword,
       manualUsername,
@@ -161,6 +169,7 @@ export function useSshTerminalActions({
 
   const trustHostKeyAndReconnect = useCallback(async () => {
     setTerminalStatus('connecting');
+    failedAttemptRef.current = false;
     lastHostKeyWarningRef.current = undefined;
     terminalRef.current?.writeln('\r\nTrusting SSH host key and reconnecting...');
     closeIntentRef.current = 'reconnect';
@@ -173,11 +182,13 @@ export function useSshTerminalActions({
       const failure = getSshOpenFailure(error);
 
       closeIntentRef.current = undefined;
+      failedAttemptRef.current = true;
       setTerminalStatus('failed', failure);
     });
     terminalRef.current?.focus();
   }, [
     closeIntentRef,
+    failedAttemptRef,
     lastHostKeyWarningRef,
     panelId,
     pendingPasswordRef,

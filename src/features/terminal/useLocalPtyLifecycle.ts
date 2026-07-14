@@ -14,6 +14,7 @@ import {
 } from './localPtyBridge';
 import { bindLocalPtyInput } from './localPtyInput';
 import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
+import { createTerminalFitScheduler, createTerminalWriteBuffer } from './terminalPerformance';
 import { subscribeTerminalClosing } from './terminalLifecycle';
 import { registerTerminal, unregisterTerminal } from './terminalRegistry';
 
@@ -47,13 +48,21 @@ export function useLocalPtyLifecycle({
     fitAddonRef.current = fitAddon;
     registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
-    fitTerminal(panelId, terminal, fitAddon);
+    const fitScheduler = createTerminalFitScheduler({
+      fitAddon,
+      onResize: () => {
+        void resizeLocalPty(panelId, terminal);
+      },
+      terminal,
+    });
+    const writeBuffer = createTerminalWriteBuffer(terminal);
+    fitScheduler.fit();
     setStatus('connecting');
     publishConnectionStatus({ panelId, status: 'connecting' });
 
     const inputBinding = bindLocalPtyInput({ container: containerRef.current, panelId, terminal });
     const resizeObserver = new ResizeObserver(() => {
-      fitTerminal(panelId, terminal, fitAddon);
+      fitScheduler.fit();
     });
     resizeObserver.observe(containerRef.current);
     const unsubscribeClosing = subscribeTerminalClosing((closingPanelId) => {
@@ -78,23 +87,26 @@ export function useLocalPtyLifecycle({
         if (payload.status === 'connected') {
           setStatus('connected');
           publishConnectionStatus({ panelId, status: 'connected' });
+          writeBuffer.flush();
           terminal.focus();
-          fitTerminal(panelId, terminal, fitAddon);
+          fitScheduler.fit();
           return;
         }
 
         if (payload.status === 'data' && payload.data) {
-          terminal.write(payload.data);
+          writeBuffer.write(payload.data);
           return;
         }
 
         if (payload.status === 'failed') {
+          writeBuffer.flush();
           setStatus('failed', payload.message);
           publishConnectionStatus({ panelId, status: 'failed' });
           return;
         }
 
         if (payload.status === 'closed') {
+          writeBuffer.flush();
           setStatus('closed');
           publishConnectionStatus({ panelId, status: 'closed' });
         }
@@ -118,7 +130,9 @@ export function useLocalPtyLifecycle({
       isDisposed = true;
       publishConnectionStatus({ panelId, status: 'closed' });
       void closeLocalPty(panelId);
+      writeBuffer.dispose();
       inputBinding.dispose();
+      fitScheduler.dispose();
       diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
@@ -127,15 +141,4 @@ export function useLocalPtyLifecycle({
       terminal.dispose();
     };
   }, [containerRef, fitAddonRef, panelId, setStatus, target, terminalRef]);
-}
-
-function fitTerminal(panelId: string, terminal: Terminal, fitAddon: FitAddon) {
-  window.requestAnimationFrame(() => {
-    try {
-      fitAddon.fit();
-      void resizeLocalPty(panelId, terminal);
-    } catch {
-      // FlexLayout can briefly report zero-size panels while dragging splitters.
-    }
-  });
 }

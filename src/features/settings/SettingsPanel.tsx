@@ -339,6 +339,21 @@ function SettingsSectionContent({
           }
         />
         <SettingsToggle
+          checked={preferences.terminal.autoCopySelection}
+          description="Automatically copies selected terminal text to the clipboard. Leave off when logs may contain secrets."
+          matches={matchesSetting(searchQuery, 'terminal copy selection clipboard automatic auto secret privacy')}
+          title="Auto-copy selection"
+          onChange={(checked) =>
+            updatePreference((current) => ({
+              ...current,
+              terminal: {
+                ...current.terminal,
+                autoCopySelection: checked,
+              },
+            }))
+          }
+        />
+        <SettingsToggle
           checked={preferences.terminal.diagnosticsHighlight}
           description="Highlights error, warning, and success terms on rendered terminal lines. Applied to newly opened terminals."
           matches={matchesSetting(searchQuery, 'terminal diagnostics highlight error warning failed syntax trigger')}

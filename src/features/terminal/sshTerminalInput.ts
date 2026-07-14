@@ -1,5 +1,6 @@
 import type { IDisposable, Terminal } from '@xterm/xterm';
 
+import { loadPreferences } from '@/features/settings/appPreferences';
 import { pasteClipboardToSsh, writeSshData } from './sshTerminalBridge';
 
 export interface SshTerminalInputBinding {
@@ -23,14 +24,20 @@ export function bindSshTerminalInput({
   panelId: string;
   terminal: Terminal;
 }): SshTerminalInputBinding {
+  const autoCopySelection = loadPreferences().terminal.autoCopySelection;
   const disposables: IDisposable[] = [
     terminal.onData((data) => {
       void writeSshData(panelId, data);
     }),
-    terminal.onSelectionChange(() => {
-      copyTerminalSelection(terminal);
-    }),
   ];
+
+  if (autoCopySelection) {
+    disposables.push(
+      terminal.onSelectionChange(() => {
+        copyTerminalSelection(terminal);
+      }),
+    );
+  }
 
   const shortcutHandler = (event: KeyboardEvent) => {
     if (!container.contains(event.target as Node)) {

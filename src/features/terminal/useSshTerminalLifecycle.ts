@@ -17,6 +17,7 @@ import { handleSshTerminalEvent, type SshCloseIntent, type SshHostKeyWarning } f
 import { bindSshTerminalInput } from './sshTerminalInput';
 import { getSshOpenFailure, type SshTerminalFailure } from './sshTerminalUi';
 import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
+import { createTerminalFitScheduler, createTerminalWriteBuffer } from './terminalPerformance';
 import type { SshTerminalUiStatus } from './useSshTerminalStatus';
 
 interface UseSshTerminalLifecycleOptions {
@@ -24,6 +25,7 @@ interface UseSshTerminalLifecycleOptions {
   closeIntentRef: MutableRefObject<SshCloseIntent | undefined>;
   containerRef: RefObject<HTMLDivElement>;
   endpointLabel: string;
+  failedAttemptRef: MutableRefObject<boolean>;
   fitAddonRef: MutableRefObject<FitAddon | undefined>;
   lastHostKeyWarningRef: MutableRefObject<SshHostKeyWarning | undefined>;
   panelId: string;
@@ -42,6 +44,7 @@ export function useSshTerminalLifecycle({
   closeIntentRef,
   containerRef,
   endpointLabel,
+  failedAttemptRef,
   fitAddonRef,
   lastHostKeyWarningRef,
   panelId,
@@ -65,8 +68,17 @@ export function useSshTerminalLifecycle({
     fitAddonRef.current = fitAddon;
     registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
-    fitTerminal(panelId, terminal, fitAddon);
+    const fitScheduler = createTerminalFitScheduler({
+      fitAddon,
+      onResize: () => {
+        void resizeSshPty(panelId, terminal);
+      },
+      terminal,
+    });
+    const writeBuffer = createTerminalWriteBuffer(terminal);
+    fitScheduler.fit();
     if (autoConnect) {
+      failedAttemptRef.current = false;
       terminal.writeln(`Connecting to ${endpointLabel}...`);
       setTerminalStatus('connecting');
     } else {
@@ -81,7 +93,7 @@ export function useSshTerminalLifecycle({
       terminal,
     });
     const resizeObserver = new ResizeObserver(() => {
-      fitTerminal(panelId, terminal, fitAddon);
+      fitScheduler.fit();
     });
     resizeObserver.observe(containerRef.current);
     const unsubscribeClosing = subscribeTerminalClosing((closingPanelId) => {
@@ -112,8 +124,8 @@ export function useSshTerminalLifecycle({
         handleSshTerminalEvent({
           closeIntentRef,
           event: event.payload,
-          fitAddon,
-          fitTerminal,
+          failedAttemptRef,
+          fitTerminal: fitScheduler.fit,
           lastHostKeyWarningRef,
           panelId,
           pendingPasswordRef,
@@ -123,6 +135,7 @@ export function useSshTerminalLifecycle({
           shouldRememberPasswordRef,
           shouldRememberUsernameRef,
           terminal,
+          writeBuffer,
         });
       });
 
@@ -137,6 +150,7 @@ export function useSshTerminalLifecycle({
 
     void startShellAfterListenerReady().catch((error: unknown) => {
       if (!isDisposed) {
+        failedAttemptRef.current = true;
         setTerminalStatus('failed', getSshOpenFailure(error));
       }
     });
@@ -145,7 +159,9 @@ export function useSshTerminalLifecycle({
       isDisposed = true;
       closeIntentRef.current = 'dispose';
       void closeSshShell(panelId);
+      writeBuffer.dispose();
       inputBinding.dispose();
+      fitScheduler.dispose();
       diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
@@ -160,6 +176,7 @@ export function useSshTerminalLifecycle({
     closeIntentRef,
     containerRef,
     endpointLabel,
+    failedAttemptRef,
     fitAddonRef,
     lastHostKeyWarningRef,
     panelId,
@@ -172,15 +189,4 @@ export function useSshTerminalLifecycle({
     shouldRememberUsernameRef,
     terminalRef,
   ]);
-}
-
-function fitTerminal(panelId: string, terminal: Terminal, fitAddon: FitAddon) {
-  window.requestAnimationFrame(() => {
-    try {
-      fitAddon.fit();
-      void resizeSshPty(panelId, terminal);
-    } catch {
-      // FlexLayout can briefly report zero-size panels while dragging splitters.
-    }
-  });
 }

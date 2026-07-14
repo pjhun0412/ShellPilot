@@ -6,9 +6,11 @@ const closingListeners = new Set<TerminalClosingListener>();
 const disconnectListeners = new Set<TerminalDisconnectListener>();
 const reconnectListeners = new Set<TerminalReconnectListener>();
 const pendingReconnectPanelIds = new Set<string>();
+const pendingReconnectTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+const PENDING_RECONNECT_TTL_MS = 30_000;
 
 export function notifyTerminalClosing(panelId: string) {
-  pendingReconnectPanelIds.delete(panelId);
+  clearPendingReconnect(panelId);
   closingListeners.forEach((listener) => listener(panelId));
 }
 
@@ -21,7 +23,7 @@ export function subscribeTerminalClosing(listener: TerminalClosingListener) {
 }
 
 export function notifyTerminalDisconnect(panelId: string) {
-  pendingReconnectPanelIds.delete(panelId);
+  clearPendingReconnect(panelId);
   disconnectListeners.forEach((listener) => listener(panelId));
 }
 
@@ -40,8 +42,10 @@ export function notifyTerminalReconnect(panelId: string) {
     delivered = listener(panelId) === true || delivered;
   });
 
-  if (!delivered) {
-    pendingReconnectPanelIds.add(panelId);
+  if (delivered) {
+    clearPendingReconnect(panelId);
+  } else {
+    queuePendingReconnect(panelId);
   }
 }
 
@@ -49,11 +53,32 @@ export function subscribeTerminalReconnect(listener: TerminalReconnectListener) 
   reconnectListeners.add(listener);
   pendingReconnectPanelIds.forEach((panelId) => {
     if (listener(panelId) === true) {
-      pendingReconnectPanelIds.delete(panelId);
+      clearPendingReconnect(panelId);
     }
   });
 
   return () => {
     reconnectListeners.delete(listener);
   };
+}
+
+function queuePendingReconnect(panelId: string) {
+  clearPendingReconnect(panelId);
+  pendingReconnectPanelIds.add(panelId);
+  pendingReconnectTimeouts.set(
+    panelId,
+    setTimeout(() => {
+      clearPendingReconnect(panelId);
+    }, PENDING_RECONNECT_TTL_MS),
+  );
+}
+
+function clearPendingReconnect(panelId: string) {
+  pendingReconnectPanelIds.delete(panelId);
+
+  const timeout = pendingReconnectTimeouts.get(panelId);
+  if (timeout) {
+    clearTimeout(timeout);
+    pendingReconnectTimeouts.delete(panelId);
+  }
 }

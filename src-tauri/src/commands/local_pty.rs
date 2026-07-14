@@ -2,7 +2,9 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     path::Path,
-    sync::Mutex,
+    sync::{mpsc, Mutex},
+    thread,
+    time::{Duration, Instant},
 };
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -39,6 +41,9 @@ struct LocalPtyEvent {
     data: Option<String>,
     message: Option<String>,
 }
+
+const DATA_FLUSH_INTERVAL: Duration = Duration::from_millis(12);
+const DATA_FLUSH_MAX_BYTES: usize = 32 * 1024;
 
 #[tauri::command]
 pub async fn local_pty_open(
@@ -258,19 +263,60 @@ fn open_and_stream(app: &AppHandle, target: &LocalPtyTarget) -> Result<(), Strin
 
     emit_event(app, panel_id, "connected", None, None);
 
-    let mut buffer = [0u8; 4096];
-    loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read_count) => {
-                let data = String::from_utf8_lossy(&buffer[..read_count]).into_owned();
-                emit_event(app, panel_id, "data", Some(data), None);
+    let (data_tx, data_rx) = mpsc::channel();
+    let reader_thread = thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read_count) => {
+                    if data_tx.send(buffer[..read_count].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
             }
-            Err(_) => break,
+        }
+    });
+
+    let mut pending_data = Vec::new();
+    let mut last_flush_at = Instant::now();
+
+    loop {
+        match data_rx.recv_timeout(DATA_FLUSH_INTERVAL) {
+            Ok(data) => {
+                pending_data.extend_from_slice(&data);
+
+                if pending_data.len() >= DATA_FLUSH_MAX_BYTES
+                    || last_flush_at.elapsed() >= DATA_FLUSH_INTERVAL
+                {
+                    flush_data_event(app, panel_id, &mut pending_data);
+                    last_flush_at = Instant::now();
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                flush_data_event(app, panel_id, &mut pending_data);
+                last_flush_at = Instant::now();
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 
+    flush_data_event(app, panel_id, &mut pending_data);
+    let _ = reader_thread.join();
+
     Ok(())
+}
+
+fn flush_data_event(app: &AppHandle, panel_id: &str, pending_data: &mut Vec<u8>) {
+    if pending_data.is_empty() {
+        return;
+    }
+
+    let data = String::from_utf8_lossy(pending_data).into_owned();
+    pending_data.clear();
+    emit_event(app, panel_id, "data", Some(data), None);
 }
 
 fn emit_event(

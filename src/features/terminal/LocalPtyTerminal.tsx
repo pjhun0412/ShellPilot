@@ -2,7 +2,7 @@ import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Clipboard, Copy, Eraser } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import {
   ContextMenu,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/context-menu';
 import { pasteClipboardToLocalPty, type LocalPtyTarget } from './localPtyBridge';
 import { copyTerminalSelection } from './sshTerminalInput';
+import { useActiveTerminalFocus } from './useActiveTerminalFocus';
 import { useLocalPtyLifecycle, type LocalPtyStatus } from './useLocalPtyLifecycle';
 
 export function LocalPtyTerminal({
@@ -36,15 +37,7 @@ export function LocalPtyTerminal({
 
   useLocalPtyLifecycle({ containerRef, fitAddonRef, panelId, setStatus, target, terminalRef });
 
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      terminalRef.current?.focus();
-    });
-  }, [isActive]);
+  useActiveTerminalFocus({ focusKey: status, isActive, terminalRef });
 
   const copySelection = () => {
     copyTerminalSelection(terminalRef.current);

@@ -14,7 +14,11 @@ export interface LocalPtyTarget {
   cwd?: string;
 }
 
+const lastLocalPtySizeByPanel = new Map<string, string>();
+
 export async function openLocalPty(panelId: string, target: LocalPtyTarget) {
+  lastLocalPtySizeByPanel.delete(panelId);
+
   await invoke('local_pty_open', {
     target: {
       args: target.args ?? null,
@@ -34,14 +38,25 @@ export async function resizeLocalPty(panelId: string, terminal: Terminal) {
     return;
   }
 
+  const sizeKey = `${terminal.cols}x${terminal.rows}`;
+
+  if (lastLocalPtySizeByPanel.get(panelId) === sizeKey) {
+    return;
+  }
+
   await invoke('local_pty_resize', {
     cols: terminal.cols,
     panelId,
     rows: terminal.rows,
-  }).catch(() => undefined);
+  })
+    .then(() => {
+      lastLocalPtySizeByPanel.set(panelId, sizeKey);
+    })
+    .catch(() => undefined);
 }
 
 export async function closeLocalPty(panelId: string) {
+  lastLocalPtySizeByPanel.delete(panelId);
   await invoke('local_pty_close', { panelId });
 }
 
