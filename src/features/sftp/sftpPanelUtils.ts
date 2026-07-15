@@ -193,6 +193,37 @@ export function formatLocalDisplayPath(path: string) {
     .replace(/^\\\\\?\\/i, '');
 }
 
+export function getAvailableFolderName(entries: Array<{ filename: string }>, baseName = '\uC0C8\uD3F4\uB354') {
+  const entryNames = getNormalizedEntryNames(entries);
+  const normalizedBaseName = normalizeEntryName(baseName);
+
+  if (!entryNames.has(normalizedBaseName)) {
+    return baseName;
+  }
+
+  for (let index = 2; index < 10_000; index += 1) {
+    const candidate = `${baseName} (${index})`;
+
+    if (!entryNames.has(normalizeEntryName(candidate))) {
+      return candidate;
+    }
+  }
+
+  return `${baseName}-${Date.now()}`;
+}
+
+export function hasEntryNamed(entries: Array<{ filename: string }>, name: string) {
+  return getNormalizedEntryNames(entries).has(normalizeEntryName(name));
+}
+
+function getNormalizedEntryNames(entries: Array<{ filename: string }>) {
+  return new Set(entries.map((entry) => normalizeEntryName(entry.filename)));
+}
+
+function normalizeEntryName(name: string) {
+  return name.trim().toLocaleLowerCase();
+}
+
 export function joinLocalPath(directory: string, filename: string) {
   if (directory.endsWith('/') || directory.endsWith('\\')) {
     return `${directory}${filename}`;

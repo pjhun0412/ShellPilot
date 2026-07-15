@@ -85,6 +85,18 @@ export async function listLocalRoots() {
   return invoke<LocalRootsResult>('local_roots');
 }
 
+export async function createLocalDirectory(parentPath: string, name: string) {
+  await invoke('local_mkdir', { name, parentPath });
+}
+
+export async function removeLocalPath(path: string) {
+  await invoke('local_remove_path', { path });
+}
+
+export async function localPathExists(path: string) {
+  return invoke<boolean>('local_path_exists', { path });
+}
+
 export async function keepaliveSftpSession(panelId: string) {
   await invoke('sftp_keepalive', { panelId });
 }

@@ -1,4 +1,4 @@
-import { appConfirm, appPrompt } from '@/components/ui/app-dialog';
+import { appAlert, appConfirm, appPrompt } from '@/components/ui/app-dialog';
 import {
   createSftpDirectory,
   removeSftpDirectory,
@@ -6,8 +6,10 @@ import {
   renameSftpPath,
   type SftpEntry,
 } from './sftpBridge';
+import { getAvailableFolderName, hasEntryNamed } from './sftpPanelUtils';
 
 export function useSftpFileActions({
+  entries,
   panelId,
   path,
   residualUploadEntries,
@@ -15,6 +17,7 @@ export function useSftpFileActions({
   selectedEntries,
   selectedEntry,
 }: {
+  entries: SftpEntry[];
   panelId: string;
   path: string;
   residualUploadEntries: SftpEntry[];
@@ -31,8 +34,10 @@ export function useSftpFileActions({
   };
 
   const createFolder = async () => {
+    const defaultFolderName = getAvailableFolderName(entries);
     const folderName = (await appPrompt({
       confirmLabel: 'Create',
+      defaultValue: defaultFolderName,
       message: 'Enter a folder name for the current remote path.',
       title: 'New Folder',
     }))?.trim();
@@ -41,7 +46,21 @@ export function useSftpFileActions({
       return;
     }
 
-    await runBrowserAction(() => createSftpDirectory(panelId, makeChildPath(folderName)));
+    if (hasEntryNamed(entries, folderName)) {
+      await appAlert({
+        message: `${folderName} already exists in ${path}.`,
+        title: 'Folder Already Exists',
+      });
+      return;
+    }
+
+    await runBrowserAction(async () => {
+      try {
+        await createSftpDirectory(panelId, makeChildPath(folderName));
+      } catch {
+        throw new Error(`Failed to create ${folderName}. A file or folder with the same name may already exist, or you may not have permission.`);
+      }
+    });
   };
 
   const renameEntry = async () => {

@@ -7,6 +7,7 @@ import {
   createSftpDirectory,
   downloadSftpFile,
   listSftpDirectory,
+  localPathExists,
   openSftpUploadStream,
   uploadSftpFile,
   writeSftpUploadStreamChunk,
@@ -21,6 +22,7 @@ import {
 } from './sftpPathUtils';
 import {
   createTransferId,
+  formatLocalDisplayPath,
   getLocalFileName,
   isSftpTransferCanceledError,
   joinLocalPath,
@@ -28,7 +30,7 @@ import {
 } from './sftpPanelUtils';
 import type { SftpTransferItem } from './sftpTransferTypes';
 
-type SftpUploadConflictAction = 'cancel' | 'overwrite' | 'overwrite-all' | 'skip' | 'skip-all';
+type SftpFileConflictAction = 'cancel' | 'overwrite' | 'overwrite-all' | 'skip' | 'skip-all';
 
 const sftpTransferConcurrency = 2;
 const sftpUploadStreamChunkSize = 4 * 1024 * 1024;
@@ -130,7 +132,7 @@ export function useSftpTransferActions({
 
     for (const topLevelName of topLevelNames) {
       if (existingNames.has(topLevelName)) {
-        const action = conflictActionForRemaining ?? await chooseUploadConflict(topLevelName, targetDirectory);
+        const action = conflictActionForRemaining ?? await chooseFileConflict(topLevelName, targetDirectory, 'Remote File Exists');
 
         if (action === 'cancel' || action === undefined) {
           return;
@@ -232,12 +234,7 @@ export function useSftpTransferActions({
       return;
     }
 
-    await runLimitedSftpTasks(
-      entries.map((entry) => () =>
-        startDownloadTransfer(entry, joinLocalPath(targetDirectory, entry.filename))
-      ),
-      sftpTransferConcurrency,
-    );
+    await startDownloadEntriesIntoDirectory(entries, targetDirectory);
   };
 
   const startDownloadEntriesToDirectory = async (entries: SftpEntry[], targetDirectory: string) => {
@@ -245,10 +242,46 @@ export function useSftpTransferActions({
       return;
     }
 
+    await startDownloadEntriesIntoDirectory(entries, targetDirectory);
+  };
+
+  const startDownloadEntriesIntoDirectory = async (entries: SftpEntry[], targetDirectory: string) => {
+    let conflictActionForRemaining: 'overwrite' | 'skip' | undefined;
+    const downloadTasks: Array<() => Promise<void>> = [];
+
+    for (const entry of entries) {
+      const localPath = joinLocalPath(targetDirectory, entry.filename);
+
+      try {
+        if (await localPathExists(localPath)) {
+          const action = conflictActionForRemaining ?? await chooseFileConflict(entry.filename, targetDirectory, 'Local File Exists');
+
+          if (action === 'cancel' || action === undefined) {
+            return;
+          }
+
+          if (action === 'overwrite-all') {
+            conflictActionForRemaining = 'overwrite';
+          }
+
+          if (action === 'skip-all') {
+            conflictActionForRemaining = 'skip';
+          }
+
+          if (action === 'skip' || action === 'skip-all' || conflictActionForRemaining === 'skip') {
+            continue;
+          }
+        }
+      } catch (error) {
+        setError(error instanceof Error ? error.message : String(error));
+        return;
+      }
+
+      downloadTasks.push(() => startDownloadTransfer(entry, localPath));
+    }
+
     await runLimitedSftpTasks(
-      entries.map((entry) => () =>
-        startDownloadTransfer(entry, joinLocalPath(targetDirectory, entry.filename))
-      ),
+      downloadTasks,
       sftpTransferConcurrency,
     );
   };
@@ -278,7 +311,7 @@ export function useSftpTransferActions({
       const remotePath = joinSftpPath(targetDirectory, filename);
 
       if (existingNames.has(filename)) {
-        const action = conflictActionForRemaining ?? await chooseUploadConflict(filename, targetDirectory);
+        const action = conflictActionForRemaining ?? await chooseFileConflict(filename, targetDirectory, 'Remote File Exists');
 
         if (action === 'cancel' || action === undefined) {
           return;
@@ -435,8 +468,8 @@ export function useSftpTransferActions({
   };
 }
 
-function chooseUploadConflict(filename: string, targetDirectory: string) {
-  return appChoose<SftpUploadConflictAction>({
+function chooseFileConflict(filename: string, targetDirectory: string, title: string) {
+  return appChoose<SftpFileConflictAction>({
     choices: [
       { label: 'Overwrite', tone: 'danger', value: 'overwrite' },
       { label: 'Overwrite All', tone: 'danger', value: 'overwrite-all' },
@@ -444,7 +477,7 @@ function chooseUploadConflict(filename: string, targetDirectory: string) {
       { label: 'Skip All', value: 'skip-all' },
       { label: 'Cancel', value: 'cancel' },
     ],
-    message: `${filename} already exists in ${targetDirectory}.\nChoose how to continue.`,
-    title: 'Remote File Exists',
+    message: `${filename} already exists in ${formatLocalDisplayPath(targetDirectory)}.\nChoose how to continue.`,
+    title,
   });
 }

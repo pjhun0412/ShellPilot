@@ -5,6 +5,7 @@ import {
   Download,
   Folder,
   FolderOpen,
+  FolderPlus,
   MoreHorizontal,
   Pencil,
   RefreshCcw,
@@ -12,7 +13,7 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import type { KeyboardEvent, ReactNode, RefObject } from 'react';
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 
 import { Button } from '@/components/ui/button';
 
@@ -48,6 +49,7 @@ export function SftpPanelHeader({
   onSetViewMode,
   onUploadFiles,
   onUploadFolder,
+  actionScope = 'remote',
   areRemoteActionsDisabled = false,
   refreshTitle = 'Refresh',
   residualUploadCount,
@@ -56,6 +58,7 @@ export function SftpPanelHeader({
   showInlineViewMode,
   showHiddenEntries,
   showPermissions,
+  showActions = true,
   viewMode,
 }: {
   backStackLength: number;
@@ -84,6 +87,7 @@ export function SftpPanelHeader({
   onSetViewMode: (value: SftpViewMode) => void;
   onUploadFiles: () => void;
   onUploadFolder: () => void;
+  actionScope?: 'local' | 'remote';
   areRemoteActionsDisabled?: boolean;
   refreshTitle?: string;
   residualUploadCount: number;
@@ -92,156 +96,196 @@ export function SftpPanelHeader({
   showInlineViewMode: boolean;
   showHiddenEntries: boolean;
   showPermissions: boolean;
+  showActions?: boolean;
   viewMode: SftpViewMode;
 }) {
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const isLocalScope = actionScope === 'local';
+  const isLocalActionDisabled = isRefreshDisabled ?? isLoading;
   const isRemoteActionDisabled = areRemoteActionsDisabled || !isRemoteReady || isLoading;
+  const isPathActionDisabled = isLocalScope ? isLocalActionDisabled : isRemoteActionDisabled;
   const isRemoteNavigationDisabled = isRemoteActionDisabled;
   const isRefreshActionDisabled = isRefreshDisabled ?? (!isRemoteReady || isLoading);
+  const closeActionMenu = () => onSetActionMenuOpen(false);
+
+  const runMenuAction = (action: () => void) => {
+    closeActionMenu();
+    action();
+  };
+
+  useEffect(() => {
+    if (!isActionMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!actionMenuRef.current?.contains(event.target as Node)) {
+        closeActionMenu();
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeActionMenu();
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [isActionMenuOpen]);
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-3">
       <Server className="size-4 text-primary" />
-      <div className="min-w-0 flex-1 truncate font-medium">
+      <div className="min-w-0 max-w-[22rem] truncate font-medium">
         {sessionUsername ? `${sessionUsername}@` : ''}{sessionHost}
       </div>
       {showInlineViewMode && (
         <ViewModeToggle onSetViewMode={onSetViewMode} viewMode={viewMode} />
       )}
-      <Button
-        aria-label="Back"
-        title="Back"
-        size="sm"
-        variant="secondary"
-        type="button"
-        onClick={onGoBack}
-        disabled={isRemoteNavigationDisabled || backStackLength === 0}
-      >
-        <ChevronLeft className="size-3.5" />
-      </Button>
-      <Button
-        aria-label="Forward"
-        title="Forward"
-        size="sm"
-        variant="secondary"
-        type="button"
-        onClick={onGoForward}
-        disabled={isRemoteNavigationDisabled || forwardStackLength === 0}
-      >
-        <ChevronRight className="size-3.5" />
-      </Button>
-      <Button
-        aria-label="Refresh"
-        title={refreshTitle}
-        size="sm"
-        variant="secondary"
-        type="button"
-        onClick={onRefresh}
-        disabled={isRefreshActionDisabled}
-      >
-        <RefreshCcw className="size-3.5" />
-        {!isNarrow && <span>Refresh</span>}
-      </Button>
-      {!isTiny && (
-        <Button
-          aria-label="New folder"
-          title="New folder"
-          size="sm"
-          variant="secondary"
-          type="button"
-          onClick={onCreateFolder}
-          disabled={isRemoteActionDisabled}
-        >
-          <Folder className="size-3.5" />
-          {!isNarrow && <span>New</span>}
-        </Button>
-      )}
-      <div className="relative">
-        <Button
-          aria-label="More SFTP actions"
-          title="More actions"
-          size="sm"
-          variant="secondary"
-          type="button"
-          onClick={() => onSetActionMenuOpen((value) => !value)}
-        >
-          <MoreHorizontal className="size-3.5" />
-        </Button>
-        {isActionMenuOpen && (
-          <div className="absolute right-0 top-9 z-50 grid w-44 gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
-            {isTiny && (
-              <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onCreateFolder}>
-                <Folder className="size-3.5" />
-                New Folder
-              </HeaderMenuButton>
-            )}
-            {!showInlineViewMode && (
-              <>
-                <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  View Mode
-                </div>
-                <HeaderMenuButton onClick={() => onSetViewMode('explorer')}>
-                  <span className="w-3.5 text-center">{viewMode === 'explorer' ? '✓' : ''}</span>
-                  Remote Explorer
+      <div className="min-w-0 flex-1" />
+      {showActions && (
+        <>
+          <Button
+            aria-label="Back"
+            title="Back"
+            size="sm"
+            variant="secondary"
+            type="button"
+            onClick={onGoBack}
+            disabled={isRemoteNavigationDisabled || backStackLength === 0}
+          >
+            <ChevronLeft className="size-3.5" />
+          </Button>
+          <Button
+            aria-label="Forward"
+            title="Forward"
+            size="sm"
+            variant="secondary"
+            type="button"
+            onClick={onGoForward}
+            disabled={isRemoteNavigationDisabled || forwardStackLength === 0}
+          >
+            <ChevronRight className="size-3.5" />
+          </Button>
+          <Button
+            aria-label="Refresh"
+            title={refreshTitle}
+            size="sm"
+            variant="secondary"
+            type="button"
+            onClick={onRefresh}
+            disabled={isRefreshActionDisabled}
+          >
+            <RefreshCcw className="size-3.5" />
+          </Button>
+          {!isTiny && (
+            <Button
+              aria-label="New folder"
+              title="New folder"
+              size="sm"
+              variant="secondary"
+              type="button"
+              onClick={onCreateFolder}
+              disabled={isPathActionDisabled}
+            >
+              <FolderPlus className="size-3.5" />
+            </Button>
+          )}
+          <div className="relative" ref={actionMenuRef}>
+            <Button
+              aria-label="More SFTP actions"
+              title="More actions"
+              size="sm"
+              variant="secondary"
+              type="button"
+              onClick={() => onSetActionMenuOpen((value) => !value)}
+            >
+              <MoreHorizontal className="size-3.5" />
+            </Button>
+            {isActionMenuOpen && (
+              <div className="absolute right-0 top-9 z-50 grid w-44 gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+                {isTiny && (
+                  <HeaderMenuButton disabled={isPathActionDisabled} onClick={() => runMenuAction(onCreateFolder)}>
+                    <FolderPlus className="size-3.5" />
+                    New Folder
+                  </HeaderMenuButton>
+                )}
+                {!showInlineViewMode && (
+                  <>
+                    <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      View Mode
+                    </div>
+                    <HeaderMenuButton onClick={() => runMenuAction(() => onSetViewMode('explorer'))}>
+                      <span className="w-3.5 text-center">{viewMode === 'explorer' ? '\u2713' : ''}</span>
+                      Remote Explorer
+                    </HeaderMenuButton>
+                    <HeaderMenuButton onClick={() => runMenuAction(() => onSetViewMode('commander'))}>
+                      <span className="w-3.5 text-center">{viewMode === 'commander' ? '\u2713' : ''}</span>
+                      Commander
+                    </HeaderMenuButton>
+                    <div className="my-1 h-px bg-border" />
+                  </>
+                )}
+                <HeaderMenuButton disabled={isLocalScope || isRemoteActionDisabled} onClick={() => runMenuAction(onUploadFiles)}>
+                  <Upload className="size-3.5" />
+                  Upload Files
                 </HeaderMenuButton>
-                <HeaderMenuButton onClick={() => onSetViewMode('commander')}>
-                  <span className="w-3.5 text-center">{viewMode === 'commander' ? '✓' : ''}</span>
-                  Commander
+                <HeaderMenuButton disabled={isLocalScope || isRemoteActionDisabled} onClick={() => runMenuAction(onUploadFolder)}>
+                  <FolderOpen className="size-3.5" />
+                  Upload Folder
+                </HeaderMenuButton>
+                <HeaderMenuButton disabled={isLocalScope || isRemoteActionDisabled || !canDownload} onClick={() => runMenuAction(onDownload)}>
+                  <Download className="size-3.5" />
+                  Download
+                </HeaderMenuButton>
+                <HeaderMenuButton disabled={isPathActionDisabled} onClick={() => runMenuAction(onCopyPath)}>
+                  <Copy className="size-3.5" />
+                  Copy Path
+                </HeaderMenuButton>
+                <HeaderMenuButton disabled={isLocalScope || isRemoteActionDisabled || !canRename} onClick={() => runMenuAction(onRename)}>
+                  <Pencil className="size-3.5" />
+                  Rename
+                </HeaderMenuButton>
+                <HeaderMenuButton
+                  className="text-destructive hover:bg-destructive/10"
+                  disabled={isPathActionDisabled || !canDelete}
+                  onClick={() => runMenuAction(onDelete)}
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </HeaderMenuButton>
+                <HeaderMenuButton
+                  disabled={isLocalScope || isRemoteActionDisabled || residualUploadCount === 0}
+                  onClick={() => runMenuAction(onCleanResidualUploadFiles)}
+                >
+                  <Trash2 className="size-3.5" />
+                  Clean Leftovers
+                  {residualUploadCount > 0 && (
+                    <span className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+                      {residualUploadCount}
+                    </span>
+                  )}
                 </HeaderMenuButton>
                 <div className="my-1 h-px bg-border" />
-              </>
+                <HeaderMenuButton onClick={() => runMenuAction(() => onSetShowHiddenEntries((value) => !value))}>
+                  <span className="w-3.5 text-center">{showHiddenEntries ? '\u2713' : ''}</span>
+                  Show Hidden
+                </HeaderMenuButton>
+                <HeaderMenuButton onClick={() => runMenuAction(() => onSetShowPermissions((value) => !value))}>
+                  <span className="w-3.5 text-center">{showPermissions ? '\u2713' : ''}</span>
+                  Show Permissions
+                </HeaderMenuButton>
+              </div>
             )}
-            <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onUploadFiles}>
-              <Upload className="size-3.5" />
-              Upload Files
-            </HeaderMenuButton>
-            <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onUploadFolder}>
-              <FolderOpen className="size-3.5" />
-              Upload Folder
-            </HeaderMenuButton>
-            <HeaderMenuButton disabled={isRemoteActionDisabled || !canDownload} onClick={onDownload}>
-              <Download className="size-3.5" />
-              Download
-            </HeaderMenuButton>
-            <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onCopyPath}>
-              <Copy className="size-3.5" />
-              Copy Path
-            </HeaderMenuButton>
-            <HeaderMenuButton disabled={isRemoteActionDisabled || !canRename} onClick={onRename}>
-              <Pencil className="size-3.5" />
-              Rename
-            </HeaderMenuButton>
-            <HeaderMenuButton
-              className="text-destructive hover:bg-destructive/10"
-              disabled={isRemoteActionDisabled || !canDelete}
-              onClick={onDelete}
-            >
-              <Trash2 className="size-3.5" />
-              Delete
-            </HeaderMenuButton>
-            <HeaderMenuButton
-              disabled={isRemoteActionDisabled || residualUploadCount === 0}
-              onClick={onCleanResidualUploadFiles}
-            >
-              <Trash2 className="size-3.5" />
-              Clean Leftovers
-              {residualUploadCount > 0 && (
-                <span className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
-                  {residualUploadCount}
-                </span>
-              )}
-            </HeaderMenuButton>
-            <div className="my-1 h-px bg-border" />
-            <HeaderMenuButton onClick={() => onSetShowHiddenEntries((value) => !value)}>
-              <span className="w-3.5 text-center">{showHiddenEntries ? '✓' : ''}</span>
-              Show Hidden
-            </HeaderMenuButton>
-            <HeaderMenuButton onClick={() => onSetShowPermissions((value) => !value)}>
-              <span className="w-3.5 text-center">{showPermissions ? '✓' : ''}</span>
-              Show Permissions
-            </HeaderMenuButton>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

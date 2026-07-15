@@ -329,6 +329,63 @@ pub async fn local_list(path: Option<String>) -> Result<LocalListResult, String>
 }
 
 #[tauri::command]
+pub async fn local_mkdir(parent_path: String, name: String) -> Result<(), String> {
+    let directory_name = name.trim();
+
+    if directory_name.is_empty() {
+        return Err("local directory name is required".to_string());
+    }
+
+    if directory_name
+        .chars()
+        .any(|character| matches!(character, '/' | '\\' | '\0'))
+    {
+        return Err("local directory name cannot contain path separators".to_string());
+    }
+
+    let parent = fs::canonicalize(PathBuf::from(parent_path))
+        .await
+        .map_err(|error| format!("failed to resolve local directory: {error}"))?;
+    let parent_metadata = fs::metadata(&parent)
+        .await
+        .map_err(|error| format!("failed to read local directory metadata: {error}"))?;
+
+    if !parent_metadata.is_dir() {
+        return Err(format!("local path is not a directory: {}", parent.display()));
+    }
+
+    fs::create_dir(parent.join(directory_name))
+        .await
+        .map_err(|error| format!("failed to create local directory: {error}"))
+}
+
+#[tauri::command]
+pub async fn local_remove_path(path: String) -> Result<(), String> {
+    let target_path = PathBuf::from(path);
+    let metadata = fs::symlink_metadata(&target_path)
+        .await
+        .map_err(|error| format!("failed to read local path metadata: {error}"))?;
+
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        fs::remove_dir_all(&target_path)
+            .await
+            .map_err(|error| format!("failed to remove local directory: {error}"))
+    } else {
+        fs::remove_file(&target_path)
+            .await
+            .map_err(|error| format!("failed to remove local file: {error}"))
+    }
+}
+
+#[tauri::command]
+pub async fn local_path_exists(path: String) -> Result<bool, String> {
+    match fs::try_exists(PathBuf::from(path)).await {
+        Ok(exists) => Ok(exists),
+        Err(error) => Err(format!("failed to check local path: {error}")),
+    }
+}
+
+#[tauri::command]
 pub async fn sftp_mkdir(
     store: State<'_, SftpSessionStore>,
     panel_id: String,

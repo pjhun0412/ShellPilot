@@ -1,4 +1,18 @@
-﻿import { Copy, Download, File, Folder, FolderOpen, Pencil, Trash2, Upload } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Download,
+  File,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  MoreHorizontal,
+  Pencil,
+  RefreshCcw,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -8,10 +22,12 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type RefObject,
   type ReactNode,
 } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
+import { Button } from '@/components/ui/button';
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import {
   ContextMenu,
@@ -51,6 +67,9 @@ const COMMANDER_MAX_SPLIT_PERCENT = 75;
 const COMMANDER_MIN_SPLIT_PERCENT = 25;
 const COMMANDER_DEFAULT_SORT: CommanderSortState = { desc: false, key: 'name' };
 const COMMANDER_MARQUEE_THRESHOLD = 4;
+const COMMANDER_ACTION_FULL_WIDTH = 292;
+const COMMANDER_ACTION_COMPACT_WIDTH = 224;
+const COMMANDER_ACTION_TIGHT_WIDTH = 164;
 
 export function SftpCommanderView({
   localEntries,
@@ -60,6 +79,8 @@ export function SftpCommanderView({
   localPath,
   localRoots,
   localSelectedPaths,
+  localBackStackLength,
+  localForwardStackLength,
   activePane,
   canRemoteDelete,
   canRemoteDownload,
@@ -70,10 +91,14 @@ export function SftpCommanderView({
   onCreateRemoteFolder,
   onDeleteRemote,
   onDownloadRemote,
+  onLocalGoBack,
+  onLocalGoForward,
   onLocalNavigate,
   onLocalRefresh,
   onLocalSelect,
   onLocalSelectMany,
+  onCreateLocalFolder,
+  onDeleteLocal,
   onActivePaneChange,
   onDownloadRemotePathsToLocal,
   onCopyRemotePath,
@@ -84,6 +109,8 @@ export function SftpCommanderView({
   onRemoteMoveDragOver,
   onRemoteMoveDragStart,
   onRemoteMoveDrop,
+  onRemoteGoBack,
+  onRemoteGoForward,
   onSetShowHiddenEntries,
   onSetShowPermissions,
   onRemoteSelect,
@@ -97,6 +124,8 @@ export function SftpCommanderView({
   remoteParentPath,
   remotePath,
   remoteSelectedPaths,
+  remoteBackStackLength,
+  remoteForwardStackLength,
 }: {
   localEntries: LocalFileEntry[];
   localError?: string;
@@ -105,6 +134,8 @@ export function SftpCommanderView({
   localPath: string;
   localRoots: LocalRootEntry[];
   localSelectedPaths: string[];
+  localBackStackLength: number;
+  localForwardStackLength: number;
   activePane: CommanderPaneVariant;
   canRemoteDelete: boolean;
   canRemoteDownload: boolean;
@@ -115,10 +146,14 @@ export function SftpCommanderView({
   onCreateRemoteFolder: () => void;
   onDeleteRemote: () => void;
   onDownloadRemote: () => void;
+  onLocalGoBack: () => void;
+  onLocalGoForward: () => void;
   onLocalNavigate: (path: string) => void;
   onLocalRefresh: () => void;
   onLocalSelect: (path: string, additive: boolean) => void;
   onLocalSelectMany: (paths: string[]) => void;
+  onCreateLocalFolder: () => void;
+  onDeleteLocal: () => void;
   onActivePaneChange: (variant: CommanderPaneVariant) => void;
   onDownloadRemotePathsToLocal: (paths: string[]) => void;
   onCopyRemotePath: () => void;
@@ -129,6 +164,8 @@ export function SftpCommanderView({
   onRemoteMoveDragOver: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
   onRemoteMoveDragStart: (event: DragEvent<HTMLElement>, paths: string[]) => void;
   onRemoteMoveDrop: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteGoBack: () => void;
+  onRemoteGoForward: () => void;
   onSetShowHiddenEntries: (value: boolean) => void;
   onSetShowPermissions: (value: boolean) => void;
   onRemoteSelect: (path: string, additive: boolean) => void;
@@ -142,8 +179,11 @@ export function SftpCommanderView({
   remoteParentPath?: string;
   remotePath: string;
   remoteSelectedPaths: string[];
+  remoteBackStackLength: number;
+  remoteForwardStackLength: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [actionMenuVariant, setActionMenuVariant] = useState<CommanderPaneVariant>();
   const [dragSourceVariant, setDragSourceVariant] = useState<CommanderPaneVariant>();
   const [localSort, setLocalSort] = useState<CommanderSortState>(COMMANDER_DEFAULT_SORT);
   const [remoteSort, setRemoteSort] = useState<CommanderSortState>(COMMANDER_DEFAULT_SORT);
@@ -194,14 +234,74 @@ export function SftpCommanderView({
     <div
       className="grid min-h-0 flex-1 gap-1 p-2"
       ref={containerRef}
-      style={{ gridTemplateColumns: `minmax(0, ${splitPercent}fr) 2px minmax(0, ${100 - splitPercent}fr)` }}
+      style={{
+        gridTemplateColumns: `minmax(0, ${splitPercent}fr) 2px minmax(0, ${100 - splitPercent}fr)`,
+        gridTemplateRows: 'auto minmax(0, 1fr)',
+      }}
     >
+      <div className="flex min-w-0 justify-end overflow-hidden">
+        <CommanderPaneActionGroup
+          backStackLength={localBackStackLength}
+          canDelete={localSelectedPaths.length > 0}
+          canTransfer={localSelectedPaths.length > 0 && isRemoteReady}
+          forwardStackLength={localForwardStackLength}
+          isLoading={localIsLoading}
+          isMenuOpen={actionMenuVariant === 'local'}
+          label="Local"
+          variant="local"
+          onBack={onLocalGoBack}
+          onCopyPath={() => {
+            const targetPath = localSelectedPaths.length === 1 ? localSelectedPaths[0] : localPath;
+            void navigator.clipboard?.writeText(formatLocalDisplayPath(targetPath));
+          }}
+          onCreateFolder={onCreateLocalFolder}
+          onDelete={onDeleteLocal}
+          onForward={onLocalGoForward}
+          onRefresh={onLocalRefresh}
+          onSetMenuOpen={(isOpen) => setActionMenuVariant(isOpen ? 'local' : undefined)}
+          onTransfer={() => onUploadLocalPathsToRemote(localSelectedPaths)}
+        />
+      </div>
+
+      <span className="h-7 w-px justify-self-center bg-border/70" aria-hidden="true" />
+
+      <div className="flex min-w-0 justify-end overflow-hidden">
+        <CommanderPaneActionGroup
+          backStackLength={remoteBackStackLength}
+          canDelete={canRemoteDelete}
+          canDownload={canRemoteDownload}
+          canRename={canRemoteRename}
+          forwardStackLength={remoteForwardStackLength}
+          isLoading={remoteIsLoading}
+          isMenuOpen={actionMenuVariant === 'remote'}
+          isRemoteReady={isRemoteReady}
+          label="Remote"
+          showHiddenEntries={showHiddenEntries}
+          showPermissions={showPermissions}
+          variant="remote"
+          onBack={onRemoteGoBack}
+          onCopyPath={onCopyRemotePath}
+          onCreateFolder={onCreateRemoteFolder}
+          onDelete={onDeleteRemote}
+          onDownload={onDownloadRemote}
+          onForward={onRemoteGoForward}
+          onRefresh={onRemoteRefresh}
+          onRename={onRenameRemote}
+          onSetMenuOpen={(isOpen) => setActionMenuVariant(isOpen ? 'remote' : undefined)}
+          onSetShowHiddenEntries={onSetShowHiddenEntries}
+          onSetShowPermissions={onSetShowPermissions}
+          onUploadFiles={onUploadFiles}
+          onUploadFolder={onUploadFolder}
+        />
+      </div>
+
       <CommanderPane
         entries={localEntries}
         error={localError}
         isLoading={localIsLoading}
         label="Local"
         isActive={activePane === 'local'}
+        canDelete={localSelectedPaths.length > 0}
         parentPath={localParentPath}
         path={localPath}
         localRoots={localRoots}
@@ -209,6 +309,8 @@ export function SftpCommanderView({
         onActivate={onActivePaneChange}
         onNavigate={onLocalNavigate}
         onBrowseDirectory={browseLocalDirectory}
+        onCreateFolder={onCreateLocalFolder}
+        onDelete={onDeleteLocal}
         onRefresh={onLocalRefresh}
         onSelect={onLocalSelect}
         onSelectMany={onLocalSelectMany}
@@ -274,6 +376,334 @@ export function SftpCommanderView({
       />
     </div>
   );
+}
+
+function CommanderPaneActionGroup({
+  backStackLength,
+  canDelete = false,
+  canDownload = false,
+  canRename = false,
+  canTransfer = false,
+  forwardStackLength,
+  isLoading,
+  isMenuOpen,
+  isRemoteReady = true,
+  label,
+  showHiddenEntries = false,
+  showPermissions = false,
+  variant,
+  onBack,
+  onCopyPath,
+  onCreateFolder,
+  onDelete,
+  onDownload,
+  onForward,
+  onRefresh,
+  onRename,
+  onSetMenuOpen,
+  onSetShowHiddenEntries,
+  onSetShowPermissions,
+  onTransfer,
+  onUploadFiles,
+  onUploadFolder,
+}: {
+  backStackLength: number;
+  canDelete?: boolean;
+  canDownload?: boolean;
+  canRename?: boolean;
+  canTransfer?: boolean;
+  forwardStackLength: number;
+  isLoading: boolean;
+  isMenuOpen: boolean;
+  isRemoteReady?: boolean;
+  label: string;
+  showHiddenEntries?: boolean;
+  showPermissions?: boolean;
+  variant: CommanderPaneVariant;
+  onBack: () => void;
+  onCopyPath: () => void;
+  onCreateFolder: () => void;
+  onDelete: () => void;
+  onDownload?: () => void;
+  onForward: () => void;
+  onRefresh: () => void;
+  onRename?: () => void;
+  onSetMenuOpen: (isOpen: boolean) => void;
+  onSetShowHiddenEntries?: (value: boolean) => void;
+  onSetShowPermissions?: (value: boolean) => void;
+  onTransfer?: () => void;
+  onUploadFiles?: () => void;
+  onUploadFolder?: () => void;
+}) {
+  const actionGroupRef = useRef<HTMLDivElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const actionGroupWidth = useElementWidth(actionGroupRef);
+  const isActionDisabled = isLoading || (variant === 'remote' && !isRemoteReady);
+  const isFull = actionGroupWidth >= COMMANDER_ACTION_FULL_WIDTH;
+  const isCompact = actionGroupWidth >= COMMANDER_ACTION_COMPACT_WIDTH;
+  const isTight = actionGroupWidth >= COMMANDER_ACTION_TIGHT_WIDTH;
+  const showInlineHistory = isCompact;
+  const showInlineNewFolder = isTight;
+
+  const runMenuAction = (action?: () => void) => {
+    onSetMenuOpen(false);
+    action?.();
+  };
+
+  useEffect(() => {
+    if (!isMenuOpen) {
+      return undefined;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!actionMenuRef.current?.contains(event.target as Node)) {
+        onSetMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onSetMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [isMenuOpen, onSetMenuOpen]);
+
+  return (
+    <div ref={actionGroupRef} className="flex w-full min-w-0 max-w-full items-center justify-end gap-1 pb-1">
+      {isFull && (
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {label}
+        </span>
+      )}
+      {showInlineHistory && (
+        <>
+          <Button
+            aria-label={`${label} back`}
+            title={`${label} back`}
+            size="sm"
+            variant="secondary"
+            type="button"
+            onClick={onBack}
+            disabled={isActionDisabled || backStackLength === 0}
+          >
+            <ChevronLeft className="size-3.5" />
+          </Button>
+          <Button
+            aria-label={`${label} forward`}
+            title={`${label} forward`}
+            size="sm"
+            variant="secondary"
+            type="button"
+            onClick={onForward}
+            disabled={isActionDisabled || forwardStackLength === 0}
+          >
+            <ChevronRight className="size-3.5" />
+          </Button>
+        </>
+      )}
+      <Button
+        aria-label={`Refresh ${label.toLowerCase()}`}
+        title={`Refresh ${label.toLowerCase()}`}
+        size="sm"
+        variant="secondary"
+        type="button"
+        onClick={onRefresh}
+        disabled={isActionDisabled}
+      >
+        <RefreshCcw className="size-3.5" />
+      </Button>
+      {showInlineNewFolder && (
+        <Button
+          aria-label={`New ${label.toLowerCase()} folder`}
+          title={`New ${label.toLowerCase()} folder`}
+          size="sm"
+          variant="secondary"
+          type="button"
+          onClick={onCreateFolder}
+          disabled={isActionDisabled}
+        >
+          <FolderPlus className="size-3.5" />
+        </Button>
+      )}
+      <div className="relative" ref={actionMenuRef}>
+        <Button
+          aria-label={`${label} more actions`}
+          title={`${label} more actions`}
+          size="sm"
+          variant="secondary"
+          type="button"
+          onClick={() => onSetMenuOpen(!isMenuOpen)}
+        >
+          <MoreHorizontal className="size-3.5" />
+        </Button>
+        {isMenuOpen && (
+          <div className="absolute right-0 top-9 z-50 grid w-48 gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+            <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              {label} Actions
+            </div>
+            {!showInlineHistory && (
+              <>
+                <CommanderPaneMenuButton disabled={isActionDisabled || backStackLength === 0} onClick={() => runMenuAction(onBack)}>
+                  <ChevronLeft className="size-3.5" />
+                  Back
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton disabled={isActionDisabled || forwardStackLength === 0} onClick={() => runMenuAction(onForward)}>
+                  <ChevronRight className="size-3.5" />
+                  Forward
+                </CommanderPaneMenuButton>
+              </>
+            )}
+            {!showInlineNewFolder && (
+              <CommanderPaneMenuButton disabled={isActionDisabled} onClick={() => runMenuAction(onCreateFolder)}>
+                <FolderPlus className="size-3.5" />
+                New Folder
+              </CommanderPaneMenuButton>
+            )}
+            {(!showInlineHistory || !showInlineNewFolder) && <div className="my-1 h-px bg-border" />}
+            {variant === 'local' ? (
+              <>
+                <CommanderPaneMenuButton disabled={isLoading || !canTransfer} onClick={() => runMenuAction(onTransfer)}>
+                  <Upload className="size-3.5" />
+                  Upload Selected
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton disabled={isLoading} onClick={() => runMenuAction(onCopyPath)}>
+                  <Copy className="size-3.5" />
+                  Copy Path
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton
+                  className="text-destructive hover:bg-destructive/10"
+                  disabled={isLoading || !canDelete}
+                  onClick={() => runMenuAction(onDelete)}
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </CommanderPaneMenuButton>
+              </>
+            ) : (
+              <>
+                <CommanderPaneMenuButton disabled={isActionDisabled} onClick={() => runMenuAction(onUploadFiles)}>
+                  <Upload className="size-3.5" />
+                  Upload Files
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton disabled={isActionDisabled} onClick={() => runMenuAction(onUploadFolder)}>
+                  <FolderOpen className="size-3.5" />
+                  Upload Folder
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton disabled={isActionDisabled || !canDownload} onClick={() => runMenuAction(onDownload)}>
+                  <Download className="size-3.5" />
+                  Download
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton disabled={isActionDisabled} onClick={() => runMenuAction(onCopyPath)}>
+                  <Copy className="size-3.5" />
+                  Copy Path
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton disabled={isActionDisabled || !canRename} onClick={() => runMenuAction(onRename)}>
+                  <Pencil className="size-3.5" />
+                  Rename
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton
+                  className="text-destructive hover:bg-destructive/10"
+                  disabled={isActionDisabled || !canDelete}
+                  onClick={() => runMenuAction(onDelete)}
+                >
+                  <Trash2 className="size-3.5" />
+                  Delete
+                </CommanderPaneMenuButton>
+                <div className="my-1 h-px bg-border" />
+                <CommanderPaneMenuButton
+                  onClick={() => {
+                    onSetMenuOpen(false);
+                    onSetShowHiddenEntries?.(!showHiddenEntries);
+                  }}
+                >
+                  <span className="w-3.5 text-center">{showHiddenEntries ? '\u2713' : ''}</span>
+                  Show Hidden
+                </CommanderPaneMenuButton>
+                <CommanderPaneMenuButton
+                  onClick={() => {
+                    onSetMenuOpen(false);
+                    onSetShowPermissions?.(!showPermissions);
+                  }}
+                >
+                  <span className="w-3.5 text-center">{showPermissions ? '\u2713' : ''}</span>
+                  Show Permissions
+                </CommanderPaneMenuButton>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CommanderPaneMenuButton({
+  children,
+  className = '',
+  disabled = false,
+  onClick,
+}: {
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className={[
+        'flex min-h-8 items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-45',
+        className,
+      ].join(' ')}
+      disabled={disabled}
+      type="button"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function useElementWidth<TElement extends HTMLElement>(ref: RefObject<TElement>) {
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const element = ref.current;
+
+    if (!element) {
+      return undefined;
+    }
+
+    const updateWidth = () => {
+      setWidth(element.getBoundingClientRect().width);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateWidth);
+
+      return () => {
+        window.removeEventListener('resize', updateWidth);
+      };
+    }
+
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [ref]);
+
+  return width;
 }
 
 function CommanderPane({
@@ -571,7 +1001,7 @@ function CommanderPane({
       return;
     }
 
-    if (variant === 'remote' && event.key === 'Delete' && canDelete) {
+    if (event.key === 'Delete' && canDelete) {
       event.preventDefault();
       event.stopPropagation();
       onDelete?.();
@@ -640,8 +1070,16 @@ function CommanderPane({
   };
 
   const endMarqueeSelection = () => {
+    const shouldClearSelection = marqueeStartRef.current && !marqueeStartRef.current.started && !marqueeStartRef.current.additive;
+
     marqueeStartRef.current = undefined;
     setMarqueeBox(undefined);
+
+    if (shouldClearSelection) {
+      onSelectMany([]);
+      setFocusedEntryPath(undefined);
+      setSelectionAnchorPath(undefined);
+    }
   };
 
   const submitPathEdit = () => {
@@ -1011,6 +1449,8 @@ function CommanderRow({
   remoteMoveTargetPath?: string;
   variant: CommanderPaneVariant;
 }) {
+  const didDragRef = useRef(false);
+  const pendingSelectedClickRef = useRef(false);
   const gridTemplateColumns = getGridTemplateColumns(variant);
   const fileIcon = entry.kind === 'symlink'
     ? { Icon: File, className: 'text-sky-300' }
@@ -1030,10 +1470,30 @@ function CommanderRow({
       return;
     }
 
+    didDragRef.current = false;
+
+    if (selected && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      onActivate();
+      pendingSelectedClickRef.current = true;
+      return;
+    }
+
+    pendingSelectedClickRef.current = false;
     selectEntry(event.ctrlKey || event.metaKey, event.shiftKey);
   };
 
   const handleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (pendingSelectedClickRef.current) {
+      pendingSelectedClickRef.current = false;
+
+      if (!didDragRef.current) {
+        selectEntry(false, false);
+      }
+
+      didDragRef.current = false;
+      return;
+    }
+
     if (event.detail !== 0) {
       return;
     }
@@ -1062,9 +1522,16 @@ function CommanderRow({
           onSelect(entry.path, false);
         }
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={() => {
+        onDragEnd?.();
+        pendingSelectedClickRef.current = false;
+        didDragRef.current = false;
+      }}
       onDragOver={(event) => onRemoteMoveDragOver?.(event, remoteMoveTargetEntry)}
-      onDragStart={onDragStart}
+      onDragStart={(event) => {
+        didDragRef.current = true;
+        onDragStart?.(event);
+      }}
       onDrop={(event) => onRemoteMoveDrop?.(event, remoteMoveTargetEntry)}
       onDoubleClick={() => {
         if (entry.isDirectory) {
@@ -1160,6 +1627,10 @@ function CommanderContextMenu({
           Refresh
           <ContextMenuShortcut>F5</ContextMenuShortcut>
         </ContextMenuItem>
+        <ContextMenuItem onSelect={onCreateFolder} disabled={isLoading}>
+          <Folder className="size-3.5" />
+          New Folder
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onUploadSelectedLocal} disabled={isLoading || selectedCount === 0}>
           <Upload className="size-3.5" />
@@ -1169,6 +1640,15 @@ function CommanderContextMenu({
         <ContextMenuItem onSelect={() => void copyLocalPath()}>
           <Copy className="size-3.5" />
           Copy Path
+        </ContextMenuItem>
+        <ContextMenuItem
+          className="text-destructive focus:text-destructive"
+          onSelect={onDelete}
+          disabled={isLoading || selectedCount === 0}
+        >
+          <Trash2 className="size-3.5" />
+          Delete
+          <ContextMenuShortcut>Del</ContextMenuShortcut>
         </ContextMenuItem>
       </ContextMenuContent>
     );

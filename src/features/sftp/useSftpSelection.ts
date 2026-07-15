@@ -153,9 +153,16 @@ export function useSftpSelection({
 
   const endMarqueeSelection = () => {
     const didDrag = marqueeStartRef.current?.started;
+    const shouldClearSelection = marqueeStartRef.current && !didDrag && !marqueeStartRef.current.additive;
 
     marqueeStartRef.current = undefined;
     setMarqueeBox(undefined);
+
+    if (shouldClearSelection) {
+      setSelectedEntryPath(undefined);
+      setSelectedEntryPaths([]);
+      setSelectionAnchorPath(undefined);
+    }
 
     if (didDrag) {
       window.setTimeout(() => {
