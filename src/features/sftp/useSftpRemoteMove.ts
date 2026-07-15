@@ -1,12 +1,22 @@
 import { useRef, useState, type DragEvent } from 'react';
 
 import { joinSftpPath } from './sftpPathUtils';
-import { renameSftpPath, type SftpEntry } from './sftpBridge';
+import { renameSftpPath, sftpPathExists, type SftpEntry } from './sftpBridge';
 
 const remoteMoveMimeType = 'application/x-shellpilot-sftp-remote-move';
 
 type RemoteMovePayload = {
-  paths: string[];
+  remoteIdentity: string;
+  sources: RemoteMoveSource[];
+};
+
+type LegacyRemoteMovePayload = {
+  paths?: unknown;
+};
+
+type RemoteMoveSource = {
+  filename: string;
+  path: string;
 };
 
 type RemoteMoveStatus = {
@@ -17,19 +27,39 @@ type RemoteMoveStatus = {
 export function useSftpRemoteMove({
   entries,
   isRemoteReady,
+  onMoveComplete,
+  onMoveNotice,
   panelId,
+  remoteIdentity,
   runBrowserAction,
 }: {
   entries: SftpEntry[];
   isRemoteReady: boolean;
+  onMoveComplete?: () => void;
+  onMoveNotice: (message: string | undefined) => void;
   panelId: string;
+  remoteIdentity: string;
   runBrowserAction: (action: () => Promise<void>) => Promise<void>;
 }) {
-  const draggedPathsRef = useRef<string[]>([]);
+  const draggedPayloadRef = useRef<RemoteMovePayload>();
   const [moveTargetPath, setMoveTargetPath] = useState<string>();
   const [moveStatus, setMoveStatus] = useState<RemoteMoveStatus>();
 
-  const createRemoteMovePayload = (paths: string[]) => JSON.stringify({ paths } satisfies RemoteMovePayload);
+  const createRemoteMovePayload = (paths: string[]) => {
+    const sources = paths.map((path) => {
+      const entry = entries.find((candidate) => candidate.path === path);
+
+      return {
+        filename: entry?.filename ?? getSftpPathFilename(path),
+        path,
+      };
+    });
+
+    return {
+      remoteIdentity,
+      sources,
+    } satisfies RemoteMovePayload;
+  };
 
   const canMoveRemotePaths = (sourcePaths: string[], targetDirectoryPath: string) => {
     const sourceSet = new Set(sourcePaths);
@@ -45,84 +75,160 @@ export function useSftpRemoteMove({
     const rawPayload = dataTransfer.getData(remoteMoveMimeType);
 
     if (!rawPayload) {
-      return draggedPathsRef.current.length > 0 ? draggedPathsRef.current : undefined;
+      return draggedPayloadRef.current;
     }
 
     try {
-      const payload = JSON.parse(rawPayload) as Partial<RemoteMovePayload>;
+      const payload = JSON.parse(rawPayload) as Partial<RemoteMovePayload> & LegacyRemoteMovePayload;
+      const sources = Array.isArray(payload.sources)
+        ? payload.sources.filter((source): source is RemoteMoveSource =>
+          typeof source?.path === 'string' && typeof source.filename === 'string',
+        )
+        : [];
 
-      if (Array.isArray(payload.paths) && payload.paths.every((path) => typeof path === 'string')) {
-        return payload.paths;
+      if (typeof payload.remoteIdentity === 'string' && sources.length > 0) {
+        return {
+          remoteIdentity: payload.remoteIdentity,
+          sources,
+        } satisfies RemoteMovePayload;
+      }
+
+      if (Array.isArray(payload.paths) && payload.paths.every((path): path is string => typeof path === 'string')) {
+        return {
+          remoteIdentity: '',
+          sources: payload.paths.map((path) => ({
+            filename: getSftpPathFilename(path),
+            path,
+          })),
+        } satisfies RemoteMovePayload;
       }
     } catch {
-      return draggedPathsRef.current.length > 0 ? draggedPathsRef.current : undefined;
+      return draggedPayloadRef.current;
     }
 
-    return draggedPathsRef.current.length > 0 ? draggedPathsRef.current : undefined;
+    return draggedPayloadRef.current;
   };
 
   const hasRemoteMovePayload = (dataTransfer: DataTransfer) =>
-    draggedPathsRef.current.length > 0 || Array.from(dataTransfer.types).includes(remoteMoveMimeType);
+    Boolean(draggedPayloadRef.current) || Array.from(dataTransfer.types).includes(remoteMoveMimeType);
 
   const markRemoteMoveDrag = (dataTransfer: DataTransfer, paths: string[]) => {
-    draggedPathsRef.current = paths;
+    const payload = createRemoteMovePayload(paths);
+
+    draggedPayloadRef.current = payload;
     dataTransfer.effectAllowed = 'copyMove';
-    dataTransfer.setData(remoteMoveMimeType, createRemoteMovePayload(paths));
+    dataTransfer.setData(remoteMoveMimeType, JSON.stringify(payload));
   };
 
-  const handleRemoteMoveDragOver = (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => {
+  const handleRemoteMoveDragOver = (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => {
     if (!isRemoteReady) {
       return false;
     }
 
-    if (!hasRemoteMovePayload(event.dataTransfer) || !targetEntry) {
+    if (!hasRemoteMovePayload(event.dataTransfer)) {
       setMoveTargetPath(undefined);
+      return false;
+    }
+
+    if (!targetDirectoryPath) {
+      setMoveTargetPath(undefined);
+      event.stopPropagation();
       return false;
     }
 
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
-    setMoveTargetPath(targetEntry.path);
+    setMoveTargetPath(targetDirectoryPath);
     return true;
   };
 
-  const handleRemoteMoveDrop = (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => {
+  const handleRemoteMoveDrop = (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => {
     if (!isRemoteReady) {
       return false;
     }
 
-    const sourcePaths = readRemoteMovePayload(event.dataTransfer);
+    const payload = readRemoteMovePayload(event.dataTransfer);
 
     setMoveTargetPath(undefined);
 
-    if (!sourcePaths || !targetEntry || !canMoveRemotePaths(sourcePaths, targetEntry.path)) {
+    if (!payload) {
       return false;
+    }
+
+    if (!targetDirectoryPath) {
+      event.stopPropagation();
+      draggedPayloadRef.current = undefined;
+      return true;
     }
 
     event.preventDefault();
     event.stopPropagation();
+    onMoveNotice(undefined);
 
-    const sourceEntries = sourcePaths
-      .map((sourcePath) => entries.find((entry) => entry.path === sourcePath))
-      .filter((entry): entry is SftpEntry => Boolean(entry));
+    if (payload.remoteIdentity !== remoteIdentity) {
+      onMoveNotice('Server-to-server transfer is not ready yet. Use the same SFTP session to move remote files.');
+      draggedPayloadRef.current = undefined;
+      return true;
+    }
 
-    if (sourceEntries.length === 0) {
+    const sourcePaths = payload.sources.map((source) => source.path);
+
+    if (!canMoveRemotePaths(sourcePaths, targetDirectoryPath)) {
       return false;
     }
 
-    setMoveStatus({ count: sourceEntries.length, targetPath: targetEntry.path });
+    const movePlans = payload.sources.map((source) => ({
+      destinationPath: joinSftpPath(targetDirectoryPath, source.filename),
+      source,
+    })).filter(({ destinationPath, source }) => destinationPath !== source.path);
+
+    if (movePlans.length === 0) {
+      draggedPayloadRef.current = undefined;
+      return true;
+    }
 
     void runBrowserAction(async () => {
-      for (const entry of sourceEntries) {
-        const destinationPath = joinSftpPath(targetEntry.path, entry.filename);
+      try {
+        const collisions: string[] = [];
 
-        if (destinationPath !== entry.path) {
-          await renameSftpPath(panelId, entry.path, destinationPath);
+        for (const { destinationPath, source } of movePlans) {
+          if (await sftpPathExists(panelId, destinationPath)) {
+            collisions.push(source.filename);
+          }
         }
+
+        if (collisions.length > 0) {
+          onMoveNotice(formatRemoteMoveConflictError(collisions, targetDirectoryPath));
+          return;
+        }
+
+        setMoveStatus({ count: movePlans.length, targetPath: targetDirectoryPath });
+
+        const failures: string[] = [];
+        let movedCount = 0;
+
+        for (const { destinationPath, source } of movePlans) {
+          try {
+            await renameSftpPath(panelId, source.path, destinationPath);
+            movedCount += 1;
+          } catch (error) {
+            failures.push(`${source.filename}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+
+        if (movedCount > 0) {
+          onMoveComplete?.();
+        }
+
+        if (failures.length > 0) {
+          onMoveNotice(formatRemoteMoveFailureError(failures, movedCount));
+        }
+      } catch (error) {
+        onMoveNotice(`Move failed. ${error instanceof Error ? error.message : String(error)}`);
       }
     }).finally(() => {
-      draggedPathsRef.current = [];
+      draggedPayloadRef.current = undefined;
       setMoveStatus(undefined);
     });
 
@@ -130,7 +236,7 @@ export function useSftpRemoteMove({
   };
 
   const clearRemoteMoveTarget = () => {
-    draggedPathsRef.current = [];
+    draggedPayloadRef.current = undefined;
     setMoveTargetPath(undefined);
   };
 
@@ -142,6 +248,27 @@ export function useSftpRemoteMove({
     moveTargetPath,
     moveStatus,
   };
+}
+
+function getSftpPathFilename(path: string) {
+  return path.split('/').filter(Boolean).pop() ?? path;
+}
+
+function formatRemoteMoveConflictError(filenames: string[], targetPath: string) {
+  const visibleNames = filenames.slice(0, 3).join(', ');
+  const suffix = filenames.length > 3 ? ` and ${filenames.length - 3} more` : '';
+
+  return `Move canceled. ${visibleNames}${suffix} already exists in ${targetPath}.`;
+}
+
+function formatRemoteMoveFailureError(failures: string[], movedCount: number) {
+  const visibleFailures = failures.slice(0, 3).join('\n');
+  const suffix = failures.length > 3 ? `\n...and ${failures.length - 3} more` : '';
+  const prefix = movedCount > 0
+    ? `Moved ${movedCount} item${movedCount === 1 ? '' : 's'}, but ${failures.length} failed.`
+    : `Move failed for ${failures.length} item${failures.length === 1 ? '' : 's'}.`;
+
+  return `${prefix}\n${visibleFailures}${suffix}`;
 }
 
 function isSftpAncestorPath(sourcePath: string, targetPath: string) {

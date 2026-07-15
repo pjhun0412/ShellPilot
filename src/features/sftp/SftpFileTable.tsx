@@ -29,6 +29,7 @@ export function SftpFileTable({
   canRename,
   dragUploadTargetPath,
   isLoading,
+  isPanelActive,
   isRemoteReady,
   isUploadDragOver,
   marqueeBox,
@@ -60,6 +61,7 @@ export function SftpFileTable({
   parentEntryPathKey,
   parentPath,
   path,
+  pendingActivationSelectionPath,
   remoteMoveTargetPath,
   residualUploadEntries,
   selectedEntryPath,
@@ -76,6 +78,7 @@ export function SftpFileTable({
   canRename: boolean;
   dragUploadTargetPath?: string;
   isLoading: boolean;
+  isPanelActive: boolean;
   isRemoteReady: boolean;
   isUploadDragOver: boolean;
   marqueeBox?: SftpMarqueeBox;
@@ -94,9 +97,9 @@ export function SftpFileTable({
   onOpenParent: (path: string) => void;
   onRefresh: () => void;
   onRemoteMoveDragEnd: () => void;
-  onRemoteMoveDragOver: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDragOver: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
   onRemoteMoveDragStart: (event: DragEvent<HTMLElement>, paths: string[]) => void;
-  onRemoteMoveDrop: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDrop: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
   onRename: () => void;
   onSelectEntry: (entryPath: string, event: MouseEvent<HTMLElement>) => void;
   onSetShowHiddenEntries: (value: boolean) => void;
@@ -107,6 +110,7 @@ export function SftpFileTable({
   parentEntryPathKey: string;
   parentPath?: string;
   path: string;
+  pendingActivationSelectionPath?: string | null;
   remoteMoveTargetPath?: string;
   residualUploadEntries: SftpEntry[];
   selectedEntryPath?: string;
@@ -120,15 +124,6 @@ export function SftpFileTable({
 }) {
   const visibleColumns = table.getVisibleLeafColumns();
   const tableRows = table.getRowModel().rows;
-  const parentMoveTarget: SftpEntry | undefined = parentPath
-    ? {
-        filename: '..',
-        isDirectory: true,
-        kind: 'directory',
-        path: parentPath,
-      }
-    : undefined;
-
   return (
     <>
       {residualUploadEntries.length > 0 && (
@@ -196,8 +191,20 @@ export function SftpFileTable({
             <div
               className="relative h-full min-h-0 select-none"
               onDragLeave={onDragLeave}
-              onDragOver={onDragOver}
-              onDrop={onDrop}
+              onDragOver={(event) => {
+                if (onRemoteMoveDragOver(event, path)) {
+                  return;
+                }
+
+                onDragOver(event);
+              }}
+              onDrop={(event) => {
+                if (onRemoteMoveDrop(event, path)) {
+                  return;
+                }
+
+                onDrop(event);
+              }}
               onMouseDown={onBeginMarqueeSelection}
               onMouseLeave={onEndMarqueeSelection}
               onMouseMove={onUpdateMarqueeSelection}
@@ -209,7 +216,7 @@ export function SftpFileTable({
                     <div
                       className={[
                         'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
-                        selectedEntryPath === parentEntryPathKey ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+                        isPanelActive && (pendingActivationSelectionPath === parentEntryPathKey || (pendingActivationSelectionPath === undefined && selectedEntryPath === parentEntryPathKey)) ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
                         (isUploadDragOver && dragUploadTargetPath === parentPath) || remoteMoveTargetPath === parentPath ? 'border-primary/70 bg-primary/20' : '',
                       ].join(' ')}
                       data-sftp-entry-path={parentEntryPathKey}
@@ -217,8 +224,8 @@ export function SftpFileTable({
                       style={{ gridTemplateColumns: tableGridTemplateColumns }}
                       tabIndex={-1}
                       title="Parent directory"
-                      onDragOver={(event) => onRemoteMoveDragOver(event, parentMoveTarget)}
-                      onDrop={(event) => onRemoteMoveDrop(event, parentMoveTarget)}
+                      onDragOver={(event) => onRemoteMoveDragOver(event, parentPath)}
+                      onDrop={(event) => onRemoteMoveDrop(event, parentPath)}
                       onClick={(event) => onSelectEntry(parentEntryPathKey, event)}
                       onDoubleClick={() => onRefreshParent(parentPath)}
                     >
@@ -240,12 +247,20 @@ export function SftpFileTable({
                       <span aria-hidden="true" />
                     </div>
                   )}
-                  {tableRows.map((row) => (
+                  {tableRows.map((row) => {
+                    const isPendingActivationSelection = pendingActivationSelectionPath === row.original.path;
+                    const isSelected = isPanelActive && (
+                      isPendingActivationSelection || (pendingActivationSelectionPath === undefined && selectedEntryPaths.includes(row.original.path))
+                    );
+                    const isFocused = isPanelActive && pendingActivationSelectionPath === undefined && selectedEntryPath === row.original.path && !isSelected;
+
+                    return (
                     <div
                       className={[
-                        'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors odd:bg-slate-950/20 hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
-                        selectedEntryPaths.includes(row.original.path) ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
-                        selectedEntryPath === row.original.path && !selectedEntryPaths.includes(row.original.path) ? 'border-primary/40 bg-slate-800/45' : '',
+                        'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
+                        !isSelected && !isFocused ? 'odd:bg-slate-950/20' : '',
+                        isSelected ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+                        isFocused ? 'border-primary/40 bg-slate-800/45' : '',
                         ((isUploadDragOver && row.original.isDirectory && dragUploadTargetPath === row.original.path) || remoteMoveTargetPath === row.original.path) ? 'border-primary/70 bg-primary/20' : '',
                       ].join(' ')}
                       data-sftp-entry-path={row.original.path}
@@ -255,12 +270,12 @@ export function SftpFileTable({
                       tabIndex={-1}
                       draggable={isRemoteReady}
                       onDragEnd={onRemoteMoveDragEnd}
-                      onDragOver={(event) => onRemoteMoveDragOver(event, row.original.isDirectory ? row.original : undefined)}
+                      onDragOver={(event) => onRemoteMoveDragOver(event, row.original.isDirectory ? row.original.path : undefined)}
                       onDragStart={(event) => {
                         const paths = selectedEntryPaths.includes(row.original.path) ? selectedEntryPaths : [row.original.path];
                         onRemoteMoveDragStart(event, paths);
                       }}
-                      onDrop={(event) => onRemoteMoveDrop(event, row.original.isDirectory ? row.original : undefined)}
+                      onDrop={(event) => onRemoteMoveDrop(event, row.original.isDirectory ? row.original.path : undefined)}
                       onClick={(event) => onSelectEntry(row.original.path, event)}
                       onContextMenu={(event) => onContextSelectEntry(row.original.path, event)}
                       onDoubleClick={() => onOpenEntry(row.original)}
@@ -272,7 +287,8 @@ export function SftpFileTable({
                       ))}
                       <span aria-hidden="true" />
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </OverlayScrollArea>
               {isUploadDragOver && (

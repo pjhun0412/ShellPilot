@@ -1,353 +1,271 @@
 # SFTP handoff
 
-ShellPilot의 SFTP 영역은 SSH 세션/자격 증명 기반을 공유하면서, 각 workspace 패널 안에서 독립적으로 동작하는 원격 파일 탐색기입니다.
+이 문서는 ShellPilot SFTP 영역의 현재 구현 상태와 다음 작업자가 바로 이어서 볼 핵심 내용을 정리한다. `docs/sftp-design.md`는 과거 설계 내용이 섞여 있을 수 있으므로 참고용으로만 본다.
 
-이 문서는 현재 구현 상태, 최근 안정화 내용, 남은 리스크를 다음 작업자가 빠르게 이어받기 위한 기준 문서입니다. `docs/sftp-design.md`는 과거 설계 내용이 섞여 있을 수 있으므로 참고용으로만 봅니다.
+## 현재 구현 요약
 
-## 현재 목표
-
-- SSH 세션에서 SFTP 탐색기를 열 수 있습니다.
-- 같은 서버 또는 같은 session에서 여러 SFTP 패널을 열 수 있습니다.
-- 각 패널은 독립적인 `panelId`, 현재 경로, 선택 상태, 전송 요약, 스크롤 위치를 가집니다.
-- 초기 조회는 원격 home directory에서 시작합니다.
-- 사용자는 breadcrumb/path edit으로 `/`, `/data` 같은 상위/절대 경로를 직접 탐색할 수 있습니다.
-- password, key passphrase, known_hosts 검증은 SSH 공통 보안 정책을 공유합니다.
-- 파일 전송 중 기존 원격/로컬 파일은 temp/backup 방식으로 가능한 범위에서 보호합니다.
+- SFTP는 SSH 세션 정보를 기반으로 열리는 원격 파일 탐색기다.
+- 같은 서버/세션에서 여러 SFTP 패널을 동시에 열 수 있다.
+- 각 SFTP 패널은 독립적인 `panelId`, 경로, 선택 상태, 이동 history, transfer 상태를 가진다.
+- workspace 복원 후에는 파일 목록을 즉시 복원하지 않고 `restored` 상태에서 사용자가 reconnect하도록 한다.
+- SFTP sidebar는 열린 explorer, remote bookmarks, transfer queue 진입점을 제공한다.
+- 하단 전역 Transfer Queue는 여러 SFTP 패널/서버의 전송 상태를 통합해서 보여준다.
+- 패널 내부 Transfers는 현재 패널에서 발생한 전송의 간단한 상태 확인용이다.
 
 ## 주요 파일
 
 Frontend:
 
-- `src/features/sftp/SftpPanel.tsx`: SFTP 탐색기 조정자. lifecycle, selection, transfer, sidebar state를 연결합니다.
-- `src/features/sftp/SftpPanelChrome.tsx`: 패널 프레임, 상태/오류/빈 상태 표시, 내부 Transfers 요약 배치.
-- `src/features/sftp/SftpPanelHeader.tsx`: 상단 target/status, 경로, 탐색/액션 영역.
-- `src/features/sftp/SftpFileTable.tsx`: 원격 파일 목록 table/grid.
-- `src/features/sftp/SftpPanelTransferQueue.tsx`: SFTP 패널 내부의 compact transfer summary.
-- `src/features/sftp/SftpTransferQueuePanel.tsx`: 하단 전역 Transfer Queue 패널.
-- `src/features/sftp/useSftpBrowserLifecycle.ts`: `open/list/keepalive/close/reconnect/disconnect` lifecycle.
-- `src/features/sftp/useSftpScrollRestoration.ts`: 경로별 파일 목록 스크롤 위치 복원.
-- `src/features/sftp/useSftpPathActions.ts`: 경로 이동, breadcrumb, refresh.
-- `src/features/sftp/useSftpFileActions.ts`: mkdir/rename/delete/download/upload 액션 연결.
-- `src/features/sftp/useSftpTransfers.ts`: 전송 상태와 backend progress event 반영.
-- `src/features/sftp/useSftpTransferActions.ts`: upload/download/cancel/retry 액션.
-- `src/features/sftp/useSftpUploadDrop.ts`: drag-and-drop 업로드.
-- `src/features/sftp/sftpTransferStore.ts`: 패널이 닫혀도 전역 queue가 참조할 수 있는 transfer event store.
-- `src/features/sftp/sftpTransferQueueState.ts`: 하단 Transfer Queue 패널 open/close 상태.
-- `src/features/sftp/sftpSidebarState.ts`: SFTP sidebar 상태, navigation/reconnect/disconnect event bus.
-- `src/features/sftp/sftpBridge.ts`: Tauri command/listen 경계.
-- `src/features/sftp/sftpAiContext.ts`: bound AI에 제공하는 SFTP snapshot.
+- `src/features/sftp/SftpPanel.tsx`
+  - SFTP 패널의 상위 조정자.
+  - lifecycle, selection, transfer, commander/explorer mode, sidebar state, 작업 배너를 연결한다.
+- `src/features/sftp/SftpPanelHeader.tsx`
+  - 상단 target, view mode, navigation, refresh, new folder, action menu.
+- `src/features/sftp/SftpFileTable.tsx`
+  - Explorer 모드 원격 파일 grid.
+  - 정렬, 선택, 범위 선택, remote move/drop target, upload drop target을 처리한다.
+- `src/features/sftp/SftpCommanderView.tsx`
+  - Commander 모드.
+  - 좌측 Local, 우측 Remote grid, split resize, 각 pane action, path bar, drag/drop 전송/이동을 처리한다.
+- `src/features/sftp/useSftpBrowserLifecycle.ts`
+  - `open/list/keepalive/close/reconnect/disconnect` lifecycle.
+- `src/features/sftp/useSftpRemoteMove.ts`
+  - 원격 파일/폴더 이동 drag/drop.
+  - 같은 remote identity 안에서 rename 기반 이동을 수행한다.
+- `src/features/sftp/useSftpTransferActions.ts`
+  - upload/download, overwrite/skip dialog, transfer 시작 처리.
+- `src/features/sftp/useSftpTransfers.ts`
+  - backend transfer event를 패널 상태와 전역 store에 반영한다.
+- `src/features/sftp/useLocalFileBrowser.ts`
+  - Commander Local pane의 로컬 파일 목록, 선택, 폴더 생성/삭제.
+- `src/features/sftp/sftpBridge.ts`
+  - Tauri SFTP command/listen boundary.
+- `src/features/sftp/sftpSidebarState.ts`
+  - SFTP sidebar event/state bus.
+- `src/features/sftp/sftpTransferQueueState.ts`
+  - 하단 전역 Transfer Queue open/close state.
 
 Backend:
 
-- `src-tauri/src/commands/sftp.rs`: SFTP 연결, 파일 작업, 전송, 진행 이벤트.
-- `src-tauri/src/commands/ssh.rs`: 인증, known_hosts, credential resolution 등 공통 SSH 기반.
-- `src-tauri/src/commands/credentials.rs`: secret 저장/조회.
+- `src-tauri/src/commands/sftp.rs`
+  - SFTP session store, file ops, transfer, progress event.
+- `src-tauri/src/lib.rs`
+  - SFTP command 등록.
 
-Workspace/common:
+## Lifecycle / 안정화 상태
 
-- `src/App.tsx`: 전역 Transfer Queue 상태 연결.
-- `src/features/workspace/Workspace.tsx`: 저장 레이아웃에서도 tab scrollbar 설정 보정.
-- `src/features/workspace/workspaceLayout.ts`: 기본/복원 layout의 tab scrollbar 설정.
-- `src/styles/flexlayout.css`: FlexLayout 탭바 overflow, overflow menu, bottom border tab 가독성 스타일.
+- `sftp_open`은 새 연결이 성공한 뒤 기존 연결을 교체한다.
+- frontend는 lifecycle generation/request guard를 사용해 오래된 `open/list` 결과가 최신 UI를 덮어쓰지 않게 한다.
+- 같은 패널의 중복 open 요청은 queue로 직렬화한다.
+- stale generation에서 open이 완료되면 backend `sftp_close`로 즉시 정리한다.
+- `sftp session is not open` 또는 유사한 session closed 에러는 list 단계에서 자동 reconnect 후 동일 경로 list를 한 번 재시도한다.
+- keepalive 실패는 현재 자동 reconnect하지 않고 failed 상태로 전환하며 backend session을 닫는다.
 
-## 패널 모델
+## Explorer 모드
 
-- `panelId`가 backend SFTP session store의 key입니다.
-- 같은 `session.id`에서도 여러 SFTP 패널을 열 수 있습니다.
-- 패널을 닫으면 해당 `panelId`의 backend SFTP 세션을 닫습니다.
-- 저장된 workspace layout 복원 시 파일 목록은 즉시 복원하지 않고 `restored` 상태에서 사용자가 reconnect할 수 있게 합니다.
-- disconnect는 패널을 닫지 않고 backend 세션, 원격 목록, 선택, 이동 history를 정리합니다.
-- reconnect는 같은 `panelId`에 새 backend SFTP 연결을 만들고 현재 UI를 다시 활성화합니다.
-
-## Lifecycle 안정화 상태
-
-현재 lifecycle은 다음 원칙으로 동작합니다.
-
-- `sftp_open`은 backend에서 새 연결을 먼저 만든 뒤 session store에 교체합니다. 새 연결 실패 시 기존 연결을 먼저 끊지 않습니다.
-- 기존 연결 교체 후 이전 connection과 해당 패널의 stream upload 잔여 상태를 정리합니다.
-- frontend `useSftpBrowserLifecycle`은 directory request id를 사용해 늦게 끝난 `sftp_list` 결과가 최신 경로를 덮어쓰지 않도록 합니다.
-- reconnect/disconnect/unmount 중 늦게 끝난 `sftp_open`이 닫힌 패널 상태를 되살리지 않도록 lifecycle generation을 비교합니다.
-- 같은 패널에서 `openSftpSession` 요청이 겹치면 queue로 직렬화합니다.
-- stale generation에서 open이 완료되면 backend `sftp_close`로 즉시 정리합니다.
-- `sftp session is not open` 또는 유사한 session closed 오류는 list 단계에서 자동 reconnect 후 동일 경로 list를 한 번 재시도합니다.
-- keepalive 실패는 현재 자동 reconnect하지 않고 `failed` 상태로 전환한 뒤 backend session을 닫습니다. 자동 복구 정책은 별도 결정이 필요합니다.
-
-## Workspace / Sidebar 통합
-
-SFTP sidebar:
-
-- 열린 SFTP 탐색기를 현재 경로 중심으로 표시합니다.
-- 같은 서버/경로의 탐색기는 중복을 줄여 표시합니다.
-- remote bookmark는 저장된 경로를 다시 여는 진입점입니다.
-- 탐색기 context menu는 open/reconnect/clone explorer/add bookmark/copy path/close를 제공합니다.
-- bookmark context menu는 open/copy path/remove bookmark를 제공합니다.
-
-Open Tabs sidebar:
-
-- SSH, SFTP, RDP, VNC, Local, AI, Settings 탭을 보여줍니다.
-- 서버별 그룹에서는 session name을 우선 사용하고 host/username은 보조 정보로 표시합니다.
-- 연결 상태는 `connectionStatus.ts`의 publish/subscribe 상태를 사용합니다.
-- 탭 context menu의 reconnect/disconnect는 기능별 lifecycle bus로 라우팅합니다.
-
-## 탐색기 UI
-
-현재 모드는 Remote Only 탐색기입니다.
-
-```text
-SFTP Panel
-  Header
-    - target/status
-    - back / forward / refresh
-    - new folder
-    - upload / download
-    - rename / delete
-  Path bar
-    - breadcrumb
-    - direct path edit
-    - copy path
-  Remote file table
-    - parent directory row
-    - name / type / modified / permissions / owner / size
-  Compact Transfers
-    - latest/running/failed transfers for this panel
-```
-
-지원 기능:
+지원 상태:
 
 - 원격 경로 이동
-- breadcrumb 기반 탐색
+- breadcrumb 기반 이동
 - direct path edit
-- 현재 경로 복사
-- back/forward/refresh
+- path copy
+- back / forward / refresh
 - parent directory row
-- 파일/디렉터리 목록 조회
-- 정렬 및 컬럼 리사이즈
-- 반응형 컬럼 표시
+- 파일/폴더 목록 조회
+- Name / Modified / Size 중심의 responsive grid
+- 정렬
 - 다중 선택, 범위 선택, Ctrl+A
-- keyboard navigation과 scroll tracking
-- 경로별 스크롤 위치 복원
+- keyboard navigation 및 선택 row scroll tracking
+- 경로별 scroll position 복원
 - 새 폴더 생성
-- 이름 변경
-- 파일/폴더 삭제
-- 잔여 temp/backup 파일 감지와 정리 액션
+- rename / delete
+- upload / download
+- remote 파일/폴더 이동 drag/drop
 
-UI 주의:
+최근 정리된 UI 동작:
 
-- in-app scrollable 영역은 native-looking scrollbar 대신 `app-scrollbar`/`OverlayScrollArea` 기준을 유지합니다.
-- FlexLayout 탭바 scrollbar는 FlexLayout mini scrollbar를 사용하되 ShellPilot 색상/두께로 맞춥니다.
-- SFTP 패널 내부 compact Transfers는 빠른 확인용이고, 전체 관리/재시도/정리는 하단 전역 Transfer Queue가 담당합니다.
+- SFTP 탭/패널이 비활성화되면 내부 선택 UI는 숨긴다.
+- 비활성 탭을 다시 클릭할 때 기존 선택 UI가 먼저 깜빡이지 않도록 클릭 대상 row 또는 빈 공간 클릭 상태를 임시로 반영한다.
+- 전체 선택 시 odd row 배경이 섞이지 않도록 선택 row 색상을 통일했다.
+- 빈 영역에 remote item을 drop하면 현재 경로로 이동한다.
+- 폴더 row에 drop하면 해당 폴더 안으로 이동한다.
+- 파일 row 위 drop은 이동으로 처리하지 않는다.
 
-## 파일 전송
+## Commander 모드
 
-지원 범위:
+현재 목적:
 
-- 파일 업로드
-- 폴더 업로드
-- drag-and-drop 파일/폴더 업로드
-- 파일 다운로드
-- 폴더 다운로드
-- 다중 선택 업로드/다운로드
-- 전송 취소
-- 실패 항목 재시도
-- 완료 항목 정리
-- 다운로드 완료 후 로컬 폴더 열기
+- WinSCP 계열처럼 좌측 Local, 우측 Remote를 동시에 보며 upload/download를 빠르게 수행한다.
 
-전송 queue는 frontend에서 상태를 병합하고, backend는 `shellpilot-sftp-transfer` 이벤트로 `started/progress/completed/failed/canceled`를 보냅니다.
+지원 상태:
 
-전송 event payload의 핵심 필드:
+- Local / Remote 양쪽 grid 표시.
+- Local drive/root 변경.
+- Local path 직접 edit 및 OS folder picker.
+- Remote path breadcrumb/edit/copy.
+- Local / Remote back, forward, refresh, new folder.
+- Local folder 생성/삭제.
+- Remote folder 생성/rename/delete/download/upload.
+- 각 pane 정렬.
+- 각 pane keyboard navigation, Shift 범위 선택, Ctrl+A.
+- mouse marquee 범위 선택.
+- Local -> Remote drag/drop upload.
+- Remote -> Local drag/drop download.
+- Remote -> Remote drag/drop move.
+- Remote move 완료 후 같은 remote identity를 가진 SFTP 패널은 refresh event로 갱신한다.
 
-```ts
-interface SftpTransferEvent {
-  panelId: string;
-  transferId: string;
-  direction: 'upload' | 'download';
-  localPath: string;
-  remotePath: string;
-  totalBytes: number;
-  transferredBytes: number;
-  status: 'started' | 'progress' | 'completed' | 'failed' | 'canceled';
-  message?: string;
-}
-```
+UI/상태 주의:
 
-### 내부 queue와 전역 queue 역할
+- Commander의 Local/Remote 선택 상태는 내부적으로 각각 유지한다.
+- SFTP 패널 자체가 비활성일 때는 Commander 내부 선택 UI도 숨긴다.
+- active pane만 선택 하이라이트를 보여준다.
+- 상단 action은 Local pane이 활성일 때 local action, Remote pane이 활성일 때 remote action으로 동작한다.
+- Commander more action menu는 panel action group 안에서 clipping되지 않도록 overflow를 열어둔다.
 
-- SFTP 패널 내부 compact Transfers
-  - 해당 패널에서 방금 발생한 전송의 빠른 상태 확인용입니다.
-  - 좁은 패널에서도 보이도록 압축된 정보만 표시합니다.
-  - 자세한 경로/오류/재시도는 전역 queue로 넘기는 UX가 적합합니다.
+## Remote move / server-to-server 상태
 
+현재 구현:
+
+- 같은 remote identity 안에서는 rename 기반 이동을 지원한다.
+- remote identity는 `username@host:port` 기반으로 만든다.
+- 같은 서버를 좌/우 두 SFTP 패널로 열어 둔 경우에도 같은 remote identity면 이동 후 양쪽 패널을 refresh한다.
+- 이동 전 대상 경로 존재 여부를 `sftp_path_exists`로 확인한다.
+- 같은 이름이 있으면 이동하지 않고 작업 배너로 알린다.
+- 일부만 실패한 경우 성공한 항목 수와 실패 항목을 작업 배너로 알린다.
+
+아직 제한:
+
+- 다른 remote identity 사이의 서버 대 서버 전송은 아직 실제 복사/전송으로 구현하지 않았다.
+- 현재는 “Server-to-server transfer is not ready yet...” 작업 배너로 안내한다.
+- 추후 서버 간 전송은 direct server-to-server가 아니라 download-to-temp 후 upload 또는 backend mediated transfer 정책 결정이 필요하다.
+
+## 작업 배너 / 오류 표시
+
+- 연결/lifecycle 오류는 기존 SFTP error 영역을 사용하며 Reconnect 버튼을 보여준다.
+- 파일 작업 오류는 연결 오류와 분리된 작업 배너로 보여준다.
+- Remote move 충돌/부분 실패/지원 안 됨은 작업 배너를 사용한다.
+- 작업 배너는 닫기 버튼을 제공한다.
+
+## Transfer Queue
+
+역할 분리:
+
+- 패널 내부 Transfers
+  - 현재 SFTP 패널에서 방금 발생한 전송의 빠른 상태 확인용.
+  - 긴 경로/상세 오류/재시도는 전역 queue가 주 역할이다.
 - 하단 전역 Transfer Queue
-  - 여러 SFTP 패널/여러 서버의 전송을 한 곳에서 관리합니다.
-  - 패널이 닫혀도 전송 이벤트 상태를 유지할 수 있도록 frontend transfer store를 사용합니다.
-  - 향후 command mode 또는 여러 서버 동시 다운로드 시 중심 queue 역할을 합니다.
+  - 여러 SFTP 패널/서버의 upload/download를 한 곳에서 관리한다.
+  - 닫혀 있어도 transfer store가 event를 받도록 유지한다.
 
-## 업로드 방식
+지원 상태:
 
-### OS 경로 기반 업로드
+- 파일 upload/download
+- 폴더 upload/download
+- drag/drop upload/download
+- 다중 선택 upload/download
+- progress/speed/size/status 표시
+- cancel/retry/clear finished
+- upload collision dialog
+- download collision dialog
+- download 완료 후 Commander Local pane refresh
 
-업로드 버튼에서 파일/폴더를 선택하면 로컬 OS 경로를 Rust backend에 전달합니다.
+주의:
 
-- backend가 로컬 파일을 직접 읽습니다.
-- 대용량 파일에 적합합니다.
-- 폴더 업로드는 로컬 디렉터리를 재귀 순회합니다.
-- 각 파일은 원격 temp 파일에 먼저 쓰고 finalize 단계에서 교체합니다.
-
-### Drag-and-drop stream upload
-
-WebView의 HTML5 drop `File` 객체에는 안정적인 OS 경로가 없을 수 있습니다. 그래서 drag-and-drop은 frontend가 파일 chunk를 읽고 Rust backend의 stream command로 전달합니다.
-
-- `webkitGetAsEntry()`로 파일/폴더를 구분합니다.
-- 폴더는 frontend에서 재귀 순회합니다.
-- 파일 내용은 chunk 단위로 전달합니다.
-- 임시 로컬 파일을 만들지 않습니다.
-- 실패/취소 시 원격 temp 파일 정리를 시도합니다.
-
-## 충돌 처리와 안전한 파일 교체
-
-업로드 대상에 같은 이름의 원격 파일이 있으면 사용자에게 처리 방식을 묻습니다.
-
-- Overwrite
-- Overwrite All
-- Skip
-- Skip All
-- Cancel
-
-업로드 흐름:
-
-```text
-remotePath.tmp-shellpilot-{transferId} 에 기록
-기록 성공
-기존 remotePath가 있으면 remotePath.bak-shellpilot-{transferId} 로 rename
-temp를 remotePath로 rename
-성공하면 backup 삭제
-실패하면 backup을 remotePath로 복구 시도
-```
-
-다운로드 흐름:
-
-```text
-localPath.tmp-shellpilot-{transferId} 에 기록
-기록 성공
-기존 localPath가 있으면 localPath.bak-shellpilot-{transferId} 로 rename
-temp를 localPath로 rename
-성공하면 backup 삭제
-실패하면 backup을 localPath로 복구 시도
-```
-
-복구까지 실패하면 temp 또는 backup이 남을 수 있습니다. SFTP 탐색기는 현재 디렉터리에서 `.tmp-shellpilot-*`, `.bak-shellpilot-*` 패턴을 감지하고 사용자가 정리할 수 있게 합니다.
+- 로컬 경로는 Windows extended path prefix가 UI에 노출되지 않도록 표시 계층에서 정리한다.
+- 에러 메시지는 가능한 한 작업 맥락을 포함해 표시한다.
 
 ## Backend command
 
-기본 command:
+주요 SFTP command:
 
 ```text
-sftp_open(target)
-sftp_list(panelId, path)
-sftp_keepalive(panelId)
-sftp_mkdir(panelId, path)
-sftp_rename(panelId, oldPath, newPath)
-sftp_remove_file(panelId, path)
-sftp_remove_dir(panelId, path)
-sftp_close(panelId)
+sftp_open
+sftp_list
+sftp_keepalive
+sftp_mkdir
+sftp_rename
+sftp_remove_file
+sftp_remove_dir
+sftp_close
+sftp_path_exists
 ```
 
 전송 command:
 
 ```text
-sftp_upload(panelId, localPath, remotePath, transferId)
-sftp_upload_stream_open(panelId, localPath, remotePath, transferId, totalBytes)
-sftp_upload_stream_chunk(transferId, chunk)
-sftp_upload_stream_close(transferId)
-sftp_download(panelId, remotePath, localPath, transferId)
-sftp_cancel_transfer(transferId)
+sftp_upload
+sftp_upload_stream_open
+sftp_upload_stream_chunk
+sftp_upload_stream_close
+sftp_download
+sftp_download_dir
+sftp_cancel_transfer
 ```
 
-로컬 helper:
+Local helper:
 
 ```text
-reveal_local_path(path)
+list_local_directory
+create_local_directory
+delete_local_path
+reveal_local_path
 ```
 
-## 보안 정책
+## 보안 / 안전 정책
 
-- password와 key passphrase는 session data/localStorage에 저장하지 않습니다.
-- credential ref만 session 데이터에 저장합니다.
-- 실제 secret은 Tauri credential store에서 조회합니다.
-- unknown host key는 fingerprint 확인 후 저장합니다.
-- host key mismatch는 차단합니다.
-- SFTP 실패 메시지는 host key, 인증, 네트워크, 권한 문제를 가능한 범위에서 구분합니다.
-- 파일 전송 로그에는 secret, private key passphrase, password를 남기지 않습니다.
-- `sftp.rs`에서 사용자/그룹 이름 조회는 `getent passwd/group` 또는 `/etc/passwd`, `/etc/group` fallback을 사용합니다. 이 명령 결과는 소유자 표시용 metadata이며 secret을 포함하지 않는 전제로 사용합니다.
-
-## AI 연동
-
-SFTP-bound AI 패널은 현재 SFTP 패널 snapshot을 받을 수 있습니다.
-
-포함 정보:
-
-- 현재 원격 경로
-- 연결 상태
-- visible entries
-- selected entries
-- session target metadata
-
-AI는 SFTP context를 읽기 전용 참고 자료로 사용합니다. mutating file action은 별도의 승인 gate가 생기기 전까지 자동 실행하지 않습니다.
+- password, key passphrase는 session data/localStorage에 저장하지 않는다.
+- session에는 credential ref만 보관한다.
+- 실제 secret은 Tauri credential store에서 조회한다.
+- unknown host key는 fingerprint 확인 후 저장한다.
+- host key mismatch는 차단한다.
+- transfer log와 UI 메시지에는 secret/private key/passphrase/password가 포함되지 않아야 한다.
+- 파일 전송은 temp/backup finalize 흐름으로 가능한 범위에서 기존 파일 손상을 줄인다.
+- remote move는 이동 전 destination 존재 여부를 확인해 의도치 않은 overwrite를 막는다.
 
 ## 구현 완료 상태
 
-- SSH 탭에서 SFTP 열기
-- SFTP 연결 열기/닫기
-- home directory 초기 조회
-- 원격 목록 조회
-- 경로 이동, breadcrumb, path edit, path copy
-- back/forward/refresh
-- parent directory row
-- grid 정렬, 컬럼 리사이즈, 반응형 컬럼
-- 다중 선택, 범위 선택, keyboard navigation
-- 경로별 scroll restoration
-- 새 폴더 생성
-- 이름 변경
-- 파일/폴더 삭제
-- 파일/폴더 업로드
-- drag-and-drop 파일/폴더 업로드
-- 파일/폴더 다운로드
-- 충돌 처리
-- 전송 queue progress, 속도, cancel, retry, completed clear
-- 패널 내부 compact Transfers
-- 하단 전역 Transfer Queue
-- 다운로드 완료 후 로컬 폴더 열기
-- temp/backup 기반 안전 교체
-- 잔여 temp/backup 감지 및 정리
-- SFTP sidebar 열린 탐색기/북마크/경로 복사/clone/reconnect/disconnect
-- Open Tabs 연결 상태 표시와 group action
-- Bound AI context snapshot
-- SFTP lifecycle request/generation guard
-- SFTP open request serialization
-- 저장/복원 workspace tabbar overflow 이동 지원
+- SFTP open/close/reconnect/disconnect
+- session restore card
+- SFTP sidebar open explorers/bookmarks/queue
+- Explorer mode
+- Commander mode 기본 UI
+- Local/Remote path navigation
+- Local folder create/delete
+- Remote folder create/rename/delete
+- Upload/download
+- Upload/download overwrite/skip dialog
+- Transfer Queue
+- Remote same-server move
+- Remote move collision check
+- Remote move operation banner
+- Same remote identity panel refresh
+- Selection UI inactive panel hiding
+- Scroll restoration
+- App scrollbar / OverlayScrollArea 적용
 
-## 남은 검증/확장 항목
+## 남은 작업 후보
 
-- Transfer Queue 실사용 장기 테스트
-  - upload/download 진행률
-  - 실패/취소/재시도 UX
-  - 패널 닫힘 상태에서 전역 queue event/state 보존
-  - 여러 서버 동시 다운로드
-- keepalive 실패 후 자동 reconnect 여부 정책 결정
-- Commander mode: WinSCP 스타일의 좌측 로컬/우측 원격 패널
-- Pinned / Recent paths: 서버별 자주 가는 경로와 최근 경로
-- 전송 고도화: 일시정지, 이어받기, 병렬 전송 수 설정
-- 권한/소유자 고도화: uid/gid를 username/group name으로 변환하는 cache 전략
-- backend `sftp.rs` 분리 검토
-  - 현재는 안정화 중이라 단일 파일 유지
-  - 분리한다면 `session/lifecycle/file_ops/transfer/errors` 정도의 의미 있는 단위로만 분리
+우선순위 후보:
 
-## 유지보수 주의점
+1. 서버 간 전송 정책 결정 및 구현
+   - 다른 remote identity 사이 drag/drop.
+   - backend mediated transfer 방식, 임시 로컬 경유 여부, collision dialog 정책 필요.
+2. Commander UX 추가 안정화
+   - Local/Remote action 반응형 세부 조정.
+   - 더블 클릭/키보드/컨텍스트 메뉴 edge case 실사용 점검.
+3. Transfer Queue 고도화
+   - 대용량/다중 서버 동시 전송 장시간 테스트.
+   - 실패/취소/재시도 UX 점검.
+4. Lifecycle 장기 안정성 테스트
+   - 여러 서버, 여러 패널, reconnect/disconnect/open tabs group action 반복 테스트.
+5. Backend `sftp.rs` 분리 검토
+   - 현재는 안정화 우선으로 단일 파일 유지.
+   - 분리한다면 `session/lifecycle/file_ops/transfer/errors` 정도의 의미 있는 단위로만 분리한다.
 
-- SFTP 작업은 가능한 `src/features/sftp/**`와 `src-tauri/src/commands/sftp.rs` 안에 머무릅니다.
-- workspace/sidebar 변경은 SFTP lifecycle route나 tab overflow처럼 공통 코드 수정이 꼭 필요한 경우에만 작게 수정합니다.
-- 전송 취소/실패 경로에서는 temp/backup 정리를 항상 고려합니다.
-- `OverlayScrollArea`/`app-scrollbar` 공통 스크롤 정책을 유지합니다.
-- 대용량 drag-and-drop은 브라우저 memory를 많이 쓸 수 있으므로 chunk 흐름을 끊지 않게 합니다.
-- `sftp_open` 앞뒤로 무조건 기존 session을 먼저 닫지 않습니다. 새 연결 성공 후 교체해야 reconnect 실패 시 기존 세션을 보존할 수 있습니다.
-- 같은 패널의 open 요청이 겹치지 않도록 frontend queue/generation guard를 유지합니다.
+## 유지보수 주의
+
+- SFTP 작업은 가능한 `src/features/sftp/**`와 `src-tauri/src/commands/sftp.rs` 안에 머무른다.
+- workspace/tab/focus 공통 코드는 꼭 필요할 때만 최소 수정한다.
+- in-app scrollable 영역은 native scrollbar 대신 `app-scrollbar`/`OverlayScrollArea`를 사용한다.
+- selection 로직은 Explorer/Commander 양쪽에서 재사용 관점으로 보되, Commander의 Local/Remote 상태 분리는 유지한다.
+- remote move와 transfer는 overwrite/collision 정책이 다르므로 무리하게 합치지 않는다.

@@ -455,6 +455,31 @@ pub async fn sftp_rename(
 }
 
 #[tauri::command]
+pub async fn sftp_path_exists(
+    store: State<'_, SftpSessionStore>,
+    panel_id: String,
+    path: String,
+) -> Result<bool, String> {
+    let connection = get_sftp_connection(&store, &panel_id).await?;
+    let connection = connection.lock().await;
+
+    match connection.session.metadata(path).await {
+        Ok(_) => Ok(true),
+        Err(error) if is_sftp_no_such_file_error(&error) => Ok(false),
+        Err(error) => Err(format!("failed to check remote path: {error}")),
+    }
+}
+
+fn is_sftp_no_such_file_error(error: &impl std::fmt::Display) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+
+    message.contains("no such file")
+        || message.contains("not found")
+        || message.contains("does not exist")
+        || message.contains("no such path")
+}
+
+#[tauri::command]
 pub async fn sftp_remove_file(
     store: State<'_, SftpSessionStore>,
     panel_id: String,

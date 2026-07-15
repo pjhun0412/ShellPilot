@@ -62,7 +62,7 @@ const COMMANDER_HEADER_CLASS_NAME =
   'grid shrink-0 items-center gap-x-2 border-b border-border/70 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-200';
 const COMMANDER_BODY_CLASS_NAME = 'grid min-w-full gap-1 py-1.5 pl-2 pr-1';
 const COMMANDER_ROW_CLASS_NAME =
-  'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 outline-none transition-colors odd:bg-slate-950/20 hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white focus:outline-none';
+  'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 outline-none transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white focus:outline-none';
 const COMMANDER_MAX_SPLIT_PERCENT = 75;
 const COMMANDER_MIN_SPLIT_PERCENT = 25;
 const COMMANDER_DEFAULT_SORT: CommanderSortState = { desc: false, key: 'name' };
@@ -81,7 +81,9 @@ export function SftpCommanderView({
   localSelectedPaths,
   localBackStackLength,
   localForwardStackLength,
+  pendingActivationSelectionPath,
   activePane,
+  isPanelActive,
   canRemoteDelete,
   canRemoteDownload,
   canRemoteRename,
@@ -136,7 +138,9 @@ export function SftpCommanderView({
   localSelectedPaths: string[];
   localBackStackLength: number;
   localForwardStackLength: number;
+  pendingActivationSelectionPath?: string | null;
   activePane: CommanderPaneVariant;
+  isPanelActive: boolean;
   canRemoteDelete: boolean;
   canRemoteDownload: boolean;
   canRemoteRename: boolean;
@@ -161,9 +165,9 @@ export function SftpCommanderView({
   onRemoteRefresh: () => void;
   onRenameRemote: () => void;
   onRemoteMoveDragEnd: () => void;
-  onRemoteMoveDragOver: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDragOver: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
   onRemoteMoveDragStart: (event: DragEvent<HTMLElement>, paths: string[]) => void;
-  onRemoteMoveDrop: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDrop: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
   onRemoteGoBack: () => void;
   onRemoteGoForward: () => void;
   onSetShowHiddenEntries: (value: boolean) => void;
@@ -239,7 +243,7 @@ export function SftpCommanderView({
         gridTemplateRows: 'auto minmax(0, 1fr)',
       }}
     >
-      <div className="flex min-w-0 justify-end overflow-hidden">
+      <div className="flex min-w-0 justify-end">
         <CommanderPaneActionGroup
           backStackLength={localBackStackLength}
           canDelete={localSelectedPaths.length > 0}
@@ -265,7 +269,7 @@ export function SftpCommanderView({
 
       <span className="h-7 w-px justify-self-center bg-border/70" aria-hidden="true" />
 
-      <div className="flex min-w-0 justify-end overflow-hidden">
+      <div className="flex min-w-0 justify-end">
         <CommanderPaneActionGroup
           backStackLength={remoteBackStackLength}
           canDelete={canRemoteDelete}
@@ -300,12 +304,13 @@ export function SftpCommanderView({
         error={localError}
         isLoading={localIsLoading}
         label="Local"
-        isActive={activePane === 'local'}
+        isActive={isPanelActive && activePane === 'local'}
         canDelete={localSelectedPaths.length > 0}
         parentPath={localParentPath}
         path={localPath}
         localRoots={localRoots}
         selectedPaths={localSelectedPaths}
+        pendingActivationSelectionPath={pendingActivationSelectionPath}
         onActivate={onActivePaneChange}
         onNavigate={onLocalNavigate}
         onBrowseDirectory={browseLocalDirectory}
@@ -338,10 +343,11 @@ export function SftpCommanderView({
         entries={remoteEntries}
         isLoading={remoteIsLoading}
         label="Remote"
-        isActive={activePane === 'remote'}
+        isActive={isPanelActive && activePane === 'remote'}
         parentPath={remoteParentPath}
         path={remotePath}
         selectedPaths={remoteSelectedPaths}
+        pendingActivationSelectionPath={pendingActivationSelectionPath}
         canDelete={canRemoteDelete}
         canDownload={canRemoteDownload}
         canRename={canRemoteRename}
@@ -714,6 +720,7 @@ function CommanderPane({
   label,
   parentPath,
   path,
+  pendingActivationSelectionPath,
   localRoots = [],
   selectedPaths,
   canDelete = false,
@@ -758,6 +765,7 @@ function CommanderPane({
   label: string;
   parentPath?: string;
   path: string;
+  pendingActivationSelectionPath?: string | null;
   localRoots?: LocalRootEntry[];
   selectedPaths: string[];
   canDelete?: boolean;
@@ -776,9 +784,9 @@ function CommanderPane({
   onRefresh: () => void;
   onRename?: () => void;
   onRemoteMoveDragEnd?: () => void;
-  onRemoteMoveDragOver?: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDragOver?: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
   onRemoteMoveDragStart?: (event: DragEvent<HTMLElement>, paths: string[]) => void;
-  onRemoteMoveDrop?: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDrop?: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
   onSelect: (path: string, additive: boolean) => void;
   onSelectMany: (paths: string[]) => void;
   onSetShowHiddenEntries?: (value: boolean) => void;
@@ -822,14 +830,6 @@ function CommanderPane({
     ? localRoots.find((root) => isSameLocalRoot(root.path, firstPathSegment.path))?.path
     : undefined;
   const sortedEntryPaths = useMemo(() => sortedEntries.map((entry) => entry.path), [sortedEntries]);
-  const parentMoveTarget: SftpEntry | undefined = variant === 'remote' && parentPath
-    ? {
-        filename: '..',
-        isDirectory: true,
-        kind: 'directory',
-        path: parentPath,
-      }
-    : undefined;
   const activatePane = useCallback(() => {
     onActivate(variant);
     paneRef.current?.focus({ preventScroll: true });
@@ -1114,8 +1114,20 @@ function CommanderPane({
         isActive ? 'border-primary/70 shadow-[inset_0_0_0_1px_hsl(var(--primary)_/_0.16)]' : 'border-border/70',
       ].join(' ')}
       onFocusCapture={() => onActivate(variant)}
-      onDragOver={(event) => handlePaneDragOver(event, variant, dragSourceVariant)}
-      onDrop={(event) => handlePaneDrop(event, variant, onDropPaths)}
+      onDragOver={(event) => {
+        if (variant === 'remote' && onRemoteMoveDragOver?.(event, path)) {
+          return;
+        }
+
+        handlePaneDragOver(event, variant, dragSourceVariant);
+      }}
+      onDrop={(event) => {
+        if (variant === 'remote' && onRemoteMoveDrop?.(event, path)) {
+          return;
+        }
+
+        handlePaneDrop(event, variant, onDropPaths);
+      }}
       onKeyDown={handleCommanderKeyDown}
       tabIndex={-1}
     >
@@ -1325,6 +1337,7 @@ function CommanderPane({
                         path: parentPath,
                       }}
                       selected={false}
+                      pendingActivationSelectionPath={pendingActivationSelectionPath}
                       showSelection={isActive}
                       onActivate={activatePane}
                       onNavigate={onNavigate}
@@ -1334,7 +1347,7 @@ function CommanderPane({
                       onRemoteMoveDrop={onRemoteMoveDrop}
                       onDragStart={undefined}
                       remoteMoveTargetPath={remoteMoveTargetPath}
-                      remoteMoveTargetEntry={parentMoveTarget}
+                      remoteMoveTargetDirectoryPath={variant === 'remote' ? parentPath : undefined}
                       variant={variant}
                     />
                   )}
@@ -1343,6 +1356,7 @@ function CommanderPane({
                       entry={entry}
                       key={entry.path}
                       selected={selectedPaths.includes(entry.path)}
+                      pendingActivationSelectionPath={pendingActivationSelectionPath}
                       showSelection={isActive}
                       onActivate={activatePane}
                       onNavigate={onNavigate}
@@ -1363,7 +1377,7 @@ function CommanderPane({
                         onDragSourceChange(undefined);
                       }}
                       remoteMoveTargetPath={remoteMoveTargetPath}
-                      remoteMoveTargetEntry={entry.kind === 'directory' ? (entry as SftpEntry) : undefined}
+                      remoteMoveTargetDirectoryPath={variant === 'remote' && entry.kind === 'directory' ? entry.path : undefined}
                       variant={variant}
                     />
                   ))}
@@ -1422,6 +1436,7 @@ function CommanderRow({
   entry,
   selected,
   showSelection,
+  pendingActivationSelectionPath,
   onActivate,
   onNavigate,
   onSelect,
@@ -1430,28 +1445,33 @@ function CommanderRow({
   onRemoteMoveDrop,
   onDragStart,
   onDragEnd,
-  remoteMoveTargetEntry,
+  remoteMoveTargetDirectoryPath,
   remoteMoveTargetPath,
   variant,
 }: {
   entry: CommanderEntry;
   selected: boolean;
   showSelection: boolean;
+  pendingActivationSelectionPath?: string | null;
   onActivate: () => void;
   onNavigate: (path: string) => void;
   onSelect: (path: string, additive: boolean) => void;
   onSelectRange: (path: string) => void;
   onDragEnd?: () => void;
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void;
-  onRemoteMoveDragOver?: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
-  onRemoteMoveDrop?: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
-  remoteMoveTargetEntry?: SftpEntry;
+  onRemoteMoveDragOver?: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
+  onRemoteMoveDrop?: (event: DragEvent<HTMLElement>, targetDirectoryPath: string | undefined) => boolean;
+  remoteMoveTargetDirectoryPath?: string;
   remoteMoveTargetPath?: string;
   variant: CommanderPaneVariant;
 }) {
   const didDragRef = useRef(false);
   const pendingSelectedClickRef = useRef(false);
   const gridTemplateColumns = getGridTemplateColumns(variant);
+  const isPendingActivationSelection = pendingActivationSelectionPath === entry.path;
+  const shouldShowSelection = showSelection && (
+    isPendingActivationSelection || (pendingActivationSelectionPath === undefined && selected)
+  );
   const fileIcon = entry.kind === 'symlink'
     ? { Icon: File, className: 'text-sky-300' }
     : getSftpFileIcon(entry.filename);
@@ -1506,7 +1526,8 @@ function CommanderRow({
       data-commander-entry-path={entry.path}
       className={[
         COMMANDER_ROW_CLASS_NAME,
-        selected && showSelection ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+        !shouldShowSelection ? 'odd:bg-slate-950/20' : '',
+        shouldShowSelection ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
         remoteMoveTargetPath === entry.path ? 'border-primary/70 bg-primary/20' : '',
       ].join(' ')}
       role="button"
@@ -1527,12 +1548,12 @@ function CommanderRow({
         pendingSelectedClickRef.current = false;
         didDragRef.current = false;
       }}
-      onDragOver={(event) => onRemoteMoveDragOver?.(event, remoteMoveTargetEntry)}
+      onDragOver={(event) => onRemoteMoveDragOver?.(event, remoteMoveTargetDirectoryPath)}
       onDragStart={(event) => {
         didDragRef.current = true;
         onDragStart?.(event);
       }}
-      onDrop={(event) => onRemoteMoveDrop?.(event, remoteMoveTargetEntry)}
+      onDrop={(event) => onRemoteMoveDrop?.(event, remoteMoveTargetDirectoryPath)}
       onDoubleClick={() => {
         if (entry.isDirectory) {
           onNavigate(entry.path);

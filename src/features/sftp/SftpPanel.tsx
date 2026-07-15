@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-table';
 import {
   RotateCcw,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -52,6 +53,10 @@ import type { SftpEntry } from './sftpBridge';
 
 const sftpParentEntryPath = '__sftp_parent__';
 
+type SftpOperationNotice = {
+  message: string;
+};
+
 export function SftpPanel({
   autoConnect = true,
   initialPath,
@@ -78,6 +83,9 @@ export function SftpPanel({
   const [viewMode, setViewMode] = useState<SftpViewMode>('explorer');
   const [commanderActivePane, setCommanderActivePane] = useState<CommanderPaneVariant>('remote');
   const [commanderRemoteSelectedPaths, setCommanderRemoteSelectedPaths] = useState<string[]>([]);
+  const [operationNotice, setOperationNotice] = useState<SftpOperationNotice>();
+  const [pendingActivationSelectionPath, setPendingActivationSelectionPath] = useState<string | null>();
+  const remoteIdentity = useMemo(() => createSftpRemoteIdentity(session), [session]);
   const setShowHiddenEntries = useCallback((value: boolean | ((current: boolean) => boolean)) => {
     setShowHiddenEntriesState((current) => {
       const nextValue = typeof value === 'function' ? value(current) : value;
@@ -200,6 +208,13 @@ export function SftpPanel({
     saveScrollPosition();
     return loadDirectory(nextPath, options);
   }, [loadDirectory, saveScrollPosition]);
+  useEffect(() => {
+    return subscribeSftpRemoteRefreshRequest(({ remoteIdentity: targetRemoteIdentity }) => {
+      if (targetRemoteIdentity === remoteIdentity && isRemoteReady) {
+        void loadSftpDirectory();
+      }
+    });
+  }, [isRemoteReady, loadSftpDirectory, remoteIdentity]);
   const goBackWithScrollSave = useCallback(() => {
     saveScrollPosition();
     return goBack();
@@ -317,6 +332,11 @@ export function SftpPanel({
     entries,
     isRemoteReady,
     panelId,
+    onMoveComplete: () => requestSftpRemoteRefresh(remoteIdentity),
+    onMoveNotice: (message) => {
+      setOperationNotice(message ? { message } : undefined);
+    },
+    remoteIdentity,
     runBrowserAction,
   });
   const {
@@ -364,6 +384,32 @@ export function SftpPanel({
   useEffect(() => {
     isActivePanelRef.current = isActive;
   }, [isActive]);
+
+  useEffect(() => {
+    if (pendingActivationSelectionPath === undefined) {
+      return;
+    }
+
+    const isSelectionApplied = pendingActivationSelectionPath === null
+      ? selectedEntryPath === undefined
+        && selectedEntryPaths.length === 0
+        && commanderRemoteSelectedPaths.length === 0
+        && localBrowser.selectedEntryPaths.length === 0
+      : selectedEntryPath === pendingActivationSelectionPath
+        || selectedEntryPaths.includes(pendingActivationSelectionPath)
+        || commanderRemoteSelectedPaths.includes(pendingActivationSelectionPath)
+        || localBrowser.selectedEntryPaths.includes(pendingActivationSelectionPath);
+
+    if (isSelectionApplied) {
+      setPendingActivationSelectionPath(undefined);
+    }
+  }, [
+    commanderRemoteSelectedPaths,
+    localBrowser.selectedEntryPaths,
+    pendingActivationSelectionPath,
+    selectedEntryPath,
+    selectedEntryPaths,
+  ]);
 
   useEffect(() => {
     const element = panelRef.current;
@@ -494,7 +540,11 @@ export function SftpPanel({
         isActivePanelRef.current = true;
       }}
       onKeyDown={handlePanelKeyDown}
-      onPointerDownCapture={() => {
+      onPointerDownCapture={(event) => {
+        if (!isActive) {
+          setPendingActivationSelectionPath(findActivationEntryPath(event.target) ?? null);
+        }
+
         isActivePanelRef.current = true;
         panelRef.current?.focus({ preventScroll: true });
       }}
@@ -619,6 +669,22 @@ export function SftpPanel({
         </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col">
+          {operationNotice ? (
+            <div className="mx-4 mt-3 rounded-md border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0 whitespace-pre-line break-words">{operationNotice.message}</span>
+                <button
+                  type="button"
+                  className="rounded p-1 text-amber-100/70 transition hover:bg-amber-400/10 hover:text-amber-50"
+                  aria-label="Dismiss file operation notice"
+                  onClick={() => setOperationNotice(undefined)}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {isLoading && entries.length === 0 && !parentPath ? (
             <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">Loading SFTP directory...</div>
           ) : entries.length === 0 && !parentPath ? (
@@ -631,6 +697,7 @@ export function SftpPanel({
                   canRemoteDelete={canDelete}
                   canRemoteDownload={canDownload}
                   canRemoteRename={canRename}
+                  isPanelActive={isActive}
                   isRemoteReady={isRemoteReady}
                   localEntries={localBrowser.entries}
                   localError={localBrowser.error}
@@ -639,6 +706,7 @@ export function SftpPanel({
                   localPath={localBrowser.path}
                   localRoots={localBrowser.roots}
                   localSelectedPaths={localBrowser.selectedEntryPaths}
+                  pendingActivationSelectionPath={pendingActivationSelectionPath}
                   localBackStackLength={localBrowser.backStack.length}
                   localForwardStackLength={localBrowser.forwardStack.length}
                   onActivePaneChange={setCommanderActivePane}
@@ -695,9 +763,10 @@ export function SftpPanel({
                     canDelete={canDelete}
                     canDownload={canDownload}
                     canRename={canRename}
-                    dragUploadTargetPath={dragUploadTargetPath}
-                    isLoading={isLoading}
-                    isRemoteReady={isRemoteReady}
+                  dragUploadTargetPath={dragUploadTargetPath}
+                  isLoading={isLoading}
+                  isPanelActive={isActive}
+                  isRemoteReady={isRemoteReady}
                     isUploadDragOver={isUploadDragOver}
                     marqueeBox={marqueeBox}
                     onBeginMarqueeSelection={beginMarqueeSelection}
@@ -732,6 +801,7 @@ export function SftpPanel({
                     parentEntryPathKey={sftpParentEntryPath}
                     parentPath={parentPath}
                     path={path}
+                    pendingActivationSelectionPath={pendingActivationSelectionPath}
                     remoteMoveTargetPath={moveTargetPath}
                     residualUploadEntries={residualUploadEntries}
                     selectedEntriesCount={selectedEntries.length}
@@ -766,4 +836,50 @@ export function SftpPanel({
       )}
     </div>
   );
+}
+
+function createSftpRemoteIdentity(session: SessionItem) {
+  const host = (session.host ?? '').trim().toLowerCase();
+  const username = (session.username ?? '').trim().toLowerCase();
+  const port = session.port ?? 22;
+
+  if (host) {
+    return `endpoint:${username}@${host}:${port}`;
+  }
+
+  return `session:${session.id}`;
+}
+
+const sftpRemoteRefreshEventName = 'shellpilot:sftp-remote-refresh';
+
+interface SftpRemoteRefreshDetail {
+  remoteIdentity: string;
+}
+
+function requestSftpRemoteRefresh(remoteIdentity: string) {
+  window.dispatchEvent(new CustomEvent<SftpRemoteRefreshDetail>(sftpRemoteRefreshEventName, {
+    detail: { remoteIdentity },
+  }));
+}
+
+function subscribeSftpRemoteRefreshRequest(listener: (detail: SftpRemoteRefreshDetail) => void) {
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<SftpRemoteRefreshDetail>).detail);
+  };
+
+  window.addEventListener(sftpRemoteRefreshEventName, handler);
+
+  return () => {
+    window.removeEventListener(sftpRemoteRefreshEventName, handler);
+  };
+}
+
+function findActivationEntryPath(target: EventTarget) {
+  if (!(target instanceof HTMLElement)) {
+    return undefined;
+  }
+
+  const entryElement = target.closest<HTMLElement>('[data-sftp-entry-path], [data-commander-entry-path]');
+
+  return entryElement?.dataset.sftpEntryPath ?? entryElement?.dataset.commanderEntryPath;
 }

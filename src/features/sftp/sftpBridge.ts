@@ -113,6 +113,10 @@ export async function renameSftpPath(panelId: string, oldPath: string, newPath: 
   await invoke('sftp_rename', { newPath, oldPath, panelId });
 }
 
+export async function sftpPathExists(panelId: string, path: string) {
+  return invoke<boolean>('sftp_path_exists', { panelId, path });
+}
+
 export async function removeSftpFile(panelId: string, path: string) {
   await invoke('sftp_remove_file', { panelId, path });
 }
