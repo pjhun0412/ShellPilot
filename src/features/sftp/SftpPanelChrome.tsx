@@ -67,7 +67,7 @@ export function SftpEntryIcon({ entry }: { entry: SftpEntry }) {
   return <Icon className={['size-4 shrink-0', className].join(' ')} />;
 }
 
-function getSftpFileIcon(filename: string): { className: string; Icon: LucideIcon } {
+export function getSftpFileIcon(filename: string): { className: string; Icon: LucideIcon } {
   const normalizedName = filename.toLowerCase();
   const extension = normalizedName.split('.').filter(Boolean).pop() ?? '';
 

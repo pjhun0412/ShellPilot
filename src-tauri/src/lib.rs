@@ -38,6 +38,8 @@ pub fn run() {
             commands::local_pty::local_pty_resize,
             commands::local_pty::local_pty_write,
             commands::local_pty::open_elevated_local_terminal,
+            commands::sftp::local_list,
+            commands::sftp::local_roots,
             commands::rdp::rdp_close,
             commands::rdp::rdp_forget_certificate,
             commands::rdp::rdp_open,

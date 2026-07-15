@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    env,
     io::SeekFrom,
     path::{Path, PathBuf},
     sync::{
@@ -56,6 +57,37 @@ pub struct SftpEntry {
 pub struct SftpListResult {
     entries: Vec<SftpEntry>,
     path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalFileEntry {
+    filename: String,
+    is_directory: bool,
+    kind: String,
+    modified_at: Option<u64>,
+    path: String,
+    size: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalListResult {
+    entries: Vec<LocalFileEntry>,
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRootEntry {
+    label: String,
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRootsResult {
+    roots: Vec<LocalRootEntry>,
 }
 
 #[derive(Clone, Serialize)]
@@ -223,6 +255,80 @@ pub async fn sftp_keepalive(
 }
 
 #[tauri::command]
+pub async fn local_list(path: Option<String>) -> Result<LocalListResult, String> {
+    let requested_path = path
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(resolve_local_home_dir);
+    let list_path = fs::canonicalize(&requested_path)
+        .await
+        .map_err(|error| format!("failed to resolve local directory: {error}"))?;
+    let metadata = fs::metadata(&list_path)
+        .await
+        .map_err(|error| format!("failed to read local directory metadata: {error}"))?;
+
+    if !metadata.is_dir() {
+        return Err(format!("local path is not a directory: {}", list_path.display()));
+    }
+
+    let mut read_dir = fs::read_dir(&list_path)
+        .await
+        .map_err(|error| format!("failed to list local directory: {error}"))?;
+    let mut entries = Vec::new();
+
+    while let Some(entry) = read_dir
+        .next_entry()
+        .await
+        .map_err(|error| format!("failed to read local directory entry: {error}"))?
+    {
+        let entry_path = entry.path();
+        let filename = entry.file_name().to_string_lossy().to_string();
+        let metadata = match entry.metadata().await {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        let file_type = metadata.file_type();
+        let is_directory = metadata.is_dir();
+        let kind = if is_directory {
+            "directory"
+        } else if metadata.is_file() {
+            "file"
+        } else if file_type.is_symlink() {
+            "symlink"
+        } else {
+            "other"
+        };
+        let modified_at = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs());
+
+        entries.push(LocalFileEntry {
+            filename,
+            is_directory,
+            kind: kind.to_string(),
+            modified_at,
+            path: entry_path.to_string_lossy().to_string(),
+            size: metadata.is_file().then_some(metadata.len()),
+        });
+    }
+
+    entries.sort_by(|left, right| {
+        right.is_directory.cmp(&left.is_directory).then_with(|| {
+            left.filename
+                .to_lowercase()
+                .cmp(&right.filename.to_lowercase())
+        })
+    });
+
+    Ok(LocalListResult {
+        entries,
+        path: list_path.to_string_lossy().to_string(),
+    })
+}
+
+#[tauri::command]
 pub async fn sftp_mkdir(
     store: State<'_, SftpSessionStore>,
     panel_id: String,
@@ -236,6 +342,42 @@ pub async fn sftp_mkdir(
         .create_dir(path)
         .await
         .map_err(|error| format!("failed to create remote directory: {error}"))
+}
+
+#[tauri::command]
+pub async fn local_roots() -> Result<LocalRootsResult, String> {
+    Ok(LocalRootsResult {
+        roots: resolve_local_roots(),
+    })
+}
+
+fn resolve_local_home_dir() -> PathBuf {
+    env::var_os("USERPROFILE")
+        .or_else(|| env::var_os("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_local_roots() -> Vec<LocalRootEntry> {
+    ('A'..='Z')
+        .filter_map(|letter| {
+            let path = format!("{letter}:\\");
+
+            Path::new(&path).is_dir().then(|| LocalRootEntry {
+                label: format!("{letter}:"),
+                path,
+            })
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn resolve_local_roots() -> Vec<LocalRootEntry> {
+    vec![LocalRootEntry {
+        label: "/".to_string(),
+        path: "/".to_string(),
+    }]
 }
 
 #[tauri::command]

@@ -31,6 +31,7 @@ export function SftpPanelHeader({
   isLoading,
   isNarrow,
   isRemoteReady,
+  isRefreshDisabled,
   isTiny,
   onCleanResidualUploadFiles,
   onCopyPath,
@@ -44,13 +45,18 @@ export function SftpPanelHeader({
   onSetActionMenuOpen,
   onSetShowHiddenEntries,
   onSetShowPermissions,
+  onSetViewMode,
   onUploadFiles,
   onUploadFolder,
+  areRemoteActionsDisabled = false,
+  refreshTitle = 'Refresh',
   residualUploadCount,
   sessionHost,
   sessionUsername,
+  showInlineViewMode,
   showHiddenEntries,
   showPermissions,
+  viewMode,
 }: {
   backStackLength: number;
   canDelete: boolean;
@@ -61,6 +67,7 @@ export function SftpPanelHeader({
   isLoading: boolean;
   isNarrow: boolean;
   isRemoteReady: boolean;
+  isRefreshDisabled?: boolean;
   isTiny: boolean;
   onCleanResidualUploadFiles: () => void;
   onCopyPath: () => void;
@@ -74,20 +81,32 @@ export function SftpPanelHeader({
   onSetActionMenuOpen: (value: boolean | ((current: boolean) => boolean)) => void;
   onSetShowHiddenEntries: (value: (current: boolean) => boolean) => void;
   onSetShowPermissions: (value: (current: boolean) => boolean) => void;
+  onSetViewMode: (value: SftpViewMode) => void;
   onUploadFiles: () => void;
   onUploadFolder: () => void;
+  areRemoteActionsDisabled?: boolean;
+  refreshTitle?: string;
   residualUploadCount: number;
   sessionHost: string | undefined;
   sessionUsername: string | undefined;
+  showInlineViewMode: boolean;
   showHiddenEntries: boolean;
   showPermissions: boolean;
+  viewMode: SftpViewMode;
 }) {
+  const isRemoteActionDisabled = areRemoteActionsDisabled || !isRemoteReady || isLoading;
+  const isRemoteNavigationDisabled = isRemoteActionDisabled;
+  const isRefreshActionDisabled = isRefreshDisabled ?? (!isRemoteReady || isLoading);
+
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-3">
       <Server className="size-4 text-primary" />
       <div className="min-w-0 flex-1 truncate font-medium">
         {sessionUsername ? `${sessionUsername}@` : ''}{sessionHost}
       </div>
+      {showInlineViewMode && (
+        <ViewModeToggle onSetViewMode={onSetViewMode} viewMode={viewMode} />
+      )}
       <Button
         aria-label="Back"
         title="Back"
@@ -95,7 +114,7 @@ export function SftpPanelHeader({
         variant="secondary"
         type="button"
         onClick={onGoBack}
-        disabled={!isRemoteReady || isLoading || backStackLength === 0}
+        disabled={isRemoteNavigationDisabled || backStackLength === 0}
       >
         <ChevronLeft className="size-3.5" />
       </Button>
@@ -106,18 +125,18 @@ export function SftpPanelHeader({
         variant="secondary"
         type="button"
         onClick={onGoForward}
-        disabled={!isRemoteReady || isLoading || forwardStackLength === 0}
+        disabled={isRemoteNavigationDisabled || forwardStackLength === 0}
       >
         <ChevronRight className="size-3.5" />
       </Button>
       <Button
         aria-label="Refresh"
-        title="Refresh"
+        title={refreshTitle}
         size="sm"
         variant="secondary"
         type="button"
         onClick={onRefresh}
-        disabled={!isRemoteReady || isLoading}
+        disabled={isRefreshActionDisabled}
       >
         <RefreshCcw className="size-3.5" />
         {!isNarrow && <span>Refresh</span>}
@@ -130,7 +149,7 @@ export function SftpPanelHeader({
           variant="secondary"
           type="button"
           onClick={onCreateFolder}
-          disabled={!isRemoteReady || isLoading}
+          disabled={isRemoteActionDisabled}
         >
           <Folder className="size-3.5" />
           {!isNarrow && <span>New</span>}
@@ -144,48 +163,63 @@ export function SftpPanelHeader({
           variant="secondary"
           type="button"
           onClick={() => onSetActionMenuOpen((value) => !value)}
-          disabled={!isRemoteReady}
         >
           <MoreHorizontal className="size-3.5" />
         </Button>
         {isActionMenuOpen && (
           <div className="absolute right-0 top-9 z-50 grid w-44 gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
             {isTiny && (
-              <HeaderMenuButton disabled={!isRemoteReady || isLoading} onClick={onCreateFolder}>
+              <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onCreateFolder}>
                 <Folder className="size-3.5" />
                 New Folder
               </HeaderMenuButton>
             )}
-            <HeaderMenuButton disabled={!isRemoteReady || isLoading} onClick={onUploadFiles}>
+            {!showInlineViewMode && (
+              <>
+                <div className="px-2 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  View Mode
+                </div>
+                <HeaderMenuButton onClick={() => onSetViewMode('explorer')}>
+                  <span className="w-3.5 text-center">{viewMode === 'explorer' ? '✓' : ''}</span>
+                  Remote Explorer
+                </HeaderMenuButton>
+                <HeaderMenuButton onClick={() => onSetViewMode('commander')}>
+                  <span className="w-3.5 text-center">{viewMode === 'commander' ? '✓' : ''}</span>
+                  Commander
+                </HeaderMenuButton>
+                <div className="my-1 h-px bg-border" />
+              </>
+            )}
+            <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onUploadFiles}>
               <Upload className="size-3.5" />
               Upload Files
             </HeaderMenuButton>
-            <HeaderMenuButton disabled={!isRemoteReady || isLoading} onClick={onUploadFolder}>
+            <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onUploadFolder}>
               <FolderOpen className="size-3.5" />
               Upload Folder
             </HeaderMenuButton>
-            <HeaderMenuButton disabled={!isRemoteReady || isLoading || !canDownload} onClick={onDownload}>
+            <HeaderMenuButton disabled={isRemoteActionDisabled || !canDownload} onClick={onDownload}>
               <Download className="size-3.5" />
               Download
             </HeaderMenuButton>
-            <HeaderMenuButton disabled={!isRemoteReady || isLoading} onClick={onCopyPath}>
+            <HeaderMenuButton disabled={isRemoteActionDisabled} onClick={onCopyPath}>
               <Copy className="size-3.5" />
               Copy Path
             </HeaderMenuButton>
-            <HeaderMenuButton disabled={!isRemoteReady || isLoading || !canRename} onClick={onRename}>
+            <HeaderMenuButton disabled={isRemoteActionDisabled || !canRename} onClick={onRename}>
               <Pencil className="size-3.5" />
               Rename
             </HeaderMenuButton>
             <HeaderMenuButton
               className="text-destructive hover:bg-destructive/10"
-              disabled={!isRemoteReady || isLoading || !canDelete}
+              disabled={isRemoteActionDisabled || !canDelete}
               onClick={onDelete}
             >
               <Trash2 className="size-3.5" />
               Delete
             </HeaderMenuButton>
             <HeaderMenuButton
-              disabled={!isRemoteReady || isLoading || residualUploadCount === 0}
+              disabled={isRemoteActionDisabled || residualUploadCount === 0}
               onClick={onCleanResidualUploadFiles}
             >
               <Trash2 className="size-3.5" />
@@ -323,6 +357,41 @@ export function SftpPathBar({
         }}
       >
         <Copy className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+export type SftpViewMode = 'commander' | 'explorer';
+
+function ViewModeToggle({
+  onSetViewMode,
+  viewMode,
+}: {
+  onSetViewMode: (value: SftpViewMode) => void;
+  viewMode: SftpViewMode;
+}) {
+  return (
+    <div className="flex h-7 shrink-0 overflow-hidden rounded-md border border-border bg-slate-950/40 p-0.5 text-[11px]">
+      <button
+        className={[
+          'rounded px-2 transition-colors',
+          viewMode === 'explorer' ? 'bg-primary text-primary-foreground' : 'text-slate-400 hover:text-slate-100',
+        ].join(' ')}
+        type="button"
+        onClick={() => onSetViewMode('explorer')}
+      >
+        Explorer
+      </button>
+      <button
+        className={[
+          'rounded px-2 transition-colors',
+          viewMode === 'commander' ? 'bg-primary text-primary-foreground' : 'text-slate-400 hover:text-slate-100',
+        ].join(' ')}
+        type="button"
+        onClick={() => onSetViewMode('commander')}
+      >
+        Commander
       </button>
     </div>
   );

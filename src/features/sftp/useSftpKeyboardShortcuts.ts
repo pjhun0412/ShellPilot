@@ -3,6 +3,7 @@ import { useCallback, useEffect, type KeyboardEvent, type MutableRefObject } fro
 import { isEditableShortcutTarget } from './sftpPanelUtils';
 
 export function useSftpKeyboardShortcuts({
+  enabled = true,
   isActivePanelRef,
   isLoading,
   isPathEditing,
@@ -21,6 +22,7 @@ export function useSftpKeyboardShortcuts({
   onSelectEntryPath,
   parentPath,
 }: {
+  enabled?: boolean;
   isActivePanelRef: MutableRefObject<boolean>;
   isLoading: boolean;
   isPathEditing: boolean;
@@ -41,7 +43,7 @@ export function useSftpKeyboardShortcuts({
 }) {
   useEffect(() => {
     const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (!isActivePanelRef.current || !isRemoteReady || isPathEditing || isLoading) {
+      if (!enabled || !isActivePanelRef.current || !isRemoteReady || isPathEditing || isLoading) {
         return;
       }
 
@@ -62,10 +64,18 @@ export function useSftpKeyboardShortcuts({
     return () => {
       document.removeEventListener('keydown', handleDocumentKeyDown, true);
     };
-  }, [isActivePanelRef, isLoading, isPathEditing, isRemoteReady, onSelectAll]);
+  }, [enabled, isActivePanelRef, isLoading, isPathEditing, isRemoteReady, onSelectAll]);
 
   return useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (!enabled) {
+      return;
+    }
+
     if (!isRemoteReady) {
+      return;
+    }
+
+    if (isEditableShortcutTarget(event.target)) {
       return;
     }
 
@@ -143,7 +153,7 @@ export function useSftpKeyboardShortcuts({
       return;
     }
 
-    if (event.ctrlKey && event.key.toLowerCase() === 'a') {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
       event.preventDefault();
       onSelectAll();
       return;
@@ -154,6 +164,7 @@ export function useSftpKeyboardShortcuts({
       onRefresh();
     }
   }, [
+    enabled,
     isLoading,
     isPathEditing,
     isRemoteReady,

@@ -25,6 +25,29 @@ export interface SftpListResult {
   path: string;
 }
 
+export interface LocalFileEntry {
+  filename: string;
+  isDirectory: boolean;
+  kind: 'directory' | 'file' | 'symlink' | 'other';
+  modifiedAt?: number;
+  path: string;
+  size?: number;
+}
+
+export interface LocalListResult {
+  entries: LocalFileEntry[];
+  path: string;
+}
+
+export interface LocalRootEntry {
+  label: string;
+  path: string;
+}
+
+export interface LocalRootsResult {
+  roots: LocalRootEntry[];
+}
+
 export type SftpTransferDirection = 'download' | 'upload';
 export type SftpTransferStatus = 'canceled' | 'completed' | 'failed' | 'progress' | 'started';
 
@@ -52,6 +75,14 @@ export async function openSftpSession(
 
 export async function listSftpDirectory(panelId: string, path: string) {
   return invoke<SftpListResult>('sftp_list', { panelId, path });
+}
+
+export async function listLocalDirectory(path?: string) {
+  return invoke<LocalListResult>('local_list', { path });
+}
+
+export async function listLocalRoots() {
+  return invoke<LocalRootsResult>('local_roots');
 }
 
 export async function keepaliveSftpSession(panelId: string) {

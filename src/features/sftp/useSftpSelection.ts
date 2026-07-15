@@ -91,6 +91,12 @@ export function useSftpSelection({
       return;
     }
 
+    const target = event.target as HTMLElement;
+
+    if (target.closest('[data-sftp-entry-path]')) {
+      return;
+    }
+
     marqueeStartRef.current = {
       additive: event.ctrlKey || event.metaKey,
       basePaths: event.ctrlKey || event.metaKey ? selectedEntryPaths : [],

@@ -46,6 +46,10 @@ export function SftpFileTable({
   onOpenEntry,
   onOpenParent,
   onRefresh,
+  onRemoteMoveDragEnd,
+  onRemoteMoveDragOver,
+  onRemoteMoveDragStart,
+  onRemoteMoveDrop,
   onRename,
   onSelectEntry,
   onSetShowHiddenEntries,
@@ -56,6 +60,7 @@ export function SftpFileTable({
   parentEntryPathKey,
   parentPath,
   path,
+  remoteMoveTargetPath,
   residualUploadEntries,
   selectedEntryPath,
   selectedEntryPaths,
@@ -88,6 +93,10 @@ export function SftpFileTable({
   onOpenEntry: (entry: SftpEntry) => void;
   onOpenParent: (path: string) => void;
   onRefresh: () => void;
+  onRemoteMoveDragEnd: () => void;
+  onRemoteMoveDragOver: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
+  onRemoteMoveDragStart: (event: DragEvent<HTMLElement>, paths: string[]) => void;
+  onRemoteMoveDrop: (event: DragEvent<HTMLElement>, targetEntry: SftpEntry | undefined) => boolean;
   onRename: () => void;
   onSelectEntry: (entryPath: string, event: MouseEvent<HTMLElement>) => void;
   onSetShowHiddenEntries: (value: boolean) => void;
@@ -98,6 +107,7 @@ export function SftpFileTable({
   parentEntryPathKey: string;
   parentPath?: string;
   path: string;
+  remoteMoveTargetPath?: string;
   residualUploadEntries: SftpEntry[];
   selectedEntryPath?: string;
   selectedEntryPaths: string[];
@@ -110,6 +120,14 @@ export function SftpFileTable({
 }) {
   const visibleColumns = table.getVisibleLeafColumns();
   const tableRows = table.getRowModel().rows;
+  const parentMoveTarget: SftpEntry | undefined = parentPath
+    ? {
+        filename: '..',
+        isDirectory: true,
+        kind: 'directory',
+        path: parentPath,
+      }
+    : undefined;
 
   return (
     <>
@@ -188,17 +206,19 @@ export function SftpFileTable({
               <OverlayScrollArea data-sftp-scroll-viewport ref={scrollViewportRef}>
                 <div className="grid min-w-full gap-1 py-1.5 pl-2 pr-1">
                   {parentPath && (
-                    <button
+                    <div
                       className={[
                         'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
                         selectedEntryPath === parentEntryPathKey ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
-                        isUploadDragOver && dragUploadTargetPath === parentPath ? 'border-primary/70 bg-primary/20' : '',
+                        (isUploadDragOver && dragUploadTargetPath === parentPath) || remoteMoveTargetPath === parentPath ? 'border-primary/70 bg-primary/20' : '',
                       ].join(' ')}
                       data-sftp-entry-path={parentEntryPathKey}
+                      role="button"
                       style={{ gridTemplateColumns: tableGridTemplateColumns }}
-                      type="button"
+                      tabIndex={-1}
                       title="Parent directory"
-                      onMouseDown={(event) => event.preventDefault()}
+                      onDragOver={(event) => onRemoteMoveDragOver(event, parentMoveTarget)}
+                      onDrop={(event) => onRemoteMoveDrop(event, parentMoveTarget)}
                       onClick={(event) => onSelectEntry(parentEntryPathKey, event)}
                       onDoubleClick={() => onRefreshParent(parentPath)}
                     >
@@ -218,21 +238,29 @@ export function SftpFileTable({
                       {visibleColumns.some((column) => column.id === 'owner') && <span className="min-w-0 px-1" />}
                       <span className="min-w-0 px-1" />
                       <span aria-hidden="true" />
-                    </button>
+                    </div>
                   )}
                   {tableRows.map((row) => (
-                    <button
+                    <div
                       className={[
                         'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors odd:bg-slate-950/20 hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white',
                         selectedEntryPaths.includes(row.original.path) ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
                         selectedEntryPath === row.original.path && !selectedEntryPaths.includes(row.original.path) ? 'border-primary/40 bg-slate-800/45' : '',
-                        isUploadDragOver && row.original.isDirectory && dragUploadTargetPath === row.original.path ? 'border-primary/70 bg-primary/20' : '',
+                        ((isUploadDragOver && row.original.isDirectory && dragUploadTargetPath === row.original.path) || remoteMoveTargetPath === row.original.path) ? 'border-primary/70 bg-primary/20' : '',
                       ].join(' ')}
                       data-sftp-entry-path={row.original.path}
                       key={row.original.path}
+                      role="button"
                       style={{ gridTemplateColumns: tableGridTemplateColumns }}
-                      type="button"
-                      onMouseDown={(event) => event.preventDefault()}
+                      tabIndex={-1}
+                      draggable={isRemoteReady}
+                      onDragEnd={onRemoteMoveDragEnd}
+                      onDragOver={(event) => onRemoteMoveDragOver(event, row.original.isDirectory ? row.original : undefined)}
+                      onDragStart={(event) => {
+                        const paths = selectedEntryPaths.includes(row.original.path) ? selectedEntryPaths : [row.original.path];
+                        onRemoteMoveDragStart(event, paths);
+                      }}
+                      onDrop={(event) => onRemoteMoveDrop(event, row.original.isDirectory ? row.original : undefined)}
                       onClick={(event) => onSelectEntry(row.original.path, event)}
                       onContextMenu={(event) => onContextSelectEntry(row.original.path, event)}
                       onDoubleClick={() => onOpenEntry(row.original)}
@@ -243,7 +271,7 @@ export function SftpFileTable({
                         </span>
                       ))}
                       <span aria-hidden="true" />
-                    </button>
+                    </div>
                   ))}
                 </div>
               </OverlayScrollArea>

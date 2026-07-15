@@ -184,7 +184,13 @@ export async function runLimitedSftpTasks(tasks: Array<() => Promise<void>>, lim
 }
 
 export function getLocalFileName(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? 'upload';
+  return formatLocalDisplayPath(path).split(/[\\/]/).filter(Boolean).pop() ?? 'upload';
+}
+
+export function formatLocalDisplayPath(path: string) {
+  return path
+    .replace(/^\\\\\?\\UNC\\/i, '\\\\')
+    .replace(/^\\\\\?\\/i, '');
 }
 
 export function joinLocalPath(directory: string, filename: string) {
@@ -215,8 +221,8 @@ export function mapSftpConnectionStateToStatus(state: SftpConnectionState): Conn
   return 'restored';
 }
 
-export function formatBytes(size: number | undefined) {
-  if (size === undefined) {
+export function formatBytes(size: null | number | undefined) {
+  if (size === null || size === undefined) {
     return '';
   }
 

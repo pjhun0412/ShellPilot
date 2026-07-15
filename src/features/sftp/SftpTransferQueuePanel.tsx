@@ -13,6 +13,10 @@ import {
   subscribeSftpTransferStore,
 } from './sftpTransferStore';
 import type { SftpTransferItem } from './sftpTransferTypes';
+import {
+  formatBytes,
+  formatLocalDisplayPath,
+} from './sftpPanelUtils';
 
 export function SftpTransferQueuePanel() {
   const [transfers, setTransfers] = useState<SftpTransferItem[]>(() => getSftpTransferStoreSnapshot());
@@ -89,9 +93,10 @@ function SftpTransferQueueRow({
   const progress = getTransferProgress(transfer);
   const isRunning = transfer.status === 'progress' || transfer.status === 'started';
   const serverLabel = formatTransferServerLabel(transfer, panelState);
+  const localPathText = formatLocalDisplayPath(transfer.localPath);
   const detailText = transfer.direction === 'upload'
-    ? `${transfer.localPath} -> ${transfer.remotePath}`
-    : `${transfer.remotePath} -> ${transfer.localPath}`;
+    ? `${localPathText} -> ${transfer.remotePath}`
+    : `${transfer.remotePath} -> ${localPathText}`;
   const errorText = getTransferErrorText(transfer);
 
   return (
@@ -278,24 +283,7 @@ function getTransferErrorText(transfer: SftpTransferItem) {
 
 function getTransferFileName(transfer: SftpTransferItem) {
   const path = transfer.direction === 'upload' ? transfer.localPath : transfer.remotePath;
-  const normalizedPath = path.replace(/\\/g, '/');
+  const normalizedPath = (transfer.direction === 'upload' ? formatLocalDisplayPath(path) : path).replace(/\\/g, '/');
 
   return normalizedPath.split('/').filter(Boolean).pop() ?? path;
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '0 B';
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = bytes;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
 }

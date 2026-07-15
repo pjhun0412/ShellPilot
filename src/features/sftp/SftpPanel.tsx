@@ -11,9 +11,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { loadPreferences, updatePreferences } from '@/features/settings/appPreferences';
 import type { SessionItem } from '@/types/workspace';
+import { SftpCommanderView, type CommanderPaneVariant } from './SftpCommanderView';
 import { SftpClosedCard, SftpRestoredCard } from './SftpPanelChrome';
 import { SftpFileTable } from './SftpFileTable';
-import { SftpPanelHeader, SftpPathBar } from './SftpPanelHeader';
+import { SftpPanelHeader, SftpPathBar, type SftpViewMode } from './SftpPanelHeader';
 import { SftpPanelTransferSummary } from './SftpPanelTransferQueue';
 import {
   getSftpParentPath,
@@ -32,7 +33,9 @@ import { useSftpTransferActions } from './useSftpTransferActions';
 import { useSftpBrowserLifecycle } from './useSftpBrowserLifecycle';
 import { useSftpFileActions } from './useSftpFileActions';
 import { useSftpKeyboardShortcuts } from './useSftpKeyboardShortcuts';
+import { useLocalFileBrowser } from './useLocalFileBrowser';
 import { useSftpPathActions } from './useSftpPathActions';
+import { useSftpRemoteMove } from './useSftpRemoteMove';
 import { useSftpScrollRestoration } from './useSftpScrollRestoration';
 import { useSftpSelection } from './useSftpSelection';
 import { useSftpTransfers } from './useSftpTransfers';
@@ -70,6 +73,9 @@ export function SftpPanel({
   const [showHiddenEntries, setShowHiddenEntriesState] = useState(() => loadPreferences().sftp.showHiddenFiles);
   const [showPermissions, setShowPermissions] = useState(true);
   const [sorting, setSorting] = useState<SortingState>([{ desc: false, id: 'name' }]);
+  const [viewMode, setViewMode] = useState<SftpViewMode>('explorer');
+  const [commanderActivePane, setCommanderActivePane] = useState<CommanderPaneVariant>('remote');
+  const [commanderRemoteSelectedPaths, setCommanderRemoteSelectedPaths] = useState<string[]>([]);
   const setShowHiddenEntries = useCallback((value: boolean | ((current: boolean) => boolean)) => {
     setShowHiddenEntriesState((current) => {
       const nextValue = typeof value === 'function' ? value(current) : value;
@@ -226,10 +232,17 @@ export function SftpPanel({
   useEffect(() => {
     resetSelectionRef.current = resetSelection;
   }, [resetSelection]);
-  const hasSingleSelection = selectedEntries.length === 1;
-  const canRename = hasSingleSelection;
-  const canDelete = selectedEntries.length > 0;
-  const downloadableEntries = selectedEntries;
+  const commanderRemoteSelectedEntries = useMemo(
+    () => visibleEntries.filter((entry) => commanderRemoteSelectedPaths.includes(entry.path)),
+    [commanderRemoteSelectedPaths, visibleEntries],
+  );
+  const activeRemoteSelectedEntries = viewMode === 'commander'
+    ? commanderRemoteSelectedEntries
+    : selectedEntries;
+  const activeRemoteSelectedEntry = activeRemoteSelectedEntries[0] ?? selectedEntry;
+  const canRename = activeRemoteSelectedEntries.length === 1;
+  const canDelete = activeRemoteSelectedEntries.length > 0;
+  const downloadableEntries = activeRemoteSelectedEntries;
   const canDownload = downloadableEntries.length > 0;
   const {
     beginPathEdit,
@@ -248,7 +261,7 @@ export function SftpPanel({
     homePath,
     loadDirectory: loadSftpDirectory,
     path,
-    selectedEntries,
+    selectedEntries: activeRemoteSelectedEntries,
     setActionMenuOpen: setIsActionMenuOpen,
   });
   useEffect(() => {
@@ -256,8 +269,10 @@ export function SftpPanel({
   }, [resetPathUi]);
   const {
     startDownload,
+    startDownloadEntriesToDirectory,
     startUpload,
     startUploadFolder,
+    startUploadFromPaths,
     startUploadFromDataTransfer,
   } = useSftpTransferActions({
     addPendingTransfer,
@@ -287,6 +302,19 @@ export function SftpPanel({
     startUploadFromDataTransfer,
   });
   const {
+    clearRemoteMoveTarget,
+    handleRemoteMoveDragOver,
+    handleRemoteMoveDrop,
+    markRemoteMoveDrag,
+    moveTargetPath,
+    moveStatus,
+  } = useSftpRemoteMove({
+    entries,
+    isRemoteReady,
+    panelId,
+    runBrowserAction,
+  });
+  const {
     cleanResidualUploadFiles,
     createFolder,
     deleteEntry,
@@ -296,9 +324,37 @@ export function SftpPanel({
     path,
     residualUploadEntries,
     runBrowserAction,
-    selectedEntries,
-    selectedEntry,
+    selectedEntries: activeRemoteSelectedEntries,
+    selectedEntry: activeRemoteSelectedEntry,
   });
+  const localBrowser = useLocalFileBrowser({ enabled: viewMode === 'commander' });
+  const isCommanderLocalActive = viewMode === 'commander' && commanderActivePane === 'local';
+  const handleCommanderRemoteSelect = useCallback((entryPath: string, additive: boolean) => {
+    setCommanderRemoteSelectedPaths((current) => {
+      if (!additive) {
+        return [entryPath];
+      }
+
+      return current.includes(entryPath)
+        ? current.filter((path) => path !== entryPath)
+        : [...current, entryPath];
+    });
+  }, []);
+  const handleViewModeChange = useCallback((nextViewMode: SftpViewMode) => {
+    setIsActionMenuOpen(false);
+    setViewMode(nextViewMode);
+  }, []);
+  const handleSelectAll = useCallback(() => {
+    selectAllEntries();
+  }, [selectAllEntries]);
+  const handleHeaderRefresh = useCallback(() => {
+    if (isCommanderLocalActive) {
+      void localBrowser.loadDirectory(localBrowser.path);
+      return;
+    }
+
+    void loadSftpDirectory();
+  }, [isCommanderLocalActive, loadSftpDirectory, localBrowser]);
   useEffect(() => {
     isActivePanelRef.current = isActive;
   }, [isActive]);
@@ -390,6 +446,10 @@ export function SftpPanel({
       void loadSftpDirectory(entry.path);
     }
   };
+  useEffect(() => {
+    setCommanderRemoteSelectedPaths([]);
+  }, [path]);
+
   const openSelectedPath = () => {
     if (selectedEntryPath === sftpParentEntryPath && parentPath) {
       void loadSftpDirectory(parentPath);
@@ -401,8 +461,9 @@ export function SftpPanel({
     }
   };
   const handlePanelKeyDown = useSftpKeyboardShortcuts({
+    enabled: viewMode === 'explorer',
     isActivePanelRef,
-    isLoading,
+    isLoading: isCommanderLocalActive ? localBrowser.isLoading : isLoading,
     isPathEditing,
     isRemoteReady,
     navigablePaths,
@@ -415,7 +476,7 @@ export function SftpPanel({
     onOpenSelectedPath: openSelectedPath,
     onRefresh: () => void loadSftpDirectory(),
     onRename: () => void renameEntry(),
-    onSelectAll: selectAllEntries,
+    onSelectAll: handleSelectAll,
     onSelectEntryPath: selectEntryPath,
     parentPath,
   });
@@ -434,6 +495,7 @@ export function SftpPanel({
       tabIndex={0}
     >
       <SftpPanelHeader
+        areRemoteActionsDisabled={isCommanderLocalActive}
         backStackLength={backStack.length}
         canDelete={canDelete}
         canDownload={canDownload}
@@ -443,6 +505,7 @@ export function SftpPanel({
         isLoading={isLoading}
         isNarrow={isNarrow}
         isRemoteReady={isRemoteReady}
+        isRefreshDisabled={isCommanderLocalActive ? localBrowser.isLoading : undefined}
         isTiny={isTiny}
         onCleanResidualUploadFiles={() => {
           setIsActionMenuOpen(false);
@@ -463,7 +526,7 @@ export function SftpPanel({
         }}
         onGoBack={() => void goBackWithScrollSave()}
         onGoForward={() => void goForwardWithScrollSave()}
-        onRefresh={() => void loadSftpDirectory()}
+        onRefresh={handleHeaderRefresh}
         onRename={() => {
           setIsActionMenuOpen(false);
           void renameEntry();
@@ -480,30 +543,36 @@ export function SftpPanel({
           void startUploadFolder();
         }}
         residualUploadCount={residualUploadEntries.length}
+        refreshTitle={isCommanderLocalActive ? 'Refresh local' : 'Refresh remote'}
         sessionHost={session.host}
         sessionUsername={session.username}
         showHiddenEntries={showHiddenEntries}
         showPermissions={showPermissions}
+        showInlineViewMode={!isCompact}
+        viewMode={viewMode}
+        onSetViewMode={handleViewModeChange}
       />
 
-      <SftpPathBar
-        inputError={pathInputError}
-        inputRef={pathInputRef}
-        isEditing={isPathEditing}
-        isLoading={isLoading}
-        isRemoteReady={isRemoteReady}
-        onBeginEdit={beginPathEdit}
-        onCancelEdit={cancelPathEdit}
-        onCopyPath={() => void copyPath()}
-        onDraftChange={(value) => {
-          setPathDraft(value);
-          setPathInputError(undefined);
-        }}
-        onNavigate={(nextPath) => void loadSftpDirectory(nextPath)}
-        onSubmitEdit={() => void submitPathEdit()}
-        pathDraft={pathDraft}
-        segments={pathSegments}
-      />
+      {viewMode === 'explorer' && (
+        <SftpPathBar
+          inputError={pathInputError}
+          inputRef={pathInputRef}
+          isEditing={isPathEditing}
+          isLoading={isLoading}
+          isRemoteReady={isRemoteReady}
+          onBeginEdit={beginPathEdit}
+          onCancelEdit={cancelPathEdit}
+          onCopyPath={() => void copyPath()}
+          onDraftChange={(value) => {
+            setPathDraft(value);
+            setPathInputError(undefined);
+          }}
+          onNavigate={(nextPath) => void loadSftpDirectory(nextPath)}
+          onSubmitEdit={() => void submitPathEdit()}
+          pathDraft={pathDraft}
+          segments={pathSegments}
+        />
+      )}
 
       {connectionState === 'restored' ? (
         <SftpRestoredCard onReconnect={() => void connectSftp()} />
@@ -520,67 +589,131 @@ export function SftpPanel({
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           {isLoading && entries.length === 0 && !parentPath ? (
             <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">Loading SFTP directory...</div>
           ) : entries.length === 0 && !parentPath ? (
             <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">No remote entries.</div>
           ) : (
             <>
-              <div className="relative flex min-h-0 flex-1 flex-col">
-                <SftpFileTable
-                  canDelete={canDelete}
-                  canDownload={canDownload}
-                  canRename={canRename}
-                  dragUploadTargetPath={dragUploadTargetPath}
-                  isLoading={isLoading}
+              {viewMode === 'commander' ? (
+                <SftpCommanderView
+                  activePane={commanderActivePane}
+                  canRemoteDelete={canDelete}
+                  canRemoteDownload={canDownload}
+                  canRemoteRename={canRename}
                   isRemoteReady={isRemoteReady}
-                  isUploadDragOver={isUploadDragOver}
-                  marqueeBox={marqueeBox}
-                  onBeginMarqueeSelection={beginMarqueeSelection}
-                  onCleanResidualUploadFiles={() => void cleanResidualUploadFiles()}
-                  onContextSelectEntry={(entryPath, event) => {
-                    if (!selectedEntryPaths.includes(entryPath)) {
-                      selectEntryPath(entryPath, event);
-                    }
-                  }}
-                  onCopySelectedPath={() => void copySelectedPath()}
-                  onCreateFolder={() => void createFolder()}
-                  onDelete={() => void deleteEntry()}
-                  onDownload={() => void startDownload()}
-                  onDragLeave={handleUploadDragLeave}
-                  onDragOver={handleUploadDragOver}
-                  onDrop={handleUploadDrop}
-                  onEndMarqueeSelection={endMarqueeSelection}
-                  onOpenEntry={openEntry}
-                  onOpenParent={(nextPath) => void loadSftpDirectory(nextPath)}
-                  onRefresh={() => void loadSftpDirectory()}
-                  onRename={() => void renameEntry()}
-                  onSelectEntry={selectEntryPath}
+                  localEntries={localBrowser.entries}
+                  localError={localBrowser.error}
+                  localIsLoading={localBrowser.isLoading}
+                  localParentPath={localBrowser.parentPath}
+                  localPath={localBrowser.path}
+                  localRoots={localBrowser.roots}
+                  localSelectedPaths={localBrowser.selectedEntryPaths}
+                  onActivePaneChange={setCommanderActivePane}
+                  onCopyRemotePath={() => void copySelectedPath()}
+                  onCreateRemoteFolder={() => void createFolder()}
+                  onDeleteRemote={() => void deleteEntry()}
+                  onDownloadRemote={() => void startDownload()}
+                  onLocalRefresh={() => void localBrowser.loadDirectory(localBrowser.path)}
+                  onRemoteRefresh={() => void loadSftpDirectory()}
+                  onRenameRemote={() => void renameEntry()}
+                  onRemoteMoveDragEnd={clearRemoteMoveTarget}
+                  onRemoteMoveDragOver={handleRemoteMoveDragOver}
+                  onRemoteMoveDragStart={(event, paths) => markRemoteMoveDrag(event.dataTransfer, paths)}
+                  onRemoteMoveDrop={handleRemoteMoveDrop}
                   onSetShowHiddenEntries={(value) => setShowHiddenEntries(value)}
                   onSetShowPermissions={(value) => setShowPermissions(value)}
-                  onUpdateMarqueeSelection={updateMarqueeSelection}
                   onUploadFiles={() => void startUpload()}
                   onUploadFolder={() => void startUploadFolder()}
-                  parentEntryPathKey={sftpParentEntryPath}
-                  parentPath={parentPath}
-                  path={path}
-                  residualUploadEntries={residualUploadEntries}
-                  selectedEntriesCount={selectedEntries.length}
-                  selectedEntryPath={selectedEntryPath}
-                  selectedEntryPaths={selectedEntryPaths}
+                  remoteEntries={visibleEntries}
+                  remoteIsLoading={isLoading}
+                  remoteMoveTargetPath={moveTargetPath}
+                  remoteParentPath={parentPath}
+                  remotePath={path}
+                  remoteSelectedPaths={commanderRemoteSelectedPaths}
                   showHiddenEntries={showHiddenEntries}
                   showPermissions={showPermissions}
-                  scrollViewportRef={fileTableScrollViewportRef}
-                  table={table}
-                  tableGridTemplateColumns={tableGridTemplateColumns}
+                  onDownloadRemotePathsToLocal={(paths) => {
+                    const draggedEntries = visibleEntries.filter((entry) => paths.includes(entry.path));
+                    void startDownloadEntriesToDirectory(draggedEntries, localBrowser.path);
+                  }}
+                  onLocalNavigate={(nextPath) => void localBrowser.loadDirectory(nextPath)}
+                  onLocalSelect={localBrowser.toggleSelectedEntry}
+                  onLocalSelectMany={localBrowser.setSelectedEntryPaths}
+                  onRemoteNavigate={(nextPath) => void loadSftpDirectory(nextPath)}
+                  onRemoteSelect={handleCommanderRemoteSelect}
+                  onRemoteSelectMany={setCommanderRemoteSelectedPaths}
+                  onUploadLocalPathsToRemote={(paths) => {
+                    void startUploadFromPaths(paths, path);
+                  }}
                 />
-                {isLoading && (
-                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-primary/20 bg-slate-950/80 px-3 py-1 text-[11px] font-medium text-primary">
-                    Loading SFTP directory...
-                  </div>
-                )}
-              </div>
+              ) : (
+                <div className="relative flex min-h-0 flex-1 flex-col">
+                  <SftpFileTable
+                    canDelete={canDelete}
+                    canDownload={canDownload}
+                    canRename={canRename}
+                    dragUploadTargetPath={dragUploadTargetPath}
+                    isLoading={isLoading}
+                    isRemoteReady={isRemoteReady}
+                    isUploadDragOver={isUploadDragOver}
+                    marqueeBox={marqueeBox}
+                    onBeginMarqueeSelection={beginMarqueeSelection}
+                    onCleanResidualUploadFiles={() => void cleanResidualUploadFiles()}
+                    onContextSelectEntry={(entryPath, event) => {
+                      if (!selectedEntryPaths.includes(entryPath)) {
+                        selectEntryPath(entryPath, event);
+                      }
+                    }}
+                    onCopySelectedPath={() => void copySelectedPath()}
+                    onCreateFolder={() => void createFolder()}
+                    onDelete={() => void deleteEntry()}
+                    onDownload={() => void startDownload()}
+                    onDragLeave={handleUploadDragLeave}
+                    onDragOver={handleUploadDragOver}
+                    onDrop={handleUploadDrop}
+                    onEndMarqueeSelection={endMarqueeSelection}
+                    onOpenEntry={openEntry}
+                    onOpenParent={(nextPath) => void loadSftpDirectory(nextPath)}
+                    onRefresh={() => void loadSftpDirectory()}
+                    onRemoteMoveDragEnd={clearRemoteMoveTarget}
+                    onRemoteMoveDragOver={handleRemoteMoveDragOver}
+                    onRemoteMoveDragStart={(event, paths) => markRemoteMoveDrag(event.dataTransfer, paths)}
+                    onRemoteMoveDrop={handleRemoteMoveDrop}
+                    onRename={() => void renameEntry()}
+                    onSelectEntry={selectEntryPath}
+                    onSetShowHiddenEntries={(value) => setShowHiddenEntries(value)}
+                    onSetShowPermissions={(value) => setShowPermissions(value)}
+                    onUpdateMarqueeSelection={updateMarqueeSelection}
+                    onUploadFiles={() => void startUpload()}
+                    onUploadFolder={() => void startUploadFolder()}
+                    parentEntryPathKey={sftpParentEntryPath}
+                    parentPath={parentPath}
+                    path={path}
+                    remoteMoveTargetPath={moveTargetPath}
+                    residualUploadEntries={residualUploadEntries}
+                    selectedEntriesCount={selectedEntries.length}
+                    selectedEntryPath={selectedEntryPath}
+                    selectedEntryPaths={selectedEntryPaths}
+                    showHiddenEntries={showHiddenEntries}
+                    showPermissions={showPermissions}
+                    scrollViewportRef={fileTableScrollViewportRef}
+                    table={table}
+                    tableGridTemplateColumns={tableGridTemplateColumns}
+                  />
+                  {isLoading && (
+                    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 border-b border-primary/20 bg-slate-950/80 px-3 py-1 text-[11px] font-medium text-primary">
+                      Loading SFTP directory...
+                    </div>
+                  )}
+                </div>
+              )}
+              {moveStatus && (
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-20 border-b border-primary/20 bg-slate-950/90 px-3 py-1 text-[11px] font-medium text-primary shadow-sm">
+                  Moving {moveStatus.count} item{moveStatus.count === 1 ? '' : 's'} to {moveStatus.targetPath}...
+                </div>
+              )}
               <SftpPanelTransferSummary
                 summary={transferSummary}
                 transfers={transfers}

@@ -198,8 +198,16 @@ export function useSftpTransferActions({
       return;
     }
 
-    if (downloadableEntries.length === 1 && !downloadableEntries[0].isDirectory) {
-      const entry = downloadableEntries[0];
+    await startDownloadEntries(downloadableEntries);
+  };
+
+  const startDownloadEntries = async (entries: SftpEntry[]) => {
+    if (!isRemoteReady || entries.length === 0) {
+      return;
+    }
+
+    if (entries.length === 1 && !entries[0].isDirectory) {
+      const entry = entries[0];
       const localPath = await saveDialog({
         defaultPath: entry.filename,
         title: `Download ${entry.filename}`,
@@ -215,8 +223,8 @@ export function useSftpTransferActions({
     const targetDirectory = await openDialog({
       directory: true,
       multiple: false,
-      title: downloadableEntries.length === 1
-        ? `Select folder for ${downloadableEntries[0].filename}`
+      title: entries.length === 1
+        ? `Select folder for ${entries[0].filename}`
         : 'Select download folder',
     });
 
@@ -225,7 +233,20 @@ export function useSftpTransferActions({
     }
 
     await runLimitedSftpTasks(
-      downloadableEntries.map((entry) => () =>
+      entries.map((entry) => () =>
+        startDownloadTransfer(entry, joinLocalPath(targetDirectory, entry.filename))
+      ),
+      sftpTransferConcurrency,
+    );
+  };
+
+  const startDownloadEntriesToDirectory = async (entries: SftpEntry[], targetDirectory: string) => {
+    if (!isRemoteReady || entries.length === 0 || !targetDirectory) {
+      return;
+    }
+
+    await runLimitedSftpTasks(
+      entries.map((entry) => () =>
         startDownloadTransfer(entry, joinLocalPath(targetDirectory, entry.filename))
       ),
       sftpTransferConcurrency,
@@ -405,8 +426,11 @@ export function useSftpTransferActions({
 
   return {
     startDownload,
+    startDownloadEntries,
+    startDownloadEntriesToDirectory,
     startUpload,
     startUploadFolder,
+    startUploadFromPaths,
     startUploadFromDataTransfer,
   };
 }

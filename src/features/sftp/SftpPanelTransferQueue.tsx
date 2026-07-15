@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Download, ListChecks, Upload, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { formatLocalDisplayPath } from './sftpPanelUtils';
 import type { SftpTransferItem } from './sftpTransferTypes';
 
 export function SftpPanelTransferSummary({
@@ -128,7 +129,7 @@ function getTransferFileName(transfer: SftpTransferItem) {
 function getTransferDetailText(transfer: SftpTransferItem) {
   const pathText = transfer.direction === 'upload'
     ? `to ${transfer.remotePath}`
-    : `to ${transfer.localPath}`;
+    : `to ${formatLocalDisplayPath(transfer.localPath)}`;
   const metricText = getTransferMetricText(transfer);
   const errorText = getTransferErrorText(transfer);
 
@@ -208,7 +209,7 @@ function getTransferErrorText(transfer: SftpTransferItem) {
 }
 
 function getLocalFileName(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  return formatLocalDisplayPath(path).split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 function formatBytes(size: number | undefined) {
