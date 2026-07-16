@@ -3,7 +3,7 @@ import { TabNode } from 'flexlayout-react';
 import { PanelBody } from '@/features/panels/PanelBody';
 import { panelCatalog } from '@/features/panels/panelCatalog';
 import { SftpTransferQueuePanel } from '@/features/sftp/SftpTransferQueuePanel';
-import type { WorkspacePanel, WorkspacePanelType } from '@/types/workspace';
+import type { OpenSftpHandler, WorkspacePanel, WorkspacePanelType } from '@/types/workspace';
 
 export function createPanelFactory({
   activePanelId,
@@ -12,7 +12,7 @@ export function createPanelFactory({
 }: {
   activePanelId?: string;
   onActivatePanel: (panelId: string) => void;
-  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>, options?: { initialPath?: string }) => void;
+  onOpenSftp?: OpenSftpHandler;
 }) {
   return function panelFactory(node: TabNode) {
     const panelId = node.getId();

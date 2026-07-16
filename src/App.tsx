@@ -28,7 +28,13 @@ import {
   getSelectedBottomBorderTab,
 } from '@/features/workspace/workspaceNodeUtils';
 import { collectSftpExplorers, collectWorkspaceTabs } from '@/features/workspace/workspaceTabCollection';
-import type { ActivityId, WorkspaceLocalPtyTarget, WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
+import type {
+  ActivityId,
+  OpenSftpOptions,
+  WorkspaceLocalPtyTarget,
+  WorkspacePanel,
+  WorkspaceTabItem,
+} from '@/types/workspace';
 
 export function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -172,7 +178,7 @@ export function App() {
   };
   const openSftpForSession = (
     session: NonNullable<WorkspacePanel['session']>,
-    options: { initialPath?: string } = {},
+    options: OpenSftpOptions = {},
   ) => {
     if (session.kind !== 'ssh' && session.kind !== 'sftp') {
       return;
@@ -185,7 +191,9 @@ export function App() {
       title: `SFTP - ${session.name}`,
       type: 'sftp',
     });
-    setActiveActivity('files');
+    if (options.revealInSidebar !== false) {
+      setActiveActivity('files');
+    }
   };
   const openLocalTerminal = ({
     target,
@@ -267,11 +275,14 @@ export function App() {
     setLastAddedPanelId(undefined);
     setLayoutVersion((version) => version + 1);
   };
+  const openBottomBorderTab = (tabId: string) => {
+    showBottomBorderTab(modelRef.current, tabId);
+    setLastAddedPanelId(undefined);
+    setLayoutVersion((version) => version + 1);
+  };
   useEffect(() => {
     return subscribeSftpTransferQueueOpen(() => {
-      showBottomBorderTab(modelRef.current, 'sftp-transfer-queue');
-      setLastAddedPanelId(undefined);
-      setLayoutVersion((version) => version + 1);
+      openBottomBorderTab('sftp-transfer-queue');
     });
   }, []);
   const closeWorkspaceTab = (panelId: string) => {
@@ -405,6 +416,8 @@ export function App() {
           onClosePanel={closeWorkspaceTab}
           onAddPanel={addPanel}
           onClonePanel={cloneWorkspaceTab}
+          onOpenSftp={openSftpForSession}
+          onOpenTransferQueue={() => openBottomBorderTab('sftp-transfer-queue')}
           onSelectPanel={selectWorkspaceTab}
           sftpExplorers={sftpExplorers}
           workspaceTabs={workspaceTabs}

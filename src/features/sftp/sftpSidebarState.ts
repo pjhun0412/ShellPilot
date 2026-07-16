@@ -4,6 +4,7 @@ import type { SessionItem } from '@/types/workspace';
 export interface SftpSidebarExplorer {
   host?: string;
   panelId: string;
+  port?: number;
   session?: SessionItem;
   title: string;
   username?: string;
@@ -20,6 +21,7 @@ export interface SftpSidebarTransferSummary {
 export interface SftpSidebarPanelState {
   host?: string;
   path?: string;
+  port?: number;
   status?: ConnectionStatus;
   title?: string;
   transferSummary?: SftpSidebarTransferSummary;

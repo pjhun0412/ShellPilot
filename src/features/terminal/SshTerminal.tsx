@@ -13,7 +13,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Button } from '@/components/ui/button';
-import type { SessionItem } from '@/types/workspace';
+import type { OpenSftpHandler, SessionItem } from '@/types/workspace';
 import { pasteClipboardToSsh, querySshCurrentDirectory } from './sshTerminalBridge';
 import { SshClosedCard, SshFailureCard, SshRestoredCard } from './SshTerminalStatusCards';
 import {
@@ -39,7 +39,7 @@ export function SshTerminal({
 }: {
   autoConnect?: boolean;
   isActive?: boolean;
-  onOpenSftp?: (session: SessionItem, options?: { initialPath?: string }) => void;
+  onOpenSftp?: OpenSftpHandler;
   panelId: string;
   session: SessionItem;
 }) {
@@ -121,7 +121,7 @@ export function SshTerminal({
 
   const openSftp = async () => {
     const initialPath = await querySshCurrentDirectory(panelId);
-    onOpenSftp?.(session, { initialPath });
+    onOpenSftp?.(session, { initialPath, revealInSidebar: false });
   };
 
   return (

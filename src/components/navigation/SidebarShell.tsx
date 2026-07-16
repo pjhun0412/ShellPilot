@@ -3,12 +3,13 @@ import { PanelLeftClose } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AiSidebar } from '@/features/ai/AiSidebar';
 import type { SftpSidebarExplorer } from '@/features/sftp/sftpSidebarState';
+import { SshActivityPanel } from '@/features/ssh/SshActivityPanel';
 import {
   SessionsView,
   SidebarStaticList,
 } from '@/features/sessions/components/SessionsView';
 import { t } from '@/i18n';
-import type { ActivityId, WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
+import type { ActivityId, OpenSftpHandler, WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
 import { getActivityDescription, getActivityTitle } from './activities';
 import { SftpSidebar, WorkspaceTabsSidebar } from './SidebarPanels';
 
@@ -19,6 +20,8 @@ export function SidebarShell({
   onClosePanel,
   onAddPanel,
   onClonePanel,
+  onOpenSftp,
+  onOpenTransferQueue,
   onSelectPanel,
   sftpExplorers,
   workspaceTabs,
@@ -30,6 +33,8 @@ export function SidebarShell({
   onClosePanel: (panelId: string) => void;
   onAddPanel: (panel: WorkspacePanel) => void;
   onClonePanel: (tab: WorkspaceTabItem, path?: string) => void;
+  onOpenSftp: OpenSftpHandler;
+  onOpenTransferQueue: () => void;
   onSelectPanel: (panelId: string) => void;
   sftpExplorers: SftpSidebarExplorer[];
   workspaceTabs: WorkspaceTabItem[];
@@ -66,6 +71,8 @@ export function SidebarShell({
           onClosePanel={onClosePanel}
           onAddPanel={onAddPanel}
           onClonePanel={onClonePanel}
+          onOpenSftp={onOpenSftp}
+          onOpenTransferQueue={onOpenTransferQueue}
           onSelectPanel={onSelectPanel}
           sftpExplorers={sftpExplorers}
           workspaceTabs={workspaceTabs}
@@ -81,6 +88,8 @@ function SidebarContent({
   onClosePanel,
   onAddPanel,
   onClonePanel,
+  onOpenSftp,
+  onOpenTransferQueue,
   onSelectPanel,
   sftpExplorers,
   workspaceTabs,
@@ -90,6 +99,8 @@ function SidebarContent({
   onClosePanel: (panelId: string) => void;
   onAddPanel: (panel: WorkspacePanel) => void;
   onClonePanel: (tab: WorkspaceTabItem, path?: string) => void;
+  onOpenSftp: OpenSftpHandler;
+  onOpenTransferQueue: () => void;
   onSelectPanel: (panelId: string) => void;
   sftpExplorers: SftpSidebarExplorer[];
   workspaceTabs: WorkspaceTabItem[];
@@ -105,7 +116,20 @@ function SidebarContent({
         explorers={sftpExplorers}
         onClonePanel={onClonePanel}
         onClosePanel={onClosePanel}
+        onOpenTransferQueue={onOpenTransferQueue}
         onSelectPanel={onSelectPanel}
+      />
+    );
+  }
+
+  if (activeActivity === 'ssh') {
+    return (
+      <SshActivityPanel
+        activePanelId={activePanelId}
+        onClosePanel={onClosePanel}
+        onOpenSftp={onOpenSftp}
+        onSelectPanel={onSelectPanel}
+        workspaceTabs={workspaceTabs}
       />
     );
   }

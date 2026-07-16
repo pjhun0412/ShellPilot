@@ -11,7 +11,7 @@ import {
   LocalTerminalPlaceholder,
   PanelFocusFrame,
 } from '@/features/panels/PanelSurfaces';
-import type { WorkspacePanel } from '@/types/workspace';
+import type { OpenSftpHandler, WorkspacePanel } from '@/types/workspace';
 
 export function PanelBody({
   isActive,
@@ -21,7 +21,7 @@ export function PanelBody({
 }: {
   isActive?: boolean;
   onActivate?: () => void;
-  onOpenSftp?: (session: NonNullable<WorkspacePanel['session']>, options?: { initialPath?: string }) => void;
+  onOpenSftp?: OpenSftpHandler;
   panel: WorkspacePanel;
 }) {
   if (panel.type === 'terminal') {

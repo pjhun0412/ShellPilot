@@ -360,7 +360,7 @@ export function Workspace({
               onOpenSftp={(session) => {
                 const panelId = tabMenu.node.getId();
                 void querySshCurrentDirectory(panelId).then((initialPath) => {
-                  onOpenSftp?.(session, initialPath ? { initialPath } : undefined);
+                  onOpenSftp?.(session, { initialPath, revealInSidebar: false });
                 });
                 setTabMenu(undefined);
               }}

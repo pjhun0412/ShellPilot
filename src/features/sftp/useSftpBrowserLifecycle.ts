@@ -73,6 +73,7 @@ export function useSftpBrowserLifecycle({
       setHomePath(result.path);
     }
 
+    currentPathRef.current = result.path;
     setPath(result.path);
     setEntries(result.entries);
     resetSelection();
@@ -111,23 +112,24 @@ export function useSftpBrowserLifecycle({
   }, []);
 
   const loadDirectory = useCallback(async (
-    nextPath = path,
+    nextPath?: string,
     options: { onError?: (message: string) => void; recordHistory?: boolean } = {},
   ) => {
+    const requestedPath = nextPath ?? currentPathRef.current;
     const requestId = directoryRequestIdRef.current + 1;
     directoryRequestIdRef.current = requestId;
-    const previousPath = path;
+    const previousPath = currentPathRef.current;
     setIsLoading(true);
     setError(undefined);
 
     try {
-      const result = await listSftpDirectory(panelId, nextPath);
+      const result = await listSftpDirectory(panelId, requestedPath);
 
       if (!isCurrentDirectoryRequest(requestId)) {
         return false;
       }
 
-      applyDirectoryResult(result, nextPath);
+      applyDirectoryResult(result, requestedPath);
 
       if ((options.recordHistory ?? true) && result.path !== previousPath) {
         setBackStack((stack) => [...stack, previousPath]);
@@ -154,13 +156,13 @@ export function useSftpBrowserLifecycle({
 
           markSessionConnected();
 
-          const result = await listSftpDirectory(panelId, nextPath);
+          const result = await listSftpDirectory(panelId, requestedPath);
 
           if (!isCurrentDirectoryRequest(requestId) || lifecycleGenerationRef.current !== generation) {
             return false;
           }
 
-          applyDirectoryResult(result, nextPath);
+          applyDirectoryResult(result, requestedPath);
 
           if ((options.recordHistory ?? true) && result.path !== previousPath) {
             setBackStack((stack) => [...stack, previousPath]);
@@ -200,7 +202,6 @@ export function useSftpBrowserLifecycle({
     markSessionConnected,
     openQueuedSftpSession,
     panelId,
-    path,
     setPublishedConnectionState,
   ]);
 

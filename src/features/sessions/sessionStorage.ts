@@ -28,6 +28,10 @@ export interface SessionPatchDetail {
   sessionId: string;
 }
 
+interface PatchStoredSessionOptions extends SessionPatchDetail {
+  notifyWorkspace?: boolean;
+}
+
 export function requestSessionPatch(detail: SessionPatchDetail) {
   window.dispatchEvent(new CustomEvent<SessionPatchDetail>(SESSION_PATCH_EVENT_NAME, { detail }));
 }
@@ -169,6 +173,40 @@ export async function loadSessionGroupsWithMigration(fallbackGroups: SessionGrou
 export async function persistSessionGroups(groups: SessionGroup[]) {
   await saveSessionGroupsToBackend(groups);
   saveSessionGroups(groups);
+}
+
+export async function patchStoredSession({
+  notifyWorkspace = true,
+  patch,
+  sessionId,
+}: PatchStoredSessionOptions) {
+  const groups = await loadSessionGroupsWithMigration(loadSessionGroups());
+  let didUpdate = false;
+  const nextGroups = groups.map((group) => ({
+    ...group,
+    sessions: group.sessions.map((session) => {
+      if (session.id !== sessionId) {
+        return session;
+      }
+
+      didUpdate = true;
+      return {
+        ...session,
+        ...patch,
+        updatedAt: Date.now(),
+      };
+    }),
+  }));
+
+  if (!didUpdate) {
+    return false;
+  }
+
+  await persistSessionGroups(nextGroups);
+  if (notifyWorkspace) {
+    requestSessionPatch({ patch, sessionId });
+  }
+  return true;
 }
 
 export function createSessionGroup(name: string): SessionGroup {

@@ -78,4 +78,11 @@ export interface WorkspaceTabItem {
   type: WorkspacePanelType;
 }
 
-export type ActivityId = 'sessions' | 'tabs' | 'files' | 'ai';
+export interface OpenSftpOptions {
+  initialPath?: string;
+  revealInSidebar?: boolean;
+}
+
+export type OpenSftpHandler = (session: SessionItem, options?: OpenSftpOptions) => void;
+
+export type ActivityId = 'sessions' | 'ssh' | 'tabs' | 'files' | 'ai';

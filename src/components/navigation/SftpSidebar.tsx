@@ -1,38 +1,77 @@
-import { BookmarkPlus, Folder, UploadCloud, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, FolderOpen, Plus, Star, Trash2, UploadCloud, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuLabel, ContextMenuSeparator, ContextMenuTrigger } from '@/components/ui/context-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
-import { requestSftpSidebarReconnect, requestSftpSidebarNavigation, subscribeSftpSidebarPanelStates, type SftpSidebarExplorer, type SftpSidebarPanelState } from '@/features/sftp/sftpSidebarState';
+import {
+  getSftpSidebarPanelStates,
+  requestSftpSidebarNavigation,
+  requestSftpSidebarReconnect,
+  subscribeSftpSidebarPanelStates,
+  type SftpSidebarExplorer,
+  type SftpSidebarPanelState,
+} from '@/features/sftp/sftpSidebarState';
 import type { WorkspaceTabItem } from '@/types/workspace';
-import { ConnectionStatusDot, formatConnectionStatusLabel, formatRemotePath, formatSftpExplorerTarget, formatTransferSummary, getRemotePathTitle, groupSftpExplorers, loadBooleanPreference, loadSftpBookmarks, saveBooleanPreference, sftpBookmarksStorageKey, sftpShowAllExplorersStorageKey, type SftpBookmark } from './SidebarPanelUtils';
+import {
+  ConnectionStatusDot,
+  formatRemotePath,
+  formatSftpExplorerTarget,
+  formatTransferSummary,
+  getRemotePathTitle,
+  groupSftpExplorers,
+  loadSftpBookmarks,
+  sftpBookmarksStorageKey,
+  type SftpBookmark,
+} from './SidebarPanelUtils';
+
+const SFTP_ACTIVITY_UI_STORAGE_KEY = 'shellpilot.sftp.activity.ui.v1';
+const MIN_TABS_PANEL_HEIGHT = 96;
+const MAX_TABS_PANEL_HEIGHT = 260;
+const COLLAPSED_TABS_PANEL_HEIGHT = 34;
+
 export function SftpSidebar({
   activePanelId,
   explorers,
   onClonePanel,
   onClosePanel,
+  onOpenTransferQueue,
   onSelectPanel,
 }: {
   activePanelId?: string;
   explorers: SftpSidebarExplorer[];
   onClonePanel: (tab: WorkspaceTabItem, path?: string) => void;
   onClosePanel: (panelId: string) => void;
+  onOpenTransferQueue: () => void;
   onSelectPanel: (panelId: string) => void;
 }) {
-  const [panelStates, setPanelStates] = useState<Record<string, SftpSidebarPanelState>>({});
-  const [bookmarks, setBookmarks] = useState<SftpBookmark[]>(() => loadSftpBookmarks());
-  const [showAllExplorers, setShowAllExplorers] = useState(() =>
-    loadBooleanPreference(sftpShowAllExplorersStorageKey, false),
+  const [panelStates, setPanelStates] = useState<Record<string, SftpSidebarPanelState>>(
+    () => getSftpSidebarPanelStates(),
   );
+  const [bookmarks, setBookmarks] = useState<SftpBookmark[]>(() => loadSftpBookmarks());
+  const [bookmarkLabelInput, setBookmarkLabelInput] = useState('');
+  const [bookmarkPathInput, setBookmarkPathInput] = useState('');
+  const [tabsPanelState, setTabsPanelState] = useState(() => loadSftpActivityUiState());
   const groupedExplorers = useMemo(
     () => groupSftpExplorers(explorers, panelStates),
     [explorers, panelStates],
   );
-  const visibleExplorers = showAllExplorers ? groupedExplorers : groupedExplorers.slice(0, 4);
-  const activeExplorer = useMemo(
-    () => explorers.find((explorer) => panelStates[explorer.panelId]?.status === 'connected') ?? explorers[0],
-    [explorers, panelStates],
+  const connectedExplorer = useMemo(
+    () =>
+      explorers.find(
+        (explorer) =>
+          explorer.panelId === activePanelId &&
+          panelStates[explorer.panelId]?.status === 'connected',
+      ) ??
+      explorers.find((explorer) => panelStates[explorer.panelId]?.status === 'connected'),
+    [activePanelId, explorers, panelStates],
   );
   const transferSummary = useMemo(
     () =>
@@ -56,16 +95,37 @@ export function SftpSidebar({
       ),
     [explorers, panelStates],
   );
+  const serverBookmarks = useMemo(
+    () =>
+      connectedExplorer
+        ? bookmarks.filter((bookmark) => isSameSftpTarget(bookmark, connectedExplorer))
+        : [],
+    [bookmarks, connectedExplorer],
+  );
+  const showEmptyState = useDelayedEmptyState(!connectedExplorer);
 
   useEffect(() => subscribeSftpSidebarPanelStates(setPanelStates), []);
+  useEffect(() => {
+    saveSftpActivityUiState(tabsPanelState);
+  }, [tabsPanelState]);
+  useEffect(() => {
+    setBookmarkLabelInput('');
+    setBookmarkPathInput('');
+  }, [connectedExplorer?.panelId]);
 
   const saveBookmarks = (nextBookmarks: SftpBookmark[]) => {
     setBookmarks(nextBookmarks);
     window.localStorage.setItem(sftpBookmarksStorageKey, JSON.stringify(nextBookmarks));
   };
 
-  const addExplorerBookmark = (explorer: SftpSidebarExplorer) => {
-    const path = panelStates[explorer.panelId]?.path;
+  const addExplorerBookmark = (
+    explorer: SftpSidebarExplorer,
+    options: { label?: string; path?: string } = {},
+  ) => {
+    const latestPanelStates = getSftpSidebarPanelStates();
+    const explorerState = latestPanelStates[explorer.panelId] ?? panelStates[explorer.panelId];
+    const typedPath = normalizeRemoteBookmarkPath(options.path);
+    const path = typedPath || normalizeRemoteBookmarkPath(explorerState?.path);
 
     if (!path) {
       return;
@@ -75,7 +135,8 @@ export function SftpSidebar({
       host: explorer.host,
       id: `${explorer.panelId}:${path}:${Date.now()}`,
       path,
-      title: explorer.session?.name ?? panelStates[explorer.panelId]?.title ?? explorer.title,
+      port: explorer.port,
+      title: options.label?.trim() || getRemotePathTitle(path),
       username: explorer.username,
     };
     const exists = bookmarks.some(
@@ -86,12 +147,20 @@ export function SftpSidebar({
       return;
     }
 
+    setPanelStates(latestPanelStates);
     saveBookmarks([bookmark, ...bookmarks].slice(0, 24));
   };
-  const addCurrentPathBookmark = () => {
-    if (activeExplorer) {
-      addExplorerBookmark(activeExplorer);
+  const addConnectedBookmark = () => {
+    if (!connectedExplorer) {
+      return;
     }
+
+    addExplorerBookmark(connectedExplorer, {
+      label: bookmarkLabelInput,
+      path: bookmarkPathInput,
+    });
+    setBookmarkLabelInput('');
+    setBookmarkPathInput('');
   };
   const cloneExplorer = (explorer: SftpSidebarExplorer) => {
     if (!explorer.session) {
@@ -115,135 +184,86 @@ export function SftpSidebar({
   };
 
   const openBookmark = (bookmark: SftpBookmark) => {
-    const target =
-      explorers.find(
-        (explorer) =>
-          explorer.host === bookmark.host &&
-          (!bookmark.username || explorer.username === bookmark.username),
-      ) ?? activeExplorer;
-
-    if (!target) {
+    if (!connectedExplorer) {
       return;
     }
 
-    onSelectPanel(target.panelId);
-    requestSftpSidebarNavigation(target.panelId, bookmark.path);
+    onSelectPanel(connectedExplorer.panelId);
+    requestSftpSidebarNavigation(connectedExplorer.panelId, bookmark.path);
   };
 
   const removeBookmark = (bookmarkId: string) => {
     saveBookmarks(bookmarks.filter((bookmark) => bookmark.id !== bookmarkId));
   };
-  const toggleShowAllExplorers = () => {
-    setShowAllExplorers((current) => {
-      const next = !current;
-
-      saveBooleanPreference(sftpShowAllExplorersStorageKey, next);
-      return next;
-    });
-  };
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <section className="flex min-h-0 flex-1 flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open Explorers</h2>
-          <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-            {groupedExplorers.length}
-          </span>
-        </div>
-        <div className="min-h-0 flex-1">
-          <OverlayScrollArea>
-            <div className="grid gap-1 pr-2">
-              {groupedExplorers.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-slate-500">
-                  Open SFTP from an SSH tab or session.
-                </div>
-              ) : (
-                <>
-                  {visibleExplorers.map((explorer) => (
-                    <SftpExplorerButton
-                      active={explorer.primary.panelId === activePanelId}
-                      explorer={explorer.primary}
-                      key={explorer.panelId}
-                      count={explorer.count}
-                      ordinalLabel={explorer.ordinalLabel}
-                      onAddBookmark={() => addExplorerBookmark(explorer.primary)}
-                      onClone={() => cloneExplorer(explorer.primary)}
-                      onClose={() => onClosePanel(explorer.primary.panelId)}
-                      onClick={() => onSelectPanel(explorer.primary.panelId)}
-                      onCopyPath={() => copyRemotePath(explorer.state?.path)}
-                      onReconnect={() => requestSftpSidebarReconnect(explorer.primary.panelId)}
-                      state={explorer.state}
-                    />
-                  ))}
-                  {groupedExplorers.length > 4 && (
-                    <button
-                      className="rounded-md border border-border/70 px-3 py-1.5 text-left text-xs text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground"
-                      type="button"
-                      onClick={toggleShowAllExplorers}
-                    >
-                      {showAllExplorers ? 'Show fewer explorers' : `Show ${groupedExplorers.length - 4} more explorers`}
-                    </button>
-                  )}
-                </>
-              )}
+    <section className="flex h-full min-h-0 flex-col gap-3">
+      {connectedExplorer ? (
+        <div className="rounded-lg border border-border/70 bg-slate-950/35 p-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <FolderOpen className="mt-0.5 size-4 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-foreground">
+                {connectedExplorer.session?.name ?? connectedExplorer.title}
+              </p>
+              <p className="truncate font-mono text-[11px] text-muted-foreground">
+                {formatSftpExplorerTarget(connectedExplorer)}
+              </p>
             </div>
-          </OverlayScrollArea>
-        </div>
-      </section>
-
-      <button
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-border/80 bg-background/35 px-3 py-2 text-left hover:border-primary/40 hover:bg-accent"
-        type="button"
-        onClick={() => onSelectPanel('sftp-transfer-queue')}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
-            <UploadCloud className="size-4 text-primary" />
-            Transfer Queue
           </div>
-          <span
-            className={[
-              'rounded border px-1.5 py-0.5 font-mono text-[10px]',
-              transferSummary.failed > 0
-                ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                : 'border-border/80 text-muted-foreground',
-            ].join(' ')}
-          >
-            {formatTransferSummary(transferSummary)}
-          </span>
         </div>
-      </button>
+      ) : null}
 
-      <section className="flex min-h-0 flex-1 flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Remote Bookmarks</h2>
-          <Button
-            size="sm"
-            variant="secondary"
-            type="button"
-            title="Add current path"
-            aria-label="Add current path"
-            disabled={!activeExplorer || !panelStates[activeExplorer.panelId]?.path}
-            onClick={addCurrentPathBookmark}
-          >
-            <BookmarkPlus className="size-4" />
-            Current
-          </Button>
-        </div>
-        <div className="min-h-0 flex-1">
-          <OverlayScrollArea>
-            <div className="grid gap-1 pr-2">
-              {bookmarks.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-slate-500">
-                  Add a remote path from an open SFTP explorer.
+      {connectedExplorer ? (
+        <section className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
+          <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Remote Bookmarks</h2>
+            </div>
+            <div className="grid gap-2">
+              <input
+                className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                placeholder="Label (optional)"
+                value={bookmarkLabelInput}
+                onChange={(event) => setBookmarkLabelInput(event.target.value)}
+              />
+              <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+                <input
+                  className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                  placeholder="Path or blank for current"
+                  value={bookmarkPathInput}
+                  onChange={(event) => setBookmarkPathInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      addConnectedBookmark();
+                    }
+                  }}
+                />
+                <Button
+                  className="h-8 w-7 px-0"
+                  size="icon"
+                  type="button"
+                  title="Add typed path or current SFTP path"
+                  aria-label="Add SFTP bookmark"
+                  disabled={!bookmarkPathInput.trim() && !panelStates[connectedExplorer.panelId]?.path}
+                  onClick={addConnectedBookmark}
+                >
+                  <Plus className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+          <OverlayScrollArea containerClassName="min-h-0">
+            <div className="grid gap-2 pr-2">
+              {serverBookmarks.length === 0 ? (
+                <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                  Save frequently used remote paths for this server here.
                 </div>
               ) : (
-                bookmarks.map((bookmark) => (
+                serverBookmarks.map((bookmark) => (
                   <ContextMenu key={bookmark.id}>
                     <ContextMenuTrigger asChild>
                       <div
-                        className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded px-2 py-1.5 hover:bg-accent"
+                        className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2"
                       >
                         <button
                           className="grid min-w-0 gap-0.5 text-left text-xs"
@@ -256,29 +276,41 @@ export function SftpSidebar({
                             }
                           }}
                         >
-                          <span className="truncate text-xs font-semibold text-foreground">
-                            {getRemotePathTitle(bookmark.path)}
+                          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+                            <Star className="size-3 shrink-0 text-primary" />
+                            <span className="truncate" title={bookmark.title}>
+                              {bookmark.title}
+                            </span>
                           </span>
-                          <span className="truncate font-mono text-[10px] text-muted-foreground/90">
-                            {formatSftpExplorerTarget(bookmark)}
-                          </span>
-                          <span className="truncate font-mono text-[10px] text-slate-500/80">
+                          <span
+                            className="truncate font-mono text-[10px] text-muted-foreground"
+                            title={formatRemotePath(bookmark.path)}
+                          >
                             {formatRemotePath(bookmark.path)}
                           </span>
                         </button>
                         <button
-                          className="grid size-5 place-items-center rounded text-slate-500 opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                          className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                          type="button"
+                          title="Open bookmark"
+                          aria-label="Open bookmark"
+                          onClick={() => openBookmark(bookmark)}
+                        >
+                          <FolderOpen className="size-3.5" />
+                        </button>
+                        <button
+                          className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                           type="button"
                           title="Remove bookmark"
                           aria-label="Remove bookmark"
                           onClick={() => removeBookmark(bookmark.id)}
                         >
-                          <X className="size-3" />
+                          <Trash2 className="size-3" />
                         </button>
                       </div>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
-                      <ContextMenuLabel>{getRemotePathTitle(bookmark.path)}</ContextMenuLabel>
+                      <ContextMenuLabel>{bookmark.title}</ContextMenuLabel>
                       <ContextMenuItem onSelect={() => openBookmark(bookmark)}>Open</ContextMenuItem>
                       <ContextMenuItem onSelect={() => copyRemotePath(bookmark.path)}>Copy Path</ContextMenuItem>
                       <ContextMenuSeparator />
@@ -294,9 +326,230 @@ export function SftpSidebar({
               )}
             </div>
           </OverlayScrollArea>
-        </div>
-      </section>
+        </section>
+      ) : showEmptyState ? (
+        <EmptySftpState />
+      ) : (
+        <div className="min-h-0 flex-1" />
+      )}
+
+      <TransferQueueButton
+        onClick={onOpenTransferQueue}
+        transferSummary={transferSummary}
+      />
+
+      <SftpTabsPanel
+        activePanelId={activePanelId}
+        explorers={groupedExplorers}
+        isCollapsed={tabsPanelState.isTabsPanelCollapsed}
+        onAddBookmark={addExplorerBookmark}
+        onClone={cloneExplorer}
+        onClosePanel={onClosePanel}
+        onCopyPath={copyRemotePath}
+        onResize={(height) => setTabsPanelState((current) => ({ ...current, tabsPanelHeight: height }))}
+        onSelectPanel={onSelectPanel}
+        onToggleCollapsed={() =>
+          setTabsPanelState((current) => ({
+            ...current,
+            isTabsPanelCollapsed: !current.isTabsPanelCollapsed,
+          }))
+        }
+        panelHeight={tabsPanelState.tabsPanelHeight}
+      />
+    </section>
+  );
+}
+
+function isSameSftpTarget(bookmark: SftpBookmark, explorer: SftpSidebarExplorer) {
+  return (
+    bookmark.host === explorer.host &&
+    getSftpEndpointPort(bookmark.port) === getSftpEndpointPort(explorer.port) &&
+    (bookmark.username ?? '') === (explorer.username ?? '')
+  );
+}
+
+function getSftpEndpointPort(port?: number) {
+  return port ?? 22;
+}
+
+function normalizeRemoteBookmarkPath(path?: string) {
+  return path?.trim() ?? '';
+}
+
+function EmptySftpState() {
+  return (
+    <div className="min-h-0 flex-1">
+      <div className="rounded-lg border border-dashed border-border/80 px-3 py-5 text-xs text-muted-foreground">
+        Open or reconnect an SFTP explorer to manage remote bookmarks.
+      </div>
     </div>
+  );
+}
+
+function useDelayedEmptyState(shouldShow: boolean) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!shouldShow) {
+      setIsVisible(false);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setIsVisible(true), 120);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [shouldShow]);
+
+  return isVisible;
+}
+
+function TransferQueueButton({
+  onClick,
+  transferSummary,
+}: {
+  onClick: () => void;
+  transferSummary: {
+    canceled: number;
+    completed: number;
+    failed: number;
+    running: number;
+    total: number;
+  };
+}) {
+  return (
+    <button
+      className="flex w-full items-center justify-between gap-2 rounded-lg border border-border/70 bg-card/50 px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+      type="button"
+      onClick={onClick}
+    >
+      <div className="flex min-w-0 items-center gap-2 text-xs font-semibold text-foreground">
+        <UploadCloud className="size-4 shrink-0 text-primary" />
+        <span className="truncate">Transfer Queue</span>
+      </div>
+      <span
+        className={[
+          'shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px]',
+          transferSummary.failed > 0
+            ? 'border-destructive/40 bg-destructive/10 text-destructive'
+            : 'border-border/80 text-muted-foreground',
+        ].join(' ')}
+      >
+        {formatTransferSummary(transferSummary)}
+      </span>
+    </button>
+  );
+}
+
+function SftpTabsPanel({
+  activePanelId,
+  explorers,
+  isCollapsed,
+  onAddBookmark,
+  onClone,
+  onClosePanel,
+  onCopyPath,
+  onResize,
+  onSelectPanel,
+  onToggleCollapsed,
+  panelHeight,
+}: {
+  activePanelId?: string;
+  explorers: ReturnType<typeof groupSftpExplorers>;
+  isCollapsed: boolean;
+  onAddBookmark: (explorer: SftpSidebarExplorer) => void;
+  onClone: (explorer: SftpSidebarExplorer) => void;
+  onClosePanel: (panelId: string) => void;
+  onCopyPath: (path?: string) => void;
+  onResize: (height: number) => void;
+  onSelectPanel: (panelId: string) => void;
+  onToggleCollapsed: () => void;
+  panelHeight: number;
+}) {
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const startY = event.clientY;
+    const startHeight = panelHeight;
+
+    const resize = (moveEvent: PointerEvent) => {
+      onResize(clampTabsPanelHeight(startHeight - (moveEvent.clientY - startY)));
+    };
+    const finishResize = () => {
+      window.removeEventListener('pointermove', resize);
+      window.removeEventListener('pointerup', finishResize);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', resize);
+    window.addEventListener('pointerup', finishResize, { once: true });
+  };
+  const bodyHeight = isCollapsed ? COLLAPSED_TABS_PANEL_HEIGHT : panelHeight;
+
+  return (
+    <section
+      className="shrink-0 overflow-hidden rounded-md border border-slate-800 bg-slate-950/45"
+      style={{ height: bodyHeight }}
+      aria-label="SFTP tabs"
+    >
+      {!isCollapsed && (
+        <div
+          className="h-2 cursor-ns-resize border-b border-slate-800/70 bg-slate-900/70 hover:bg-teal-500/30"
+          role="separator"
+          aria-orientation="horizontal"
+          title="Resize SFTP tabs"
+          onPointerDown={startResize}
+        />
+      )}
+      <div className="flex h-8 items-center gap-2 border-b border-slate-800 px-2">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+          SFTP Tabs
+        </span>
+        <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          {explorers.length}
+        </span>
+        <button
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-slate-800 hover:text-foreground"
+          type="button"
+          aria-label={isCollapsed ? 'Expand SFTP tabs' : 'Collapse SFTP tabs'}
+          title={isCollapsed ? 'Expand' : 'Collapse'}
+          onClick={onToggleCollapsed}
+        >
+          {isCollapsed ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </button>
+      </div>
+      {!isCollapsed && (
+        <OverlayScrollArea className="p-2" containerClassName="h-[calc(100%-2.375rem)]">
+          {explorers.length === 0 ? (
+            <div className="grid h-full place-items-center rounded border border-dashed border-slate-800 px-3 text-center text-xs text-muted-foreground">
+              Open SFTP explorers will appear here.
+            </div>
+          ) : (
+            <div className="grid gap-1">
+              {explorers.map((explorer) => (
+                <SftpExplorerButton
+                  active={explorer.primary.panelId === activePanelId}
+                  explorer={explorer.primary}
+                  key={explorer.panelId}
+                  count={explorer.count}
+                  ordinalLabel={explorer.ordinalLabel}
+                  onAddBookmark={() => onAddBookmark(explorer.primary)}
+                  onClone={() => onClone(explorer.primary)}
+                  onClose={() => onClosePanel(explorer.primary.panelId)}
+                  onClick={() => onSelectPanel(explorer.primary.panelId)}
+                  onCopyPath={() => onCopyPath(explorer.state?.path)}
+                  onReconnect={() => requestSftpSidebarReconnect(explorer.primary.panelId)}
+                  state={explorer.state}
+                />
+              ))}
+            </div>
+          )}
+        </OverlayScrollArea>
+      )}
+    </section>
   );
 }
 
@@ -327,31 +580,28 @@ function SftpExplorerButton({
 }) {
   const path = state?.path ?? 'Home';
   const pathTitle = getRemotePathTitle(path);
+  const targetLabel = formatSftpExplorerTarget(explorer);
+  const formattedPath = formatRemotePath(path);
 
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
           className={[
-            'group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded px-2 py-1.5',
-            active ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent',
+            'group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md px-2 py-1.5 transition-colors',
+            active ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
           ].join(' ')}
         >
-          <button
-            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-2 text-left"
-            type="button"
-            onClick={onClick}
-          >
-            <Folder className="mt-0.5 size-3.5 text-primary" />
+          <button className="grid min-w-0 gap-0.5 text-left" type="button" onClick={onClick}>
             <span className="grid min-w-0 gap-0.5">
-              <span className="truncate text-xs font-semibold">
+              <span className="truncate text-xs font-semibold" title={`${ordinalLabel} · ${pathTitle}`}>
                 {ordinalLabel} · {pathTitle}
               </span>
-              <span className="truncate font-mono text-[10px] text-muted-foreground/90">
-                {formatSftpExplorerTarget(explorer)}
+              <span className="truncate font-mono text-[10px] text-muted-foreground/90" title={targetLabel}>
+                {targetLabel}
               </span>
-              <span className="truncate font-mono text-[10px] text-slate-500/80">
-                {formatRemotePath(path)}
+              <span className="truncate font-mono text-[10px] text-muted-foreground" title={formattedPath}>
+                {formattedPath}
               </span>
             </span>
           </button>
@@ -361,21 +611,9 @@ function SftpExplorerButton({
                 {count}
               </span>
             )}
-            <span
-              className={[
-                'size-2 rounded-full',
-                state?.status === 'connected'
-                  ? 'bg-emerald-400'
-                  : state?.status === 'connecting'
-                    ? 'bg-sky-400'
-                    : state?.status === 'failed'
-                      ? 'bg-destructive'
-                      : 'bg-slate-600',
-              ].join(' ')}
-              title={state?.status ?? 'restored'}
-            />
+            <ConnectionStatusDot status={state?.status ?? 'restored'} />
             <button
-              className="grid size-5 place-items-center rounded text-slate-500 opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+              className="grid size-5 place-items-center rounded text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
               type="button"
               title="Close SFTP tab"
               aria-label="Close SFTP tab"
@@ -410,4 +648,68 @@ function SftpExplorerButton({
       </ContextMenuContent>
     </ContextMenu>
   );
+}
+
+function loadSftpActivityUiState() {
+  if (typeof window === 'undefined') {
+    return {
+      isTabsPanelCollapsed: false,
+      tabsPanelHeight: 140,
+    };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SFTP_ACTIVITY_UI_STORAGE_KEY);
+
+    if (!raw) {
+      return {
+        isTabsPanelCollapsed: false,
+        tabsPanelHeight: 140,
+      };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<{
+      isTabsPanelCollapsed: boolean;
+      tabsPanelHeight: number;
+      version: 1;
+    }>;
+
+    if (parsed.version !== 1) {
+      return {
+        isTabsPanelCollapsed: false,
+        tabsPanelHeight: 140,
+      };
+    }
+
+    return {
+      isTabsPanelCollapsed: Boolean(parsed.isTabsPanelCollapsed),
+      tabsPanelHeight: clampTabsPanelHeight(parsed.tabsPanelHeight ?? 140),
+    };
+  } catch {
+    return {
+      isTabsPanelCollapsed: false,
+      tabsPanelHeight: 140,
+    };
+  }
+}
+
+function saveSftpActivityUiState(state: {
+  isTabsPanelCollapsed: boolean;
+  tabsPanelHeight: number;
+}) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(
+    SFTP_ACTIVITY_UI_STORAGE_KEY,
+    JSON.stringify({
+      ...state,
+      version: 1,
+    }),
+  );
+}
+
+function clampTabsPanelHeight(height: number) {
+  return Math.min(MAX_TABS_PANEL_HEIGHT, Math.max(MIN_TABS_PANEL_HEIGHT, Math.round(height)));
 }

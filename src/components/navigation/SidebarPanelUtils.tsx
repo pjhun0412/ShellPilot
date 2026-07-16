@@ -5,6 +5,7 @@ export interface SftpBookmark {
   host?: string;
   id: string;
   path: string;
+  port?: number;
   title: string;
   username?: string;
 }
@@ -136,9 +137,10 @@ function isSftpBookmark(value: unknown): value is SftpBookmark {
   );
 }
 
-export function formatSftpExplorerTarget(target: Pick<SftpBookmark, 'host' | 'title' | 'username'>) {
+export function formatSftpExplorerTarget(target: Pick<SftpBookmark, 'host' | 'port' | 'title' | 'username'>) {
   return formatRemoteTargetLabel({
     host: target.host,
+    port: target.port,
     title: target.title,
     username: target.username,
   });
@@ -171,12 +173,14 @@ export function getWorkspaceTabPrimaryDetail(tab: WorkspaceTabItem, panelState?:
 function getWorkspaceTabGroupKey(tab: WorkspaceTabItem, panelState?: SftpSidebarPanelState) {
   const username = panelState?.username ?? tab.session?.username ?? '';
   const host = panelState?.host ?? tab.session?.host;
+  const port = panelState?.port ?? tab.session?.port;
 
   if (host) {
     return {
-      id: `server:${username}@${host}`,
+      id: `server:${username}@${host}:${port ?? 22}`,
       label: formatRemoteTargetLabel({
         host,
+        port,
         title: panelState?.title ?? tab.session?.name,
         username,
       }),
@@ -342,14 +346,17 @@ function getWorkspaceTabTypeLabel(type: WorkspacePanelType) {
 
 export function formatRemoteTargetLabel({
   host,
+  port,
   title,
   username,
 }: {
   host?: string;
+  port?: number;
   title?: string;
   username?: string;
 }) {
-  const endpoint = host ? `${username ? `${username}@` : ''}${host}` : '';
+  const portSuffix = port ? `:${port}` : '';
+  const endpoint = host ? `${username ? `${username}@` : ''}${host}${portSuffix}` : '';
   const alias = normalizeRemoteAlias(title);
 
   if (alias && endpoint && !isConnectionAlias(alias, endpoint, host)) {

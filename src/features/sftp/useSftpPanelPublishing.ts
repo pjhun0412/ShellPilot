@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect } from 'react';
 
 import type { SessionItem } from '@/types/workspace';
 import {
@@ -32,16 +32,17 @@ export function useSftpPanelPublishing({
   transferSummary: SftpSidebarTransferSummary;
   visibleEntries: SftpEntry[];
 }) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     publishSftpSidebarPanelState(panelId, {
       host: session.host,
       path,
+      port: session.port,
       status: mapSftpConnectionStateToStatus(connectionState),
       title: session.name,
       transferSummary,
       username: session.username,
     });
-  }, [connectionState, panelId, path, session.host, session.name, session.username, transferSummary]);
+  }, [connectionState, panelId, path, session.host, session.name, session.port, session.username, transferSummary]);
 
   useEffect(() => {
     publishSftpAiContextSnapshot(panelId, {

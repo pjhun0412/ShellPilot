@@ -65,6 +65,7 @@ export function collectSftpExplorers(model: Model): SftpSidebarExplorer[] {
     explorers.push({
       host: session?.host,
       panelId: tab.getId(),
+      port: session?.port,
       session,
       title: tab.getName(),
       username: session?.username,
