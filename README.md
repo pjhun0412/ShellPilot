@@ -35,8 +35,9 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 
 - Rust `russh` 기반 SSH 접속, xterm.js 다크 테마 터미널
 - 비밀번호 / SSH Private Key / SSH Agent(OpenSSH Agent, Pageant) 인증
-- known_hosts 저장·조회·삭제, host key 변경(TOFU mismatch) 차단
+- known_hosts 저장·조회·삭제, host key 변경(TOFU mismatch) 차단, fingerprint 재확인 후에만 신규 host key 신뢰
 - 인증 정보 누락 시 터미널 패널 안에서 바로 입력/재접속
+- 자주 쓰는 원격 경로 즐겨찾기, 선택한 명령을 재사용 가능한 스니펫으로 저장(민감정보 패턴 감지 시 저장 전 경고)
 
 ### 📁 SFTP
 
@@ -73,11 +74,18 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 - 세션 그룹 접기/펼치기, 드래그 앤 드롭으로 그룹/세션 재배치
 - Windows/macOS 로컬 터미널 프로필 (PowerShell, CMD, WSL, Git Bash / Zsh, Bash)
 
+### 🔄 자동 업데이트
+
+- Tauri v2 updater + GitHub Releases 기반, 프로덕션 빌드에서만 시작 시 확인
+- 새 버전이 있으면 확인 대화상자 표시, 사용자 동의 후에만 다운로드·설치
+- `Help → Check for Updates`로 수동 확인 가능 (현재 Windows 우선 지원)
+
 ## 보안 정책
 
 - 세션 데이터에는 host, port, username, tag, group, auth method, credential reference만 저장합니다.
-- 비밀번호와 SSH key passphrase는 session JSON이나 localStorage에 저장하지 않고, OS 자격 증명 저장소(`keyring`)를 통해서만 저장/조회합니다.
-- SSH host key는 앱 로컬 데이터 디렉터리의 known_hosts 저장소에서 관리하며, 변경된 host key는 접속을 차단합니다.
+- 비밀번호와 SSH key passphrase는 session JSON이나 localStorage에 저장하지 않고, OS 자격 증명 저장소(`keyring`)를 통해서만 저장/조회합니다. 렌더러 메모리 캐시는 5분 TTL만 유지합니다.
+- 저장된 credential을 읽을 때 `credentialId`만 신뢰하지 않고, 세션 레지스트리의 `sessionId`/`credentialRef`/host/port/username을 함께 대조합니다. SSH shell, SFTP, SSH 읽기 전용 실행, 연결 테스트가 모두 같은 검증 경로를 씁니다.
+- SSH host key는 앱 로컬 데이터 디렉터리의 known_hosts 저장소에서 관리하며, 변경된 host key는 접속을 차단합니다. 신규 host key는 직전 경고에서 확인한 fingerprint와 일치할 때만 신뢰 저장합니다.
 - 세션 삭제·인증 정보 변경 시 가능한 범위에서 고아 credential을 정리하고, 세션 복제 시 credential reference는 기본적으로 복사하지 않습니다.
 
 ## 기술 스택
@@ -165,6 +173,8 @@ scripts/
 - [RDP 인계 문서](docs/rdp-handoff.md)
 - [VNC 설계 메모](docs/vnc-design.md)
 - [AI Tool Layer 설계](docs/ai-tool-layer-design.md)
+- [릴리즈와 자동 업데이트](docs/release-update.md)
+- [1.0.2 릴리스 노트](docs/release-1.0.2.md)
 - [macOS 지원 메모](docs/macos-support.md)
 
 ## 로드맵
@@ -174,9 +184,9 @@ scripts/
 - 워크스페이스 layout reset/preset
 - 테마 토큰 정리 및 light/high-contrast 테마
 - SFTP Commander 모드(로컬/원격 2-pane), pinned/recent 경로
-- SFTP 전송 일시정지/이어받기
-- VNC TLS(VeNCrypt) 지원
-- macOS 자동 업데이트 및 code signing
+- SFTP 전송 일시정지/이어받기, 로컬 파일 접근 dialog-grant 기반 제한
+- VNC TLS(VeNCrypt) 지원, RDP/VNC credential 바인딩을 SSH/SFTP 수준으로 확장
+- macOS 자동 업데이트, code signing, GitHub Release 업로드 자동화
 
 ## 라이선스
 
