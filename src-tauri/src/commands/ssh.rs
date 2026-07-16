@@ -15,14 +15,17 @@ mod exec;
 mod known_hosts;
 mod shell;
 
-pub(crate) use auth::{authenticate_session, SshAuthRequest};
+pub(crate) use auth::{authenticate_session, SshAuthRequest, SshCredentialScope};
 use exec::{run_readonly_commands, SshCommandResult, SshReadonlyCommandsRequest};
 use known_hosts::{
     clear_known_hosts as clear_known_hosts_store, forget_known_host, list_known_hosts,
     trust_known_host, verify_known_host, KnownHostDecision, KnownHostEntry,
 };
 pub use shell::SshSessionStore;
-use shell::{close_shell, emit_terminal_warning, open_shell, query_cwd, resize_shell, write_shell};
+use shell::{
+    close_shell, emit_terminal_warning, emit_terminal_warning_with_host_key, open_shell, query_cwd,
+    resize_shell, write_shell,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +61,7 @@ pub struct SshKnownHostRecord {
 #[serde(rename_all = "camelCase")]
 pub struct SshShellTarget {
     pub(crate) accept_new_host_key: Option<bool>,
+    pub(crate) accepted_host_key_fingerprint: Option<String>,
     pub(crate) auth_method: Option<String>,
     pub(crate) credential_id: Option<String>,
     pub(crate) host: String,
@@ -67,6 +71,7 @@ pub struct SshShellTarget {
     pub(crate) passphrase_credential_id: Option<String>,
     pub(crate) port: u16,
     pub(crate) private_key_path: Option<String>,
+    pub(crate) session_id: Option<String>,
     pub(crate) username: String,
 }
 
@@ -106,6 +111,7 @@ pub async fn connect_ssh_password(
     app: AppHandle,
     host: String,
     port: u16,
+    session_id: Option<String>,
     username: String,
     credential_id: Option<String>,
     password: Option<String>,
@@ -128,12 +134,24 @@ pub async fn connect_ssh_password(
     let mut session = client::connect(
         config,
         (host.as_str(), port),
-        ShellPilotSshClient::new(app, None, &host, port, false),
+        ShellPilotSshClient::new(app.clone(), None, &host, port, false, None),
     )
     .await
     .map_err(|error| format!("ssh connect failed: {error}"))?;
 
-    authenticate_session(&mut session, &username, &auth).await?;
+    authenticate_session(
+        &app,
+        &mut session,
+        &username,
+        &auth,
+        SshCredentialScope {
+            host: &host,
+            port,
+            session_id: session_id.as_deref(),
+            username: &username,
+        },
+    )
+    .await?;
 
     session
         .disconnect(Disconnect::ByApplication, "validated", "en")
@@ -238,6 +256,7 @@ fn resolve_socket_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
 
 pub(crate) struct ShellPilotSshClient {
     accept_new_host_key: bool,
+    accepted_host_key_fingerprint: Option<String>,
     app: AppHandle,
     host: String,
     panel_id: Option<String>,
@@ -251,9 +270,11 @@ impl ShellPilotSshClient {
         host: &str,
         port: u16,
         accept_new_host_key: bool,
+        accepted_host_key_fingerprint: Option<String>,
     ) -> Self {
         Self {
             accept_new_host_key,
+            accepted_host_key_fingerprint,
             app,
             host: host.to_string(),
             panel_id,
@@ -278,7 +299,11 @@ impl client::Handler for ShellPilotSshClient {
 
         match verify_known_host(&self.app, &self.host, self.port, &entry) {
             Ok(KnownHostDecision::Trusted) => Ok(true),
-            Ok(KnownHostDecision::Unknown) if self.accept_new_host_key => {
+            Ok(KnownHostDecision::Unknown)
+                if self.accept_new_host_key
+                    && self.accepted_host_key_fingerprint.as_deref()
+                        == Some(entry.fingerprint.as_str()) =>
+            {
                 if let Err(error) = trust_known_host(&self.app, &self.host, self.port, &entry) {
                     emit_terminal_warning(
                         &self.app,
@@ -289,7 +314,7 @@ impl client::Handler for ShellPilotSshClient {
                     return Err(russh::Error::UnknownKey);
                 }
 
-                emit_terminal_warning(
+                emit_terminal_warning_with_host_key(
                     &self.app,
                     self.panel_id.as_deref(),
                     "host_key_trusted",
@@ -297,11 +322,12 @@ impl client::Handler for ShellPilotSshClient {
                         "Security: trusted new SSH host key for {}:{} ({})",
                         self.host, self.port, entry.fingerprint
                     ),
+                    Some(entry.fingerprint.clone()),
                 );
                 Ok(true)
             }
             Ok(KnownHostDecision::Unknown) => {
-                emit_terminal_warning(
+                emit_terminal_warning_with_host_key(
                     &self.app,
                     self.panel_id.as_deref(),
                     "host_key_unknown",
@@ -309,11 +335,12 @@ impl client::Handler for ShellPilotSshClient {
                         "Security: unknown SSH host key for {}:{}.\nAlgorithm: {}\nFingerprint: {}\nOnly trust this key if it matches the server you intended to reach.",
                         self.host, self.port, entry.algorithm, entry.fingerprint
                     ),
+                    Some(entry.fingerprint.clone()),
                 );
                 Ok(false)
             }
             Ok(KnownHostDecision::Mismatch { expected }) => {
-                emit_terminal_warning(
+                emit_terminal_warning_with_host_key(
                     &self.app,
                     self.panel_id.as_deref(),
                     "host_key_mismatch",
@@ -321,6 +348,7 @@ impl client::Handler for ShellPilotSshClient {
                         "Security: SSH host key mismatch for {}:{}. Expected {}, got {}.",
                         self.host, self.port, expected.fingerprint, entry.fingerprint
                     ),
+                    Some(entry.fingerprint.clone()),
                 );
                 Err(russh::Error::KeyChanged { line: 0 })
             }

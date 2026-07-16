@@ -106,6 +106,7 @@ function createSshToolTarget(panelId: string, session: SessionItem) {
     passphraseCredentialId: session.authMethod === 'key' ? resolveKeyCredentialRef(session).id : null,
     port: session.port ?? 22,
     privateKeyPath,
+    sessionId: session.id,
     username: session.username?.trim() ?? '',
   };
 }

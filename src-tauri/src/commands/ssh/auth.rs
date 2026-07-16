@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::commands::credentials::{read_credential_secret, read_optional_credential_secret};
+use crate::commands::{
+    credentials::{read_credential_secret, read_optional_credential_secret},
+    sessions::{verify_credential_binding, CredentialBindingKind, CredentialBindingTarget},
+};
 use russh::{
     client::{self, KeyboardInteractiveAuthResponse},
     keys::{
@@ -8,8 +11,17 @@ use russh::{
         load_secret_key, HashAlg, PrivateKeyWithHashAlg,
     },
 };
+use tauri::AppHandle;
 
 use super::{ShellPilotSshClient, SshShellTarget};
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SshCredentialScope<'a> {
+    pub(crate) host: &'a str,
+    pub(crate) port: u16,
+    pub(crate) session_id: Option<&'a str>,
+    pub(crate) username: &'a str,
+}
 
 pub(crate) enum SshAuthRequest {
     Agent,
@@ -59,9 +71,11 @@ impl SshAuthRequest {
 }
 
 pub(crate) async fn authenticate_session(
+    app: &AppHandle,
     session: &mut client::Handle<ShellPilotSshClient>,
     username: &str,
     auth: &SshAuthRequest,
+    credential_scope: SshCredentialScope<'_>,
 ) -> Result<(), String> {
     let authenticated = match auth {
         SshAuthRequest::Agent => authenticate_with_agent(session, username).await?,
@@ -70,8 +84,11 @@ pub(crate) async fn authenticate_session(
             response,
         } => {
             let response = resolve_secret(
+                app,
                 credential_id.as_deref(),
                 response.as_deref(),
+                credential_scope,
+                CredentialBindingKind::Password,
                 "interactive response",
             )?;
 
@@ -81,7 +98,14 @@ pub(crate) async fn authenticate_session(
             credential_id,
             password,
         } => {
-            let secret = resolve_secret(credential_id.as_deref(), password.as_deref(), "password")?;
+            let secret = resolve_secret(
+                app,
+                credential_id.as_deref(),
+                password.as_deref(),
+                credential_scope,
+                CredentialBindingKind::Password,
+                "password",
+            )?;
 
             session
                 .authenticate_password(username.to_string(), secret)
@@ -99,8 +123,11 @@ pub(crate) async fn authenticate_session(
                 .filter(|value| !value.trim().is_empty())
                 .ok_or_else(|| "private key path is required".to_string())?;
             let passphrase = resolve_optional_secret(
+                app,
                 passphrase_credential_id.as_deref(),
                 passphrase.as_deref(),
+                credential_scope,
+                CredentialBindingKind::Key,
             )?;
             let key = load_secret_key(key_path, passphrase.as_deref())
                 .map_err(|error| format!("failed to load ssh private key: {error}"))?;
@@ -275,11 +302,15 @@ async fn connect_ssh_agent() -> Result<BoxedAgentClient, String> {
 }
 
 fn resolve_secret(
+    app: &AppHandle,
     credential_id: Option<&str>,
     secret: Option<&str>,
+    credential_scope: SshCredentialScope<'_>,
+    credential_kind: CredentialBindingKind,
     secret_name: &str,
 ) -> Result<String, String> {
     if let Some(id) = credential_id {
+        verify_scoped_credential(app, id, credential_scope, credential_kind)?;
         return read_credential_secret(id);
     }
 
@@ -290,10 +321,14 @@ fn resolve_secret(
 }
 
 fn resolve_optional_secret(
+    app: &AppHandle,
     credential_id: Option<&str>,
     secret: Option<&str>,
+    credential_scope: SshCredentialScope<'_>,
+    credential_kind: CredentialBindingKind,
 ) -> Result<Option<String>, String> {
     if let Some(id) = credential_id {
+        verify_scoped_credential(app, id, credential_scope, credential_kind)?;
         return match read_optional_credential_secret(id) {
             Ok(Some(value)) if !value.is_empty() => Ok(Some(value)),
             Ok(_) if secret.is_some_and(|value| !value.is_empty()) => {
@@ -307,4 +342,23 @@ fn resolve_optional_secret(
     Ok(secret
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned))
+}
+
+fn verify_scoped_credential(
+    app: &AppHandle,
+    credential_id: &str,
+    credential_scope: SshCredentialScope<'_>,
+    credential_kind: CredentialBindingKind,
+) -> Result<(), String> {
+    verify_credential_binding(
+        app,
+        CredentialBindingTarget {
+            credential_id,
+            expected_kind: credential_kind,
+            host: credential_scope.host,
+            port: credential_scope.port,
+            session_id: credential_scope.session_id,
+            username: credential_scope.username,
+        },
+    )
 }

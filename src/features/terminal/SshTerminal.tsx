@@ -29,6 +29,7 @@ import {
   writeSshSessionMetadata,
   type SshSessionMetadata,
 } from '@/features/ssh/sshSessionTools';
+import { confirmSshCommandSnippetSave } from '@/features/ssh/sshSnippetSecurity';
 import type { OpenSftpHandler, SessionItem } from '@/types/workspace';
 import { pasteClipboardToSsh, querySshCurrentDirectory } from './sshTerminalBridge';
 import { SshClosedCard, SshFailureCard, SshRestoredCard } from './SshTerminalStatusCards';
@@ -211,6 +212,10 @@ export function SshTerminal({
     const metadata = sshMetadataRef.current;
 
     if (metadata.commandSnippets.some((item) => item.command === command)) {
+      return;
+    }
+
+    if (!(await confirmSshCommandSnippetSave(selectedCommand))) {
       return;
     }
 

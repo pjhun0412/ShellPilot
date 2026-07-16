@@ -1,5 +1,14 @@
 # SFTP handoff
 
+## 2026-07-16 SFTP local path 보안 메모
+
+- backend local file command는 공통 helper로 로컬 경로 문자열을 검증한다.
+- `local_list`, `local_mkdir`, path 기반 upload, reveal은 기존 경로를 canonicalize하고 directory/file 성격을 확인한다.
+- `local_remove_path`는 symlink 자체 삭제 의미를 유지해야 하므로 canonicalize하지 않고, 절대경로/NUL 검증 후 `symlink_metadata` 기준으로 삭제한다.
+- download target은 대상 파일이 아직 없어도 되므로 parent directory만 canonicalize해서 검증하고, filename을 다시 붙인다.
+- drag/drop stream upload는 OS path가 없으므로 `localPath`를 표시용 문자열로만 검증한다.
+- 아직 남은 고도화 항목은 picker/drag-drop으로 허용된 로컬 경로만 backend가 다루게 하는 grant registry이다.
+
 이 문서는 ShellPilot SFTP 영역의 현재 구현 상태와 다음 작업자가 바로 이어서 볼 핵심 내용을 정리한다. `docs/sftp-design.md`는 과거 설계 내용이 섞여 있을 수 있으므로 참고용으로만 본다.
 
 ## 현재 구현 요약
@@ -422,3 +431,18 @@ reveal_local_path
 - in-app scrollable 영역은 native scrollbar 대신 `app-scrollbar`/`OverlayScrollArea`를 사용한다.
 - selection 로직은 Explorer/Commander 양쪽에서 재사용 관점으로 보되, Commander의 Local/Remote 상태 분리는 유지한다.
 - remote move와 transfer는 overwrite/collision 정책이 다르므로 무리하게 합치지 않는다.
+
+## 2026-07-16 SFTP 보안 하드닝 메모
+
+- SFTP는 SSH backend client를 공유하므로 credential id 읽기 검증, host key verification, host key trust fingerprint 확인 정책을 같이 적용받는다.
+- SFTP target 생성 시 `acceptedHostKeyFingerprint`를 SSH target과 같은 형태로 전달한다. 단순 `acceptNewHostKey=true`만으로는 백엔드가 새 host key를 저장하지 않는다.
+- SSH/SFTP password memory cache는 5분 TTL을 가진다. session metadata/localStorage에는 secret이 저장되지 않고 credential ref만 저장되어야 한다.
+- 남은 고도화 항목: SFTP 로컬 파일 명령(`local_list`, upload/download/remove 등)은 현재 renderer가 전달한 OS path를 백엔드가 수행한다. 추후 파일/폴더 picker 또는 drag/drop으로 얻은 경로만 허용하는 grant registry를 추가해 렌더러 임의 경로 접근면을 줄이는 것이 좋다.
+
+## 2026-07-16 SFTP credential 바인딩 보강
+
+- SFTP open은 SSH 인증 모듈을 공유하므로 저장 credential 읽기 전에 세션 바인딩 검증을 거친다.
+- 검증 기준은 세션 레지스트리의 `credentialRef.id`, `credentialRef.kind`, host, port, username이다.
+- 프론트 SFTP target은 `sessionId`를 함께 전달한다. 직접 입력한 임시 비밀번호는 credential store를 읽지 않는다.
+- 의도: SFTP IPC 호출에서 credential id만 바꿔 다른 세션의 저장 비밀을 인증에 재사용하는 위험을 줄인다.
+- local 파일 작업은 기존 기능을 유지하면서 절대 경로/빈 경로/존재 경로 검증을 넣어 두었고, 추후 picker/drag-drop grant registry로 더 줄이는 것이 남은 보안 고도화 항목이다.

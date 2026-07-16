@@ -12,6 +12,7 @@ export interface SshTerminalEvent {
   authPrompt: boolean;
   code?: SshTerminalErrorCode;
   data?: string;
+  hostKeyFingerprint?: string;
   message?: string;
   panelId: string;
   retryable: boolean;
@@ -60,6 +61,7 @@ export class SshShellOpenError extends Error {
 
 export interface SshShellOpenOptions {
   acceptNewHostKey?: boolean;
+  acceptedHostKeyFingerprint?: string;
   password?: string;
   username?: string;
 }
@@ -108,6 +110,7 @@ export async function openSshShell(
   await invoke('ssh_open_shell', {
     target: {
       acceptNewHostKey: options.acceptNewHostKey ?? false,
+      acceptedHostKeyFingerprint: options.acceptedHostKeyFingerprint ?? null,
       authMethod: session.authMethod ?? 'password',
       credentialId: usesPasswordCredential && !options.password ? passwordCredentialRef.id : null,
       host: session.host,
@@ -120,6 +123,7 @@ export async function openSshShell(
           : null,
       port: session.port ?? 22,
       privateKeyPath,
+      sessionId: session.id,
       username,
     },
   });

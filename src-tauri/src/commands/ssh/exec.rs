@@ -72,19 +72,31 @@ async fn run_ssh_exec_many(
         config,
         (target.host.as_str(), target.port),
         ShellPilotSshClient::new(
-            app,
+            app.clone(),
             Some(target.panel_id.clone()),
             &target.host,
             target.port,
             target.accept_new_host_key.unwrap_or(false),
+            target.accepted_host_key_fingerprint.clone(),
         ),
     )
     .await
     .map_err(|error| classify_connect_error(error.to_string()).message)?;
 
-    authenticate_session(&mut session, &target.username, &auth)
-        .await
-        .map_err(|error| classify_auth_error(error, &auth).message)?;
+    authenticate_session(
+        &app,
+        &mut session,
+        &target.username,
+        &auth,
+        super::SshCredentialScope {
+            host: &target.host,
+            port: target.port,
+            session_id: target.session_id.as_deref(),
+            username: &target.username,
+        },
+    )
+    .await
+    .map_err(|error| classify_auth_error(error, &auth).message)?;
 
     let mut results = Vec::with_capacity(commands.len());
 

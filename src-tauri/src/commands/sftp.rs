@@ -260,16 +260,7 @@ pub async fn local_list(path: Option<String>) -> Result<LocalListResult, String>
         .filter(|value| !value.trim().is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(resolve_local_home_dir);
-    let list_path = fs::canonicalize(&requested_path)
-        .await
-        .map_err(|error| format!("failed to resolve local directory: {error}"))?;
-    let metadata = fs::metadata(&list_path)
-        .await
-        .map_err(|error| format!("failed to read local directory metadata: {error}"))?;
-
-    if !metadata.is_dir() {
-        return Err(format!("local path is not a directory: {}", list_path.display()));
-    }
+    let list_path = resolve_existing_local_directory(requested_path).await?;
 
     let mut read_dir = fs::read_dir(&list_path)
         .await
@@ -343,16 +334,7 @@ pub async fn local_mkdir(parent_path: String, name: String) -> Result<(), String
         return Err("local directory name cannot contain path separators".to_string());
     }
 
-    let parent = fs::canonicalize(PathBuf::from(parent_path))
-        .await
-        .map_err(|error| format!("failed to resolve local directory: {error}"))?;
-    let parent_metadata = fs::metadata(&parent)
-        .await
-        .map_err(|error| format!("failed to read local directory metadata: {error}"))?;
-
-    if !parent_metadata.is_dir() {
-        return Err(format!("local path is not a directory: {}", parent.display()));
-    }
+    let parent = resolve_existing_local_directory(PathBuf::from(parent_path)).await?;
 
     fs::create_dir(parent.join(directory_name))
         .await
@@ -361,7 +343,7 @@ pub async fn local_mkdir(parent_path: String, name: String) -> Result<(), String
 
 #[tauri::command]
 pub async fn local_remove_path(path: String) -> Result<(), String> {
-    let target_path = PathBuf::from(path);
+    let target_path = validate_absolute_local_path(path)?;
     let metadata = fs::symlink_metadata(&target_path)
         .await
         .map_err(|error| format!("failed to read local path metadata: {error}"))?;
@@ -379,7 +361,9 @@ pub async fn local_remove_path(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn local_path_exists(path: String) -> Result<bool, String> {
-    match fs::try_exists(PathBuf::from(path)).await {
+    let path = validate_absolute_local_path(path)?;
+
+    match fs::try_exists(path).await {
         Ok(exists) => Ok(exists),
         Err(error) => Err(format!("failed to check local path: {error}")),
     }
@@ -406,6 +390,77 @@ pub async fn local_roots() -> Result<LocalRootsResult, String> {
     Ok(LocalRootsResult {
         roots: resolve_local_roots(),
     })
+}
+
+fn validate_local_path_text(path: &str) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("local path is required".to_string());
+    }
+
+    if path.contains('\0') {
+        return Err("local path cannot contain NUL bytes".to_string());
+    }
+
+    Ok(())
+}
+
+fn validate_display_local_path(path: String) -> Result<String, String> {
+    validate_local_path_text(&path)?;
+    Ok(path)
+}
+
+fn validate_absolute_local_path(path: String) -> Result<PathBuf, String> {
+    validate_local_path_text(&path)?;
+    let path = PathBuf::from(path);
+
+    if !path.is_absolute() {
+        return Err("local path must be absolute".to_string());
+    }
+
+    Ok(path)
+}
+
+async fn resolve_existing_local_path(path: PathBuf) -> Result<PathBuf, String> {
+    validate_local_path_text(&path.to_string_lossy())?;
+
+    if !path.is_absolute() {
+        return Err("local path must be absolute".to_string());
+    }
+
+    fs::canonicalize(&path)
+        .await
+        .map_err(|error| format!("failed to resolve local path: {error}"))
+}
+
+async fn resolve_existing_local_directory(path: PathBuf) -> Result<PathBuf, String> {
+    let path = resolve_existing_local_path(path).await?;
+    let metadata = fs::metadata(&path)
+        .await
+        .map_err(|error| format!("failed to read local directory metadata: {error}"))?;
+
+    if metadata.is_dir() {
+        Ok(path)
+    } else {
+        Err(format!("local path is not a directory: {}", path.display()))
+    }
+}
+
+async fn resolve_local_download_target(path: PathBuf) -> Result<PathBuf, String> {
+    validate_local_path_text(&path.to_string_lossy())?;
+
+    if !path.is_absolute() {
+        return Err("local download path must be absolute".to_string());
+    }
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| "local download path must have a parent directory".to_string())?;
+    let parent = resolve_existing_local_directory(parent.to_path_buf()).await?;
+    let filename = path
+        .file_name()
+        .ok_or_else(|| "local download filename is required".to_string())?;
+
+    Ok(parent.join(filename))
 }
 
 fn resolve_local_home_dir() -> PathBuf {
@@ -518,6 +573,10 @@ pub async fn sftp_upload(
 ) -> Result<(), String> {
     let connection = get_sftp_connection(&store, &panel_id).await?;
     let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let local_path = resolve_existing_local_path(PathBuf::from(local_path))
+        .await?
+        .to_string_lossy()
+        .to_string();
 
     tokio::spawn(run_sftp_transfer(
         app,
@@ -548,6 +607,7 @@ pub async fn sftp_upload_stream_open(
 ) -> Result<(), String> {
     let connection = get_sftp_connection(&store, &panel_id).await?;
     let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let local_path = validate_display_local_path(local_path)?;
     let request = SftpTransferRequest {
         direction: SftpTransferDirection::Upload,
         local_path,
@@ -662,6 +722,10 @@ pub async fn sftp_download(
 ) -> Result<(), String> {
     let connection = get_sftp_connection(&store, &panel_id).await?;
     let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let local_path = resolve_local_download_target(PathBuf::from(local_path))
+        .await?
+        .to_string_lossy()
+        .to_string();
 
     tokio::spawn(run_sftp_transfer(
         app,
@@ -714,11 +778,7 @@ pub async fn sftp_cancel_transfer(
 
 #[tauri::command]
 pub async fn reveal_local_path(path: String) -> Result<(), String> {
-    let path = PathBuf::from(path);
-
-    if !path.exists() {
-        return Err("local path does not exist".to_string());
-    }
+    let path = resolve_existing_local_path(PathBuf::from(path)).await?;
 
     reveal_path_in_file_manager(&path)
 }
@@ -1750,24 +1810,36 @@ async fn open_sftp_connection(
         config,
         (target.host.as_str(), target.port),
         ShellPilotSshClient::new(
-            app,
+            app.clone(),
             None,
             &target.host,
             target.port,
             target.accept_new_host_key.unwrap_or(false),
+            target.accepted_host_key_fingerprint.clone(),
         ),
     )
     .await
     .map_err(|error| format!("failed to open ssh transport for sftp: {error}"))?;
 
-    authenticate_session(&mut ssh, &target.username, &auth)
-        .await
-        .map_err(|error| {
-            format!(
-                "failed to authenticate sftp session using {}: {error}",
-                auth.label()
-            )
-        })?;
+    authenticate_session(
+        &app,
+        &mut ssh,
+        &target.username,
+        &auth,
+        crate::commands::ssh::SshCredentialScope {
+            host: &target.host,
+            port: target.port,
+            session_id: target.session_id.as_deref(),
+            username: &target.username,
+        },
+    )
+    .await
+    .map_err(|error| {
+        format!(
+            "failed to authenticate sftp session using {}: {error}",
+            auth.label()
+        )
+    })?;
 
     let channel = ssh
         .channel_open_session()

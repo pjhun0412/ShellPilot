@@ -226,3 +226,23 @@ Local PTY 동작 수동 확인:
 - `cargo fmt --manifest-path src-tauri\Cargo.toml --check`
 - `cargo check --manifest-path src-tauri\Cargo.toml`
 - `cargo test --manifest-path src-tauri\Cargo.toml classify_`
+
+## 2026-07-16 SSH 보안 하드닝 메모
+
+- OS credential store 접근은 저장/삭제뿐 아니라 읽기에서도 `shellpilot_<session>_password|key` 형태의 credential id만 허용한다.
+- 프론트 렌더러 메모리에 잠시 남는 SSH/SFTP password cache는 5분 TTL을 가진다. OS 보안 저장소가 영구 저장의 기준이고, 메모리 캐시는 짧은 재시도 편의용이다.
+- SSH host key unknown 수락은 `acceptNewHostKey=true`만으로 처리하지 않는다. 백엔드는 직전 경고에서 확인한 fingerprint와 같은 `acceptedHostKeyFingerprint`가 함께 들어온 경우에만 새 host key를 저장한다.
+- SSH host key warning event는 `hostKeyFingerprint` 구조화 필드를 포함한다. 프론트는 이 값을 우선 사용하고, 메시지 문자열 파싱은 호환 fallback으로만 둔다.
+- host key mismatch는 여전히 자동 trust 대상이 아니다. 사용자가 Reset Host Key를 명시적으로 실행해야 한다.
+- SSH command snippet은 session metadata에 저장된다. password/token/api key/Authorization/Bearer 패턴이 보이면 저장 전 경고 다이얼로그를 띄운다.
+- 남은 고도화 항목: SFTP 로컬 파일 접근을 dialog-grant 기반으로 제한, 세션 삭제/수정 시 credential 정리 감사.
+
+## 2026-07-16 SSH/SFTP credential 바인딩 보강
+
+- 저장된 SSH/SFTP credential을 읽을 때는 이제 단순 `credentialId`만으로 통과하지 않는다.
+- 백엔드 공통 검증 함수가 세션 레지스트리의 `credentialRef.id`, `credentialRef.kind`, host, port, username을 요청 target과 대조한다.
+- SSH shell, SSH readonly exec, SFTP open, SSH 연결 테스트가 모두 같은 검증 경로를 탄다.
+- 프론트는 SSH/SFTP target에 `sessionId`를 함께 전달한다. 직접 입력한 임시 비밀번호는 credential store를 읽지 않으므로 기존처럼 동작한다.
+- 의도: credential id 유추나 UI/IPC 조작만으로 다른 세션의 저장 비밀번호/키 패스프레이즈를 읽어 인증에 쓰는 범위를 줄인다.
+- 세션 레지스트리 저장 시 이전/새 registry를 비교해 더 이상 참조되지 않는 credential은 백엔드에서도 best-effort로 삭제한다. 프론트 cleanup이 1차, 백엔드 cleanup이 2차 안전망이다.
+- 남은 고도화: local file grant registry, 저장소 마이그레이션 실패 시 UX 정리.

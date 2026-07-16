@@ -17,6 +17,7 @@ export type SshCloseIntent = 'dispose' | 'manual' | 'reconnect';
 
 export interface SshHostKeyWarning {
   code?: string;
+  fingerprint?: string;
   message: string;
 }
 
@@ -85,6 +86,7 @@ export function handleSshTerminalEvent({
     if (isSshHostKeyFailure(event.code)) {
       lastHostKeyWarningRef.current = {
         code: event.code,
+        fingerprint: event.hostKeyFingerprint ?? extractSshHostKeyFingerprint(event.message),
         message: event.message ?? 'SSH host key verification failed.',
       };
     }
@@ -131,6 +133,10 @@ export function handleSshTerminalEvent({
     setTerminalStatus('closed');
     terminal.writeln('\r\n[closed]');
   }
+}
+
+function extractSshHostKeyFingerprint(message?: string) {
+  return /Fingerprint:\s*([^\s]+)/i.exec(message ?? '')?.[1];
 }
 
 function persistPromptedCredentials({

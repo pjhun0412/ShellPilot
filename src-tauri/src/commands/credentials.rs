@@ -54,6 +54,8 @@ pub fn write_credential_secret(id: &str, secret: &str) -> Result<(), String> {
 }
 
 pub fn read_credential_secret(id: &str) -> Result<String, String> {
+    validate_credential_id(id)?;
+
     let entry = keyring::Entry::new(SERVICE_NAME, &id)
         .map_err(|error| format!("failed to open credential entry: {error}"))?;
 
@@ -63,6 +65,8 @@ pub fn read_credential_secret(id: &str) -> Result<String, String> {
 }
 
 pub fn read_optional_credential_secret(id: &str) -> Result<Option<String>, String> {
+    validate_credential_id(id)?;
+
     let entry = keyring::Entry::new(SERVICE_NAME, &id)
         .map_err(|error| format!("failed to open credential entry: {error}"))?;
 
@@ -76,10 +80,13 @@ pub fn read_optional_credential_secret(id: &str) -> Result<Option<String>, Strin
 }
 
 pub fn delete_credential_secret(id: &str) -> Result<(), String> {
+    validate_credential_id(id)?;
+
     let entry = keyring::Entry::new(SERVICE_NAME, &id)
         .map_err(|error| format!("failed to open credential entry: {error}"))?;
 
-    entry
-        .delete_credential()
-        .map_err(|error| format!("failed to delete credential: {error}"))
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("failed to delete credential: {error}")),
+    }
 }

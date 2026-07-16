@@ -23,8 +23,13 @@ struct SshSessionHandle {
 
 enum SshSessionCommand {
     Close,
-    QueryCwd { respond_to: oneshot::Sender<Option<String>> },
-    Resize { cols: u32, rows: u32 },
+    QueryCwd {
+        respond_to: oneshot::Sender<Option<String>>,
+    },
+    Resize {
+        cols: u32,
+        rows: u32,
+    },
     Write(String),
 }
 
@@ -34,6 +39,7 @@ struct SshTerminalEvent {
     auth_prompt: bool,
     code: Option<String>,
     data: Option<String>,
+    host_key_fingerprint: Option<String>,
     message: Option<String>,
     panel_id: String,
     retryable: bool,
@@ -193,7 +199,12 @@ pub(crate) async fn query_cwd(
 ) -> Result<Option<String>, String> {
     let (respond_to, response) = oneshot::channel();
 
-    send_session_command(&store, &panel_id, SshSessionCommand::QueryCwd { respond_to }).await?;
+    send_session_command(
+        &store,
+        &panel_id,
+        SshSessionCommand::QueryCwd { respond_to },
+    )
+    .await?;
 
     Ok(response.await.unwrap_or(None))
 }
@@ -261,6 +272,7 @@ async fn run_shell_session(
                 &target.host,
                 target.port,
                 target.accept_new_host_key.unwrap_or(false),
+                target.accepted_host_key_fingerprint.clone(),
             ),
         )
         .await
@@ -272,7 +284,18 @@ async fn run_shell_session(
             None,
             Some(format!("authenticating {}", auth.label())),
         );
-        authenticate_session(&mut session, &target.username, &auth)
+        authenticate_session(
+            &app,
+            &mut session,
+            &target.username,
+            &auth,
+            super::SshCredentialScope {
+                host: &target.host,
+                port: target.port,
+                session_id: target.session_id.as_deref(),
+                username: &target.username,
+            },
+        )
             .await
             .map_err(|error| classify_auth_error(error, &auth))?;
 
@@ -436,6 +459,7 @@ fn emit_terminal_event(
             auth_prompt: false,
             code: None,
             data,
+            host_key_fingerprint: None,
             message,
             panel_id: panel_id.to_string(),
             retryable: false,
@@ -451,6 +475,7 @@ fn emit_terminal_failure(app: &AppHandle, panel_id: &str, error: SshFailure) {
             auth_prompt: error.auth_prompt,
             code: Some(error.code.to_string()),
             data: None,
+            host_key_fingerprint: None,
             message: Some(error.message),
             panel_id: panel_id.to_string(),
             retryable: error.retryable,
@@ -465,6 +490,16 @@ pub(crate) fn emit_terminal_warning(
     code: &'static str,
     message: String,
 ) {
+    emit_terminal_warning_with_host_key(app, panel_id, code, message, None);
+}
+
+pub(crate) fn emit_terminal_warning_with_host_key(
+    app: &AppHandle,
+    panel_id: Option<&str>,
+    code: &'static str,
+    message: String,
+    host_key_fingerprint: Option<String>,
+) {
     if let Some(panel_id) = panel_id {
         let _ = app.emit(
             "shellpilot-ssh-terminal",
@@ -472,6 +507,7 @@ pub(crate) fn emit_terminal_warning(
                 auth_prompt: false,
                 code: Some(code.to_string()),
                 data: None,
+                host_key_fingerprint,
                 message: Some(message),
                 panel_id: panel_id.to_string(),
                 retryable: false,

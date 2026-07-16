@@ -168,6 +168,18 @@ export function useSshTerminalActions({
   }, [reconnectSession, session]);
 
   const trustHostKeyAndReconnect = useCallback(async () => {
+    const hostKeyWarning = lastHostKeyWarningRef.current;
+
+    if (!hostKeyWarning?.fingerprint) {
+      setTerminalStatus('failed', {
+        authPrompt: false,
+        code: hostKeyWarning?.code ?? 'host_key_unknown',
+        message: 'SSH host key fingerprint was not available. Reconnect and verify the host key again.',
+        retryable: true,
+      });
+      return;
+    }
+
     setTerminalStatus('connecting');
     failedAttemptRef.current = false;
     lastHostKeyWarningRef.current = undefined;
@@ -176,6 +188,7 @@ export function useSshTerminalActions({
     await closeSshShell(panelId).catch(() => undefined);
     await openSshShell(panelId, session, {
       acceptNewHostKey: true,
+      acceptedHostKeyFingerprint: hostKeyWarning.fingerprint,
       password: pendingPasswordRef.current,
       username: pendingUsernameRef.current,
     }).catch((error: unknown) => {

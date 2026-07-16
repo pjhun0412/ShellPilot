@@ -45,6 +45,7 @@ import {
   type SshFavoritePath,
   writeSshSessionMetadata,
 } from './sshSessionTools';
+import { confirmSshCommandSnippetSave } from './sshSnippetSecurity';
 
 const SSH_ACTIVITY_UI_STORAGE_KEY = 'shellpilot.ssh.activity.ui.v1';
 const MIN_TABS_PANEL_HEIGHT = 96;
@@ -298,6 +299,11 @@ export function SshActivityPanel({
       return;
     }
 
+    if (!(await confirmSshCommandSnippetSave(typedCommand))) {
+      showTransientSnippetStatus('Snippet not saved');
+      return;
+    }
+
     const nextCommandSnippets = [
       ...commandSnippets,
       createSshCommandSnippet(command, snippetLabelInput || createCommandSnippetLabel(typedCommand), {
@@ -313,7 +319,7 @@ export function SshActivityPanel({
   const removeCommandSnippet = (snippetId: string) => {
     void saveCommandSnippets(commandSnippets.filter((item) => item.id !== snippetId));
   };
-  const updateCommandSnippet = (snippet: SshCommandSnippet) => {
+  const updateCommandSnippet = async (snippet: SshCommandSnippet) => {
     const command = normalizeSshCommand(snippet.command);
 
     if (!command) {
@@ -321,7 +327,14 @@ export function SshActivityPanel({
       return;
     }
 
-    void saveCommandSnippets(
+    const existingSnippet = commandSnippets.find((item) => item.id === snippet.id);
+
+    if (existingSnippet?.command !== command && !(await confirmSshCommandSnippetSave(command))) {
+      showTransientSnippetStatus('Snippet not saved');
+      return;
+    }
+
+    await saveCommandSnippets(
       commandSnippets.map((item) =>
         item.id === snippet.id
           ? {
@@ -333,7 +346,8 @@ export function SshActivityPanel({
             }
           : item,
       ),
-    ).then(() => setEditingCommandSnippet(undefined));
+    );
+    setEditingCommandSnippet(undefined);
   };
   const sendCdCommand = (path: string) => {
     if (!activeSshTab) {

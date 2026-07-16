@@ -213,6 +213,7 @@ function createSftpTarget(panelId: string, session: SessionItem, options: SshShe
 
   return {
     acceptNewHostKey: options.acceptNewHostKey ?? false,
+    acceptedHostKeyFingerprint: options.acceptedHostKeyFingerprint ?? null,
     authMethod: session.authMethod ?? 'password',
     credentialId: usesPasswordCredential && !options.password ? passwordCredentialRef.id : null,
     host: session.host,
@@ -225,6 +226,7 @@ function createSftpTarget(panelId: string, session: SessionItem, options: SshShe
         : null,
     port: session.port ?? 22,
     privateKeyPath,
+    sessionId: session.id,
     username,
   };
 }

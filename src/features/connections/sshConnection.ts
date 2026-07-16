@@ -24,7 +24,14 @@ export type SshConnectionResult =
   | { mode: 'auth'; result: SshAuthResult }
   | { mode: 'probe'; result: SshProbeResult };
 
-const passwordMemoryCache = new Map<string, string>();
+const PASSWORD_MEMORY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface RememberedPassword {
+  password: string;
+  timeoutId: number;
+}
+
+const passwordMemoryCache = new Map<string, RememberedPassword>();
 
 export async function probeSshConnection(session: SessionItem): Promise<SshProbeResult> {
   if (!session.host) {
@@ -44,7 +51,7 @@ export async function connectSshSession(session: SessionItem): Promise<SshConnec
   }
 
   if (session.authMethod === 'password' || session.authMethod === 'os-credential') {
-    const cachedPassword = passwordMemoryCache.get(resolvePasswordCredentialRef(session).id);
+    const cachedPassword = readRememberedCredentialPassword(resolvePasswordCredentialRef(session).id);
 
     if (cachedPassword) {
       return connectSshSessionWithPassword(session, cachedPassword);
@@ -55,6 +62,7 @@ export async function connectSshSession(session: SessionItem): Promise<SshConnec
       host: session.host,
       password: null,
       port: session.port ?? 22,
+      sessionId: session.id,
       timeoutMs: 8000,
       username: session.username ?? '',
     });
@@ -79,6 +87,7 @@ export async function connectSshSessionWithPassword(
     host: session.host,
     password,
     port: session.port ?? 22,
+    sessionId: session.id,
     timeoutMs: 8000,
     username: session.username ?? '',
   });
@@ -110,7 +119,13 @@ export function rememberSshSessionPassword(session: SessionItem, password: strin
 }
 
 export function rememberCredentialPassword(credentialId: string, password: string) {
-  passwordMemoryCache.set(credentialId, password);
+  forgetCredentialPassword(credentialId);
+
+  const timeoutId = window.setTimeout(() => {
+    passwordMemoryCache.delete(credentialId);
+  }, PASSWORD_MEMORY_CACHE_TTL_MS);
+
+  passwordMemoryCache.set(credentialId, { password, timeoutId });
 }
 
 export function hasRememberedCredentialPassword(credentialId: string) {
@@ -118,7 +133,17 @@ export function hasRememberedCredentialPassword(credentialId: string) {
 }
 
 export function forgetCredentialPassword(credentialId: string) {
+  const rememberedPassword = passwordMemoryCache.get(credentialId);
+
+  if (rememberedPassword) {
+    window.clearTimeout(rememberedPassword.timeoutId);
+  }
+
   passwordMemoryCache.delete(credentialId);
+}
+
+function readRememberedCredentialPassword(credentialId: string) {
+  return passwordMemoryCache.get(credentialId)?.password;
 }
 
 export function resolvePasswordCredentialRef(session: SessionItem): CredentialRef {
