@@ -10,7 +10,7 @@ import {
 export function SshRestoredCard({ onReconnect }: { onReconnect: () => void }) {
   return (
     <TerminalOverlayCard title="SSH session restored">
-      <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+      <span className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]">
         Terminal output was not restored. Reconnect to open a new SSH session.
       </span>
       <div className="flex flex-wrap justify-end gap-2">
@@ -25,7 +25,7 @@ export function SshRestoredCard({ onReconnect }: { onReconnect: () => void }) {
 export function SshClosedCard({ onReconnect }: { onReconnect: () => void }) {
   return (
     <TerminalOverlayCard title="SSH session disconnected">
-      <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+      <span className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]">
         The SSH connection is closed. Reconnect to open a new shell session.
       </span>
       <div className="flex flex-wrap justify-end gap-2">
@@ -78,8 +78,8 @@ export function SshFailureCard({
       className="absolute left-1/2 top-1/2 grid w-[min(28rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg"
       onSubmit={onSubmit}
     >
-      <span className="font-medium text-slate-100">{getSshFailureTitle(failure.code)}</span>
-      <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+      <span className="font-medium text-foreground">{getSshFailureTitle(failure.code)}</span>
+      <span className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]">
         {failure.message}
       </span>
       {failure.authPrompt ? (
@@ -180,7 +180,7 @@ function TerminalOverlayCard({
 }) {
   return (
     <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
-      <span className="font-medium text-slate-100">{title}</span>
+      <span className="font-medium text-foreground">{title}</span>
       {children}
     </div>
   );

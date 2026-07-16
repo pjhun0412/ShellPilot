@@ -11,7 +11,7 @@ export function SettingsList({ children }: { children: ReactNode }) {
   if (Array.isArray(visibleChildren) && visibleChildren.length === 0) {
     return (
       <section className="rounded-md border border-dashed border-slate-800 bg-slate-950/20 px-4 py-8 text-center">
-        <p className="text-sm font-medium text-slate-400">No matching settings.</p>
+        <p className="text-sm font-medium text-muted-foreground">No matching settings.</p>
       </section>
     );
   }
@@ -37,7 +37,7 @@ export function SettingsActionRow({
   return (
     <section className="grid gap-3 rounded-md border border-slate-800 bg-slate-950/45 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
       <div className="min-w-0">
-        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
       </div>
       {children ? <div className="shrink-0">{children}</div> : null}
@@ -96,7 +96,7 @@ export function SettingsTextInput({
   return (
     <SettingsActionRow description={description} matches={matches} title={title}>
       <input
-        className="h-8 w-72 max-w-full rounded border border-slate-800 bg-slate-950 px-2 text-xs text-slate-100 outline-none focus:border-primary/70"
+        className="h-8 w-72 max-w-full rounded border border-slate-800 bg-slate-950 px-2 text-xs text-foreground outline-none focus:border-primary/70"
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -134,7 +134,7 @@ export function SettingsNumberInput({
     <SettingsActionRow description={description} matches={matches} title={title}>
       <div className="grid h-8 w-28 grid-cols-[1fr_1.75rem] overflow-hidden rounded border border-slate-800 bg-slate-950 focus-within:border-primary/70">
         <input
-          className="min-w-0 bg-transparent px-2 text-right text-xs text-slate-100 outline-none"
+          className="min-w-0 bg-transparent px-2 text-right text-xs text-foreground outline-none"
           inputMode="decimal"
           value={String(value)}
           onChange={(event) => {
@@ -148,7 +148,7 @@ export function SettingsNumberInput({
         <div className="grid border-l border-slate-800">
           <button
             aria-label={`Increase ${title}`}
-            className="grid place-items-center text-slate-500 hover:bg-slate-900 hover:text-slate-200"
+            className="grid place-items-center text-slate-500 hover:bg-slate-900 hover:text-foreground"
             type="button"
             onClick={() => updateValue(value + step)}
           >
@@ -156,7 +156,7 @@ export function SettingsNumberInput({
           </button>
           <button
             aria-label={`Decrease ${title}`}
-            className="grid place-items-center border-t border-slate-800 text-slate-500 hover:bg-slate-900 hover:text-slate-200"
+            className="grid place-items-center border-t border-slate-800 text-slate-500 hover:bg-slate-900 hover:text-foreground"
             type="button"
             onClick={() => updateValue(value - step)}
           >

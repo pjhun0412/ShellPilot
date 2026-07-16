@@ -107,7 +107,7 @@ export function CommanderRow({
       className={[
         COMMANDER_ROW_CLASS_NAME,
         !shouldShowSelection ? 'odd:bg-slate-950/20' : '',
-        shouldShowSelection ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+        shouldShowSelection ? 'border-primary/60 bg-primary/15 text-foreground shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
         remoteMoveTargetPath === entry.path ? 'border-primary/70 bg-primary/20' : '',
       ].join(' ')}
       role="button"
@@ -149,15 +149,15 @@ export function CommanderRow({
           ) : (
             <fileIcon.Icon className={['size-3.5 shrink-0', fileIcon.className].join(' ')} />
           )}
-          <span className="truncate font-semibold text-slate-100">{entry.filename}</span>
+          <span className="truncate font-semibold text-foreground">{entry.filename}</span>
         </span>
       </span>
 
-      <span className="min-w-0 whitespace-nowrap px-1 font-mono text-[11px] text-slate-300">
+      <span className="min-w-0 whitespace-nowrap px-1 font-mono text-[11px] text-muted-foreground">
         {formatModifiedAt(entry.modifiedAt)}
       </span>
 
-      <span className="min-w-0 whitespace-nowrap px-1 text-right font-mono text-[11px] text-slate-300">
+      <span className="min-w-0 whitespace-nowrap px-1 text-right font-mono text-[11px] text-muted-foreground">
         {formatEntrySize(entry)}
       </span>
 

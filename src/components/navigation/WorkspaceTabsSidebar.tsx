@@ -175,7 +175,7 @@ export function WorkspaceTabsSidebar({
                     <ContextMenu>
                       <ContextMenuTrigger asChild>
                         <button
-                          className="mt-1 grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] font-semibold text-slate-500 hover:bg-accent/60 hover:text-slate-300"
+                          className="mt-1 grid min-w-0 grid-cols-[auto_auto_minmax(0,1fr)_auto_auto] items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] font-semibold text-slate-500 hover:bg-accent/60 hover:text-muted-foreground"
                           type="button"
                           onClick={() => toggleGroup(group.id)}
                         >
@@ -290,7 +290,7 @@ function WorkspaceTabButton({
         <div
           className={[
             'group grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded px-2 py-1.5',
-            active ? 'bg-primary/10 text-slate-50' : 'text-slate-300 hover:bg-accent',
+            active ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent',
           ].join(' ')}
         >
           <button
@@ -302,7 +302,7 @@ function WorkspaceTabButton({
             <span className="grid min-w-0 gap-0.5">
               <span className="truncate text-xs font-semibold">{title}</span>
               {primaryDetail && (
-                <span className="truncate font-mono text-[10px] text-slate-400/90">
+                <span className="truncate font-mono text-[10px] text-muted-foreground/90">
                   {primaryDetail}
                 </span>
               )}

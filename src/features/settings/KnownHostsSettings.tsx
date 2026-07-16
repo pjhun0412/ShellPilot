@@ -89,12 +89,12 @@ export function KnownHostsSettings({ searchQuery }: { searchQuery: string }) {
       <div className="grid min-w-0 gap-3">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-slate-100">SSH Known Hosts</h3>
-            <p className="mt-1 text-xs font-medium leading-5 text-slate-400">
+            <h3 className="text-sm font-semibold text-foreground">SSH Known Hosts</h3>
+            <p className="mt-1 text-xs font-medium leading-5 text-muted-foreground">
               Trusted SSH host keys are stored locally and used to detect server identity changes.
             </p>
           </div>
-          <span className="rounded border border-slate-800 bg-slate-950/80 px-2 py-1 font-mono text-[11px] font-semibold text-slate-300">
+          <span className="rounded border border-slate-800 bg-slate-950/80 px-2 py-1 font-mono text-[11px] font-semibold text-muted-foreground">
             {knownHosts.length}
           </span>
         </div>
@@ -115,7 +115,7 @@ export function KnownHostsSettings({ searchQuery }: { searchQuery: string }) {
           </Button>
         </div>
         <div className="rounded border border-slate-900 bg-black/20 px-3 py-2">
-          <p className="text-xs font-medium leading-5 text-slate-400">
+          <p className="text-xs font-medium leading-5 text-muted-foreground">
             New hosts require fingerprint approval before connecting. Changed host keys are blocked until you reset trust for that host.
           </p>
         </div>
@@ -144,11 +144,11 @@ export function KnownHostsSettings({ searchQuery }: { searchQuery: string }) {
             >
               <div className="grid min-w-0 gap-2">
                 <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 text-sm font-semibold text-slate-100">
+                  <div className="flex min-w-0 flex-wrap items-baseline gap-x-1 text-sm font-semibold text-foreground">
                     <span className="min-w-0 truncate">{record.host}</span>
-                    <span className="font-mono text-xs font-normal text-slate-400">:{record.port}</span>
+                    <span className="font-mono text-xs font-normal text-muted-foreground">:{record.port}</span>
                   </div>
-                  <div className="mt-1 text-xs font-medium text-slate-400">{record.algorithm}</div>
+                  <div className="mt-1 text-xs font-medium text-muted-foreground">{record.algorithm}</div>
                 </div>
                 <div className="flex min-w-0 items-center gap-1">
                   <Button
@@ -174,7 +174,7 @@ export function KnownHostsSettings({ searchQuery }: { searchQuery: string }) {
                 </div>
               </div>
               <code
-                className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-slate-900 bg-black/30 px-2 py-1.5 font-mono text-[11px] text-slate-300"
+                className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded border border-slate-900 bg-black/30 px-2 py-1.5 font-mono text-[11px] text-muted-foreground"
                 title={record.fingerprint}
               >
                 {record.fingerprint}

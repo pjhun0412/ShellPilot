@@ -123,7 +123,7 @@ export function CreateSessionDialog({
 
             <DialogFooter>
               <Button
-                className="text-slate-400 shadow-none hover:text-slate-200"
+                className="text-muted-foreground shadow-none hover:text-foreground"
                 type="button"
                 variant="ghost"
                 onClick={() => onOpenChange(false)}

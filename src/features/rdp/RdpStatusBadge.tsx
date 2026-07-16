@@ -15,7 +15,7 @@ export function RdpStatusBadge({ compact = false, status }: { compact?: boolean;
         ? 'border-rose-500/35 bg-rose-500/10 text-rose-200'
         : status === 'connecting'
           ? 'border-sky-500/35 bg-sky-500/10 text-sky-200'
-          : 'border-slate-700 bg-slate-900 text-slate-400';
+          : 'border-slate-700 bg-slate-900 text-muted-foreground';
 
   if (compact) {
     return (

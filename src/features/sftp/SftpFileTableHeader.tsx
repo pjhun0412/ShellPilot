@@ -13,7 +13,7 @@ export function SftpFileTableHeader({
     <>
       {table.getHeaderGroups().map((headerGroup) => (
         <div
-          className="grid shrink-0 items-center gap-x-2 border-b border-border/70 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-200"
+          className="grid shrink-0 items-center gap-x-2 border-b border-border/70 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground"
           key={headerGroup.id}
           style={{ gridTemplateColumns: tableGridTemplateColumns }}
         >
@@ -21,7 +21,7 @@ export function SftpFileTableHeader({
             <div className="relative min-w-0 pr-2" key={header.id}>
               <button
                 className={[
-                  'flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
+                  'flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-foreground hover:bg-slate-800/80 hover:text-foreground',
                   header.column.id === 'size' ? 'justify-end text-right' : 'justify-start',
                   header.column.getIsSorted() ? 'text-primary' : '',
                 ].join(' ')}

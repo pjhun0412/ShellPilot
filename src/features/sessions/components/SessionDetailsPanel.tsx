@@ -136,12 +136,12 @@ export function SessionDetailsPanel({
         />
       )}
       <div className="flex h-8 items-center gap-2 border-b border-slate-800 px-2">
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-200">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {session ? session.name : 'Session Details'}
         </span>
         <AutoSaveIndicator status={autoSaveStatus} />
         <button
-          className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-slate-800 hover:text-foreground"
           type="button"
           aria-label={isCollapsed ? 'Expand session details' : 'Collapse session details'}
           title={isCollapsed ? 'Expand' : 'Collapse'}
@@ -227,7 +227,7 @@ function AutoSaveIndicator({ status }: { status: AutoSaveStatus }) {
       className={[
         'shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold',
         status === 'saving'
-          ? 'border-slate-800 bg-slate-950/50 text-slate-400'
+          ? 'border-slate-700 bg-slate-950/60 text-foreground'
           : 'border-teal-400/30 bg-teal-500/10 text-teal-200',
       ].join(' ')}
     >
@@ -255,11 +255,11 @@ function EditableRow({
 }) {
   return (
     <>
-      <label className="border-b border-r border-slate-800 bg-slate-900/65 px-2 py-1 font-medium text-slate-500">
+      <label className="border-b border-r border-slate-800 bg-slate-900/65 px-2 py-1 font-semibold text-muted-foreground">
         {label}
       </label>
       <input
-        className="min-w-0 border-b border-slate-800 bg-transparent px-2 py-1 text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:bg-slate-900/70 focus:text-teal-100"
+        className="min-w-0 border-b border-slate-800 bg-transparent px-2 py-1 text-foreground outline-none transition-colors placeholder:text-slate-600 focus:bg-slate-900/70 focus:text-teal-100"
         inputMode={inputMode}
         placeholder={placeholder || '-'}
         value={value}
@@ -282,12 +282,12 @@ function SelectRow({
 }) {
   return (
     <>
-      <label className="border-b border-r border-slate-800 bg-slate-900/65 px-2 py-1 font-medium text-slate-500">
+      <label className="border-b border-r border-slate-800 bg-slate-900/65 px-2 py-1 font-semibold text-muted-foreground">
         {label}
       </label>
       <Select value={value ?? ''} onValueChange={onChange}>
         <SelectTrigger
-          className="h-auto min-w-0 rounded-none border-0 border-b border-slate-800 bg-transparent px-2 py-1 text-[11px] text-slate-100 shadow-none focus:border-slate-800 focus:shadow-none"
+          className="h-auto min-w-0 rounded-none border-0 border-b border-slate-800 bg-transparent px-2 py-1 text-[11px] text-foreground shadow-none focus:border-slate-800 focus:shadow-none"
           aria-label={label}
         >
           <SelectValue />
@@ -322,7 +322,7 @@ function DetailsButton({
         width === 'equal' ? 'min-w-20' : '',
         tone === 'primary'
           ? 'border-teal-400/70 bg-teal-500 text-slate-950 hover:bg-teal-400'
-          : 'border-slate-800 bg-slate-950/70 text-slate-300 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100',
+          : 'border-slate-800 bg-slate-950/70 text-muted-foreground hover:border-slate-700 hover:bg-slate-900 hover:text-foreground',
       ].join(' ')}
       type="button"
       onClick={onClick}

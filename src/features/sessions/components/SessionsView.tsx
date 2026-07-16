@@ -189,7 +189,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
         <label className="relative min-w-0">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
-            className="h-9 w-full rounded-md border bg-background/70 pl-9 pr-3 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
+            className="h-9 w-full rounded-md border border-input bg-background/70 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground hover:border-slate-600 focus:border-primary"
             aria-label={t('session.search')}
             placeholder={t('session.search')}
             value={query}
@@ -214,7 +214,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
               'rounded border px-2.5 py-0.5 text-[11px] font-semibold transition-colors',
               activeFilter === filter.id
                 ? 'border-teal-400 bg-teal-500 text-slate-950 shadow-[0_0_0_1px_hsl(var(--primary)/0.22)]'
-                : 'border-slate-800 bg-slate-950/45 text-slate-400 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100',
+                : 'border-slate-700/80 bg-slate-950/55 text-muted-foreground hover:border-slate-600 hover:bg-slate-900 hover:text-foreground',
             ].join(' ')}
             type="button"
             key={filter.id}
@@ -226,7 +226,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
       </div>
 
       <button
-        className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950/45 px-3 py-2 text-left text-xs font-semibold text-slate-200 transition-colors hover:border-slate-700 hover:bg-slate-900"
+        className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-950/45 px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:border-slate-700 hover:bg-slate-900 hover:text-foreground"
         type="button"
         onClick={() => {
           onAddPanel({
@@ -239,7 +239,7 @@ export function SessionsView({ onAddPanel }: { onAddPanel: (panel: WorkspacePane
       >
         <Terminal className="size-4 text-primary" />
         <span className="min-w-0 flex-1">Open Local Terminal</span>
-        <span className="truncate text-[11px] text-slate-500">{defaultLocalTerminalProfile.label}</span>
+        <span className="truncate text-[11px] font-medium text-muted-foreground">{defaultLocalTerminalProfile.label}</span>
       </button>
 
       <div className="flex min-h-0 flex-1 flex-col">

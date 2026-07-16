@@ -126,7 +126,7 @@ export function SftpPanelHeaderActionMenu({
         <Trash2 className="size-3.5" />
         Clean Leftovers
         {residualUploadCount > 0 && (
-          <span className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+          <span className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
             {residualUploadCount}
           </span>
         )}

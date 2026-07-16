@@ -85,9 +85,9 @@ export function SftpPanelBody({
       ) : null}
 
       {isLoading && entriesCount === 0 && !parentPath ? (
-        <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">Loading SFTP directory...</div>
+        <div className="min-h-0 flex-1 p-3 text-xs text-muted-foreground">Loading SFTP directory...</div>
       ) : entriesCount === 0 && !parentPath ? (
-        <div className="min-h-0 flex-1 p-3 text-xs text-slate-400">No remote entries.</div>
+        <div className="min-h-0 flex-1 p-3 text-xs text-muted-foreground">No remote entries.</div>
       ) : (
         <>
           {children}

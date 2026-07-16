@@ -82,7 +82,7 @@ function CommanderHeaderCell({
     <div className="relative min-w-0 pr-2">
       <button
         className={[
-          'flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-slate-200 hover:bg-slate-800/80 hover:text-slate-50',
+          'flex h-6 w-full min-w-0 items-center gap-1 rounded px-1 text-left text-foreground hover:bg-slate-800/80 hover:text-foreground',
           align === 'right' ? 'justify-end text-right' : 'justify-start',
           isActive ? 'text-primary' : '',
         ].join(' ')}

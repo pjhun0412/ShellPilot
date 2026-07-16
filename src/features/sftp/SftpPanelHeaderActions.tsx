@@ -24,7 +24,7 @@ export function SftpViewModeToggle({
       <button
         className={[
           'rounded px-2 transition-colors',
-          viewMode === 'explorer' ? 'bg-primary text-primary-foreground' : 'text-slate-400 hover:text-slate-100',
+          viewMode === 'explorer' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
         ].join(' ')}
         type="button"
         onClick={() => onSetViewMode('explorer')}
@@ -34,7 +34,7 @@ export function SftpViewModeToggle({
       <button
         className={[
           'rounded px-2 transition-colors',
-          viewMode === 'commander' ? 'bg-primary text-primary-foreground' : 'text-slate-400 hover:text-slate-100',
+          viewMode === 'commander' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
         ].join(' ')}
         type="button"
         onClick={() => onSetViewMode('commander')}

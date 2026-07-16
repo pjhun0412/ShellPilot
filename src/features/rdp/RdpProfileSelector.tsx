@@ -20,7 +20,7 @@ export function RdpProfileSelector({ onChange, profile, profileNeedsReconnect }:
           <button
             key={key}
             className={`h-full px-2.5 text-[11px] font-semibold transition ${
-              active ? 'bg-primary/20 text-primary' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+              active ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-slate-900 hover:text-foreground'
             }`}
             title={option.title}
             type="button"
@@ -33,4 +33,3 @@ export function RdpProfileSelector({ onChange, profile, profileNeedsReconnect }:
     </div>
   );
 }
-

@@ -37,11 +37,11 @@ export function SftpTransferQueuePanel() {
   useEffect(() => subscribeSftpSidebarPanelStates(setPanelStates), []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--workspace-terminal))] text-xs text-slate-200">
+    <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--workspace-terminal))] text-xs text-foreground">
       <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border/70 bg-slate-950/55 px-3">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="font-semibold text-slate-100">Transfer Queue</span>
-          <span className="font-mono text-[11px] text-slate-300">
+          <span className="font-semibold text-foreground">Transfer Queue</span>
+          <span className="font-mono text-[11px] text-muted-foreground">
             {summary.running} running
             {summary.failed > 0 && ` / ${summary.failed} failed`}
             {summary.canceled > 0 && ` / ${summary.canceled} stopped`}
@@ -49,7 +49,7 @@ export function SftpTransferQueuePanel() {
           </span>
         </div>
         <button
-          className="rounded px-2 py-1 text-[11px] font-semibold text-slate-300 hover:bg-accent hover:text-slate-100 disabled:pointer-events-none disabled:opacity-40"
+          className="rounded px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
           type="button"
           disabled={summary.total === summary.running}
           onClick={clearFinishedSftpTransfers}
@@ -61,7 +61,7 @@ export function SftpTransferQueuePanel() {
         <OverlayScrollArea>
           <div className="grid min-w-[46rem] gap-2 p-2 pr-4">
             {transfers.length === 0 ? (
-              <div className="grid h-24 place-items-center rounded border border-dashed border-border/70 text-slate-400">
+              <div className="grid h-24 place-items-center rounded border border-dashed border-border/70 text-muted-foreground">
                 File transfers will appear here.
               </div>
             ) : (
@@ -112,9 +112,9 @@ function SftpTransferQueueRow({
 
         <div className="grid min-w-0 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate text-[13px] font-semibold text-slate-50">{getTransferFileName(transfer)}</span>
+            <span className="truncate text-[13px] font-semibold text-foreground">{getTransferFileName(transfer)}</span>
             <span
-              className="max-w-[18rem] truncate rounded border border-border/70 bg-background/50 px-2 py-0.5 font-mono text-[10px] text-slate-300"
+              className="max-w-[18rem] truncate rounded border border-border/70 bg-background/50 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
               title={serverLabel}
             >
               {serverLabel}
@@ -124,7 +124,7 @@ function SftpTransferQueueRow({
               {formatTransferStatus(transfer)}
             </span>
           </div>
-          <span className="truncate font-mono text-[11px] text-slate-300" title={detailText}>
+          <span className="truncate font-mono text-[11px] text-muted-foreground" title={detailText}>
             {detailText}
           </span>
           {errorText && (
@@ -134,13 +134,13 @@ function SftpTransferQueueRow({
           )}
         </div>
 
-        <div className="grid min-w-[12rem] justify-items-end gap-1 text-right font-mono text-[11px] text-slate-300">
+        <div className="grid min-w-[12rem] justify-items-end gap-1 text-right font-mono text-[11px] text-muted-foreground">
           <div className="flex items-center gap-3">
             <span>{getTransferMetricText(transfer) || '—'}</span>
             <span>{formatBytes(transfer.transferredBytes)}</span>
             {isRunning && (
               <button
-                className="grid size-6 place-items-center rounded text-slate-400 hover:bg-destructive/10 hover:text-destructive"
+                className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 type="button"
                 title="Cancel transfer"
                 aria-label="Cancel transfer"
@@ -150,7 +150,7 @@ function SftpTransferQueueRow({
               </button>
             )}
           </div>
-          <span className="text-[10px] text-slate-300">{progress}%</span>
+          <span className="text-[10px] text-muted-foreground">{progress}%</span>
         </div>
       </div>
       <div className="mt-2 h-1 overflow-hidden rounded bg-slate-800/80">
@@ -180,7 +180,7 @@ function getTransferStatusIcon(transfer: SftpTransferItem) {
   }
 
   if (transfer.status === 'canceled') {
-    return <XCircle className="size-3 text-slate-400" />;
+    return <XCircle className="size-3 text-muted-foreground" />;
   }
 
   return null;
@@ -198,10 +198,10 @@ function getTransferStatusClassName(transfer: SftpTransferItem) {
   }
 
   if (transfer.status === 'canceled') {
-    return `${baseClassName} bg-slate-800 text-slate-300`;
+    return `${baseClassName} bg-slate-800 text-muted-foreground`;
   }
 
-  return `${baseClassName} bg-primary/10 text-slate-100`;
+  return `${baseClassName} bg-primary/10 text-foreground`;
 }
 
 function formatTransferServerLabel(

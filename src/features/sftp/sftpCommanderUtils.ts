@@ -17,10 +17,10 @@ type CommanderPathSegment = {
 
 export const COMMANDER_GRID_TEMPLATE = 'minmax(180px,1fr) 144px 104px 8px';
 export const COMMANDER_HEADER_CLASS_NAME =
-  'grid shrink-0 items-center gap-x-2 border-b border-border/70 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-200';
+  'grid shrink-0 items-center gap-x-2 border-b border-border/70 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-foreground';
 export const COMMANDER_BODY_CLASS_NAME = 'grid min-w-full gap-1 py-1.5 pl-2 pr-1';
 export const COMMANDER_ROW_CLASS_NAME =
-  'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 outline-none transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white focus:outline-none';
+  'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-foreground outline-none transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-foreground focus:outline-none';
 export const COMMANDER_MAX_SPLIT_PERCENT = 75;
 export const COMMANDER_MIN_SPLIT_PERCENT = 25;
 export const COMMANDER_DEFAULT_SORT: CommanderSortState = { desc: false, key: 'name' };

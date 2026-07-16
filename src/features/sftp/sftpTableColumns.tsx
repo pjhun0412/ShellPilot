@@ -37,9 +37,9 @@ export function createSftpColumns({
         <span className="flex min-w-0 items-center gap-2">
           <SftpEntryIcon entry={row.original} />
           <span className="grid min-w-0 gap-0.5">
-            <span className="truncate font-semibold tracking-[-0.01em] text-slate-100">{row.original.filename}</span>
+            <span className="truncate font-semibold tracking-[-0.01em] text-foreground">{row.original.filename}</span>
             {isNarrow && (
-              <span className="truncate font-mono text-[10px] font-normal text-slate-300">
+              <span className="truncate font-mono text-[10px] font-normal text-muted-foreground">
                 {row.original.kind}
                 {row.original.modifiedAt ? ` · ${formatModifiedAt(row.original.modifiedAt)}` : ''}
               </span>
@@ -55,7 +55,7 @@ export function createSftpColumns({
     {
       accessorKey: 'kind',
       cell: ({ row }) => (
-        <span className="font-mono text-[11px] text-slate-300">{row.original.kind}</span>
+        <span className="font-mono text-[11px] text-muted-foreground">{row.original.kind}</span>
       ),
       header: 'Type',
       id: 'kind',
@@ -65,7 +65,7 @@ export function createSftpColumns({
     {
       accessorKey: 'modifiedAt',
       cell: ({ row }) => (
-        <span className="truncate font-mono text-[11px] text-slate-300">
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
           {formatModifiedAt(row.original.modifiedAt)}
         </span>
       ),
@@ -79,7 +79,7 @@ export function createSftpColumns({
     {
       accessorKey: 'permissions',
       cell: ({ row }) => (
-        <span className="block w-full text-right font-mono text-[11px] text-slate-300">
+        <span className="block w-full text-right font-mono text-[11px] text-muted-foreground">
           {row.original.permissions ?? ''}
         </span>
       ),
@@ -91,7 +91,7 @@ export function createSftpColumns({
     {
       accessorKey: 'owner',
       cell: ({ row }) => (
-        <span className="truncate font-mono text-[11px] text-slate-300">
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
           {row.original.owner ?? ''}
         </span>
       ),
@@ -103,7 +103,7 @@ export function createSftpColumns({
     {
       accessorFn: (entry) => entry.size ?? 0,
       cell: ({ row }) => (
-        <span className="block w-full text-right font-mono text-[11px] text-slate-300">
+        <span className="block w-full text-right font-mono text-[11px] text-muted-foreground">
           {formatBytes(row.original.size)}
         </span>
       ),

@@ -315,10 +315,10 @@ function SortableGroupSection({
           <button
             data-session-tree-item="true"
             className={cn(
-              'group flex h-6 w-full items-center gap-1 rounded px-1 text-left text-sm font-semibold uppercase text-slate-200 transition-colors hover:bg-slate-800/75 hover:text-slate-50',
-              isSelected && 'bg-slate-800/90 text-slate-50 shadow-[inset_2px_0_0_hsl(var(--primary))]',
+              'group mt-1 flex h-7 w-full items-center gap-1.5 rounded-md border border-transparent px-1.5 text-left text-[13px] font-semibold uppercase tracking-wide text-foreground transition-colors hover:border-slate-700/70 hover:bg-slate-800/80 hover:text-foreground',
+              isSelected && 'border-slate-700/80 bg-slate-800/90 text-foreground shadow-[inset_2px_0_0_hsl(var(--primary))]',
               isDropTarget && 'bg-teal-500/12 text-teal-100 ring-1 ring-inset ring-teal-400/45',
-              isDragging && 'bg-accent text-slate-50',
+              isDragging && 'bg-accent text-foreground',
             )}
             type="button"
             aria-expanded={!isCollapsed}
@@ -336,7 +336,7 @@ function SortableGroupSection({
             {...listeners}
           >
             <span
-              className="grid size-4 shrink-0 place-items-center rounded hover:bg-accent-foreground/10"
+              className="grid size-4 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground"
               role="presentation"
               onClick={(event) => {
                 event.preventDefault();
@@ -349,11 +349,15 @@ function SortableGroupSection({
             >
               {isCollapsed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
             </span>
-            {isCollapsed ? <Folder className="size-3.5" /> : <FolderOpen className="size-3.5" />}
+            {isCollapsed ? (
+              <Folder className="size-3.5 shrink-0 text-amber-300/90" />
+            ) : (
+              <FolderOpen className="size-3.5 shrink-0 text-amber-300" />
+            )}
             <span className="truncate">{group.name}</span>
             <span
               className={cn(
-                'ml-auto min-w-5 text-right font-mono text-xs font-bold tabular-nums text-slate-300 group-hover:text-white',
+                'ml-auto min-w-5 rounded bg-slate-950/55 px-1.5 py-0.5 text-center font-mono text-[11px] font-semibold tabular-nums text-muted-foreground ring-1 ring-slate-700/60 group-hover:text-foreground',
                 isSelected && 'text-teal-200',
               )}
             >
@@ -372,7 +376,7 @@ function SortableGroupSection({
       {!isCollapsed && (
         <div
           className={cn(
-            'ml-4 grid border-l border-border/70 pl-1 transition-colors',
+            'ml-4 grid gap-0.5 border-l border-slate-700/70 pl-1.5 pt-0.5 transition-colors',
             isDropTarget && 'border-teal-400/70',
           )}
         >

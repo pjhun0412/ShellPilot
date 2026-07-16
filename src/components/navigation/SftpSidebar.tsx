@@ -178,7 +178,7 @@ export function SftpSidebar({
                   ))}
                   {groupedExplorers.length > 4 && (
                     <button
-                      className="rounded-md border border-border/70 px-3 py-1.5 text-left text-xs text-slate-400 hover:border-primary/40 hover:bg-accent hover:text-slate-200"
+                      className="rounded-md border border-border/70 px-3 py-1.5 text-left text-xs text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground"
                       type="button"
                       onClick={toggleShowAllExplorers}
                     >
@@ -198,7 +198,7 @@ export function SftpSidebar({
         onClick={() => onSelectPanel('sftp-transfer-queue')}
       >
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+          <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
             <UploadCloud className="size-4 text-primary" />
             Transfer Queue
           </div>
@@ -207,7 +207,7 @@ export function SftpSidebar({
               'rounded border px-1.5 py-0.5 font-mono text-[10px]',
               transferSummary.failed > 0
                 ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                : 'border-border/80 text-slate-400',
+                : 'border-border/80 text-muted-foreground',
             ].join(' ')}
           >
             {formatTransferSummary(transferSummary)}
@@ -256,10 +256,10 @@ export function SftpSidebar({
                             }
                           }}
                         >
-                          <span className="truncate text-xs font-semibold text-slate-200">
+                          <span className="truncate text-xs font-semibold text-foreground">
                             {getRemotePathTitle(bookmark.path)}
                           </span>
-                          <span className="truncate font-mono text-[10px] text-slate-400/90">
+                          <span className="truncate font-mono text-[10px] text-muted-foreground/90">
                             {formatSftpExplorerTarget(bookmark)}
                           </span>
                           <span className="truncate font-mono text-[10px] text-slate-500/80">
@@ -334,7 +334,7 @@ function SftpExplorerButton({
         <div
           className={[
             'group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded px-2 py-1.5',
-            active ? 'bg-primary/10 text-slate-50' : 'text-slate-300 hover:bg-accent',
+            active ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-accent',
           ].join(' ')}
         >
           <button
@@ -347,7 +347,7 @@ function SftpExplorerButton({
               <span className="truncate text-xs font-semibold">
                 {ordinalLabel} · {pathTitle}
               </span>
-              <span className="truncate font-mono text-[10px] text-slate-400/90">
+              <span className="truncate font-mono text-[10px] text-muted-foreground/90">
                 {formatSftpExplorerTarget(explorer)}
               </span>
               <span className="truncate font-mono text-[10px] text-slate-500/80">

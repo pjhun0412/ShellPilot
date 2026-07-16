@@ -20,7 +20,7 @@ const SelectTrigger = React.forwardRef<
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="size-4 shrink-0 text-slate-300" />
+      <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -35,7 +35,7 @@ const SelectContent = React.forwardRef<
       ref={ref}
       position={position}
       className={cn(
-        'app-scrollbar z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-slate-700/90 bg-slate-950 text-slate-100 shadow-xl shadow-black/45',
+        'app-scrollbar z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-md border border-slate-700/90 bg-slate-950 text-foreground shadow-xl shadow-black/45',
         position === 'popper' && 'translate-y-1',
         className,
       )}
@@ -54,7 +54,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex h-8 cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm font-medium text-slate-100 outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-primary/18 data-[highlighted]:text-white data-[state=checked]:bg-primary/12 data-[state=checked]:text-primary data-[disabled]:opacity-50',
+      'relative flex h-8 cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm font-medium text-foreground outline-none data-[disabled]:pointer-events-none data-[highlighted]:bg-primary/18 data-[highlighted]:text-foreground data-[state=checked]:bg-primary/12 data-[state=checked]:text-primary data-[disabled]:opacity-50',
       className,
     )}
     {...props}

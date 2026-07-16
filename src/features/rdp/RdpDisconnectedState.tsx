@@ -35,13 +35,13 @@ export function RdpDisconnectedState({
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-100">Embedded RDP session</h3>
-            <p className="mt-1 text-sm leading-6 text-slate-300">{message}</p>
+            <h3 className="text-sm font-semibold text-foreground">Embedded RDP session</h3>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">{message}</p>
             {errorCode ? <p className="mt-1 text-xs text-rose-300">Code: {errorCode}</p> : null}
             {errorCode === 'certificate_unknown' && certificateFingerprint ? (
               <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/70 p-3">
-                <div className="text-xs font-semibold text-slate-300">TLS certificate fingerprint</div>
-                <div className="mt-2 break-all font-mono text-[11px] leading-5 text-slate-400" title={certificateFingerprint}>
+                <div className="text-xs font-semibold text-muted-foreground">TLS certificate fingerprint</div>
+                <div className="mt-2 break-all font-mono text-[11px] leading-5 text-muted-foreground" title={certificateFingerprint}>
                   {certificateFingerprint}
                 </div>
                 <Button className="mt-3" disabled={isConnecting} size="sm" onClick={onTrustCertificate}>
@@ -52,7 +52,7 @@ export function RdpDisconnectedState({
             {errorCode === 'certificate_mismatch' ? (
               <div className="mt-3 rounded-md border border-rose-500/25 bg-rose-950/20 p-3">
                 <div className="text-xs font-semibold text-rose-200">Trusted certificate changed</div>
-                <p className="mt-1 text-xs leading-5 text-slate-400">
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   Only reset trust if you verified this server certificate change is expected.
                 </p>
                 <Button className="mt-3" disabled={isConnecting} size="sm" variant="secondary" onClick={onForgetCertificate}>
@@ -64,10 +64,10 @@ export function RdpDisconnectedState({
 
           {needsPassword ? (
             <div className="grid gap-2">
-              <label className="text-xs font-semibold text-slate-400">Password</label>
+              <label className="text-xs font-semibold text-muted-foreground">Password</label>
               <div className="flex gap-2">
                 <input
-                  className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-slate-100 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   type="password"
                   value={password}
                   onChange={(event) => onPasswordChange(event.target.value)}

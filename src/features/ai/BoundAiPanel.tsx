@@ -64,18 +64,18 @@ export function BoundAiPanel({ binding, session }: { binding: AiPanelBinding; se
           </span>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-1.5">
-              <h2 className="truncate text-sm font-semibold text-slate-50">AI Assistant</h2>
+              <h2 className="truncate text-sm font-semibold text-foreground">AI Assistant</h2>
               <div className="group relative shrink-0">
                 <button
                   aria-label="AI context info"
-                  className="grid size-5 place-items-center rounded text-slate-500 transition-colors hover:bg-card hover:text-slate-200"
+                  className="grid size-5 place-items-center rounded text-slate-500 transition-colors hover:bg-card hover:text-foreground"
                   type="button"
                 >
                   <Info className="size-3.5" />
                 </button>
-                <div className="pointer-events-none absolute left-1/2 top-7 z-50 hidden w-72 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-2 text-xs leading-5 text-slate-300 shadow-xl group-hover:block">
-                  <div className="font-medium text-slate-100">Bound AI context</div>
-                  <div className="mt-1 text-slate-400">
+                <div className="pointer-events-none absolute left-1/2 top-7 z-50 hidden w-72 -translate-x-1/2 rounded-md border border-border bg-popover px-3 py-2 text-xs leading-5 text-muted-foreground shadow-xl group-hover:block">
+                  <div className="font-medium text-foreground">Bound AI context</div>
+                  <div className="mt-1 text-muted-foreground">
                     This assistant is tied to the selected SSH/SFTP tab. Questions include that tab&apos;s session context.
                   </div>
                   <div className="mt-2 border-t border-border/70 pt-2 text-slate-500">
@@ -84,12 +84,12 @@ export function BoundAiPanel({ binding, session }: { binding: AiPanelBinding; se
                 </div>
               </div>
             </div>
-            <p className="truncate text-xs text-slate-400">
+            <p className="truncate text-xs text-muted-foreground">
               {contextTitle} · {binding.boundPanelTitle} · {boundTabLabel}
             </p>
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-border/80 bg-card/40 px-2 py-1 text-[11px] text-slate-400">
+        <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-border/80 bg-card/40 px-2 py-1 text-[11px] text-muted-foreground">
           <Link2 className="size-3.5 text-primary" />
           <span className="max-w-56 truncate">{sourceLabel}</span>
         </div>
@@ -116,7 +116,7 @@ export function BoundAiPanel({ binding, session }: { binding: AiPanelBinding; se
       <footer className="border-t border-border/80 px-3 py-2">
         <div className="mx-auto grid max-w-4xl grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
           <textarea
-            className="app-scrollbar min-h-9 resize-none rounded-md border border-border bg-card/40 px-3 py-1.5 text-sm leading-6 text-slate-100 outline-none transition-colors placeholder:text-slate-500 focus:border-primary/70"
+            className="app-scrollbar min-h-9 resize-none rounded-md border border-border bg-card/40 px-3 py-1.5 text-sm leading-6 text-foreground outline-none transition-colors placeholder:text-slate-500 focus:border-primary/70"
             placeholder="Ask AI about this tab..."
             value={draft}
             onChange={(event) => setDraft(event.target.value)}

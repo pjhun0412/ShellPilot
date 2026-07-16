@@ -85,7 +85,7 @@ export function SettingsPanel() {
       <div className="settings-panel__layout">
         <aside className="settings-panel__nav">
           <div className="settings-panel__heading">
-            <h2 className="text-sm font-semibold text-slate-100">Settings</h2>
+            <h2 className="text-sm font-semibold text-foreground">Settings</h2>
             <p className="mt-1 text-xs text-slate-500">ShellPilot preferences</p>
           </div>
           <nav className="settings-panel__nav-list">
@@ -104,15 +104,15 @@ export function SettingsPanel() {
             <div className="relative min-w-0 max-w-xl">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" />
               <input
-                className="h-9 w-full rounded-md border border-slate-800 bg-slate-950/70 pl-9 pr-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-primary/70"
+                className="h-9 w-full rounded-md border border-slate-800 bg-slate-950/70 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-slate-500 focus:border-primary/70"
                 placeholder="Search settings"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold text-slate-50">{selectedSection?.title}</h2>
-              <p className="mt-1 text-sm leading-6 text-slate-400">{selectedSection?.description}</p>
+              <h2 className="text-lg font-semibold text-foreground">{selectedSection?.title}</h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{selectedSection?.description}</p>
             </div>
             <SettingsSectionContent
               preferences={preferences}
@@ -152,8 +152,8 @@ function SettingsNavButton({
       className={cn(
         'flex h-8 min-w-0 flex-1 basis-36 items-center gap-2 rounded px-2 text-left text-sm transition-colors',
         isActive
-          ? 'bg-slate-800/75 text-slate-50'
-          : 'text-slate-400 hover:bg-slate-900/70 hover:text-slate-100',
+          ? 'bg-slate-800/75 text-foreground'
+          : 'text-muted-foreground hover:bg-slate-900/70 hover:text-foreground',
       )}
       type="button"
       onClick={onSelect}
@@ -379,7 +379,7 @@ function SettingsSectionContent({
           title="Reset terminal defaults"
         >
           <button
-            className="inline-flex h-8 items-center gap-2 rounded border border-slate-700 bg-slate-900 px-3 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800"
+            className="inline-flex h-8 items-center gap-2 rounded border border-slate-700 bg-slate-900 px-3 text-xs font-semibold text-foreground hover:border-slate-600 hover:bg-slate-800"
             type="button"
             onClick={() =>
               updatePreference((current) => ({
@@ -470,8 +470,8 @@ function DiagnosticRulesSettings({
           onClick={() => setRulesExpanded((current) => !current)}
         >
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold text-slate-100">Diagnostics rules</span>
-            <span className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">
+            <span className="truncate text-sm font-semibold text-foreground">Diagnostics rules</span>
+            <span className="rounded border border-slate-800 bg-slate-950 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
               {rules.length}
             </span>
           </span>
@@ -480,7 +480,7 @@ function DiagnosticRulesSettings({
           </span>
         </button>
         <button
-          className="inline-flex h-8 shrink-0 items-center gap-2 rounded border border-slate-700 bg-slate-900 px-3 text-xs font-semibold text-slate-200 hover:border-slate-600 hover:bg-slate-800"
+          className="inline-flex h-8 shrink-0 items-center gap-2 rounded border border-slate-700 bg-slate-900 px-3 text-xs font-semibold text-foreground hover:border-slate-600 hover:bg-slate-800"
           type="button"
           onClick={() =>
             updatePreference((current) => ({
@@ -496,7 +496,7 @@ function DiagnosticRulesSettings({
           Reset
         </button>
         <button
-          className="grid size-8 place-items-center rounded border border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-200"
+          className="grid size-8 place-items-center rounded border border-slate-800 text-slate-500 hover:border-slate-700 hover:text-foreground"
           type="button"
           onClick={() => setRulesExpanded((current) => !current)}
           aria-label={rulesExpanded ? 'Collapse diagnostics rules' : 'Expand diagnostics rules'}
@@ -525,7 +525,7 @@ function DiagnosticRulesSettings({
                     style={{ backgroundColor: rule.foregroundColor }}
                   />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-slate-100">{rule.label}</span>
+                    <span className="block truncate text-sm font-semibold text-foreground">{rule.label}</span>
                     <span className="block truncate font-mono text-[11px] text-slate-500">{rule.pattern}</span>
                   </span>
                 </button>
@@ -535,7 +535,7 @@ function DiagnosticRulesSettings({
                   onChange={(checked) => updateRule(rule.id, (current) => ({ ...current, enabled: checked }))}
                 />
                 <button
-                  className="grid size-7 place-items-center rounded border border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-200"
+                  className="grid size-7 place-items-center rounded border border-slate-800 text-slate-500 hover:border-slate-700 hover:text-foreground"
                   type="button"
                   onClick={() => toggleRule(rule.id)}
                   aria-label={expanded ? `Collapse ${rule.label}` : `Expand ${rule.label}`}
@@ -546,7 +546,7 @@ function DiagnosticRulesSettings({
               {expanded ? (
                 <div className="grid gap-2 border-t border-slate-800/80 p-3">
                   <input
-                    className="h-8 w-full rounded border border-slate-800 bg-slate-950 px-2 font-mono text-xs text-slate-100 outline-none focus:border-primary/70"
+                    className="h-8 w-full rounded border border-slate-800 bg-slate-950 px-2 font-mono text-xs text-foreground outline-none focus:border-primary/70"
                     spellCheck={false}
                     value={rule.pattern}
                     onChange={(event) => updateRule(rule.id, (current) => ({ ...current, pattern: event.target.value }))}
@@ -597,7 +597,7 @@ function DiagnosticRulesSettings({
                       />
                     </div>
                   </div>
-                  <div className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1.5 font-mono text-xs text-slate-300">
+                  <div className="min-w-0 rounded border border-slate-800 bg-slate-950 px-2 py-1.5 font-mono text-xs text-muted-foreground">
                     <span
                       className="inline-block max-w-full truncate rounded-sm px-1 align-bottom"
                       style={{
@@ -630,7 +630,7 @@ function ColorField({
   value: string;
 }) {
   return (
-    <label className="grid h-8 min-w-0 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-2 rounded border border-slate-800 bg-slate-950 px-2 text-xs text-slate-400">
+    <label className="grid h-8 min-w-0 grid-cols-[auto_auto_minmax(0,1fr)] items-center gap-2 rounded border border-slate-800 bg-slate-950 px-2 text-xs text-muted-foreground">
       <span className="truncate">{label}</span>
       <input
         className="size-4 cursor-pointer appearance-none rounded border border-slate-700 bg-transparent p-0"
@@ -658,7 +658,7 @@ function StyleToggle({
         'h-8 rounded border px-2 text-xs font-semibold transition-colors',
         active
           ? 'border-primary/60 bg-primary/15 text-primary'
-          : 'border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-700 hover:text-slate-300',
+          : 'border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-700 hover:text-muted-foreground',
       )}
       type="button"
       onClick={onClick}

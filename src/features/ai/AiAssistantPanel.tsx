@@ -28,8 +28,8 @@ export function AiAssistantPanel({ panelId }: { panelId: string }) {
             <Bot className="size-4" />
           </span>
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-slate-50">AI Assistant</h2>
-            <p className="truncate text-xs text-slate-400">
+            <h2 className="truncate text-sm font-semibold text-foreground">AI Assistant</h2>
+            <p className="truncate text-xs text-muted-foreground">
               {selectedProvider?.available
                 ? `${selectedProvider.label} · ${selectedProvider.version ?? selectedProvider.command}`
                 : 'Select an available local CLI provider'}
@@ -75,7 +75,7 @@ export function AiAssistantPanel({ panelId }: { panelId: string }) {
 
         {!localPtyTarget && selectedProvider?.available && (
           <div className="grid h-full place-items-center p-4 text-center">
-            <div className="max-w-sm rounded-md border border-dashed border-border bg-card/40 p-4 text-sm leading-6 text-slate-400">
+            <div className="max-w-sm rounded-md border border-dashed border-border bg-card/40 p-4 text-sm leading-6 text-muted-foreground">
               Select a provider and click Connect to start an interactive CLI session.
             </div>
           </div>

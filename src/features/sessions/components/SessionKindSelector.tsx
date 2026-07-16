@@ -29,7 +29,7 @@ export function SessionKindSelector({
             'rounded-[5px] px-2 py-2 text-xs font-medium transition-colors',
             selectedKind === sessionKind
               ? 'bg-teal-500 text-slate-950 shadow-sm shadow-teal-950/30'
-              : 'text-slate-400 hover:bg-slate-900/80 hover:text-slate-100',
+              : 'text-muted-foreground hover:bg-slate-900/80 hover:text-foreground',
           ].join(' ')}
           type="button"
           key={sessionKind}

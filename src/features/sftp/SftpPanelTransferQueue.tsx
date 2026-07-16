@@ -32,8 +32,8 @@ export function SftpPanelTransferSummary({
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <ListChecks className="size-3.5 shrink-0 text-primary" />
-          <span className="shrink-0 font-semibold text-slate-200">Transfers</span>
-          <span className="min-w-0 truncate font-mono text-[11px] text-slate-300">
+          <span className="shrink-0 font-semibold text-foreground">Transfers</span>
+          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
             {summary.running} running
             {summary.failed > 0 && ` / ${summary.failed} failed`}
             {summary.canceled > 0 && ` / ${summary.canceled} stopped`}
@@ -69,8 +69,8 @@ export function SftpPanelTransferSummary({
               {getTransferIcon(transfer)}
               <span className="grid min-w-0 gap-1">
                 <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-medium text-slate-200">{getTransferFileName(transfer)}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-slate-300">{formatTransferStatus(transfer)}</span>
+                  <span className="truncate font-medium text-foreground">{getTransferFileName(transfer)}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{formatTransferStatus(transfer)}</span>
                 </span>
                 {errorText && (
                   <span className="truncate text-[11px] font-medium text-destructive" title={errorText}>

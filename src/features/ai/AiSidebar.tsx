@@ -27,7 +27,7 @@ export function AiSidebar({ onAddPanel }: { onAddPanel: (panel: WorkspacePanel) 
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Local providers</h2>
           <button
-            className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-accent hover:text-slate-100"
+            className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             disabled={isLoading}
             type="button"
             title="Refresh providers"
@@ -46,7 +46,7 @@ export function AiSidebar({ onAddPanel }: { onAddPanel: (panel: WorkspacePanel) 
                 ) : (
                   <CircleAlert className="size-4 shrink-0 text-slate-500" />
                 )}
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-100">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                   {provider.label}
                 </span>
               </div>
@@ -63,7 +63,7 @@ export function AiSidebar({ onAddPanel }: { onAddPanel: (panel: WorkspacePanel) 
         </div>
       </section>
 
-      <section className="mt-auto rounded-md border border-border/80 bg-slate-950/35 p-3 text-xs leading-5 text-slate-400">
+      <section className="mt-auto rounded-md border border-border/80 bg-slate-950/35 p-3 text-xs leading-5 text-muted-foreground">
         Session-bound AI will use the same provider layer later, with one thread per SSH/SFTP tab.
       </section>
     </div>

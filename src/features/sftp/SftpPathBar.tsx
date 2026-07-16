@@ -34,7 +34,7 @@ export function SftpPathBar({
 }) {
   return (
     <div
-      className="flex h-9 shrink-0 items-center overflow-hidden border-b border-border/50 px-3 font-mono text-xs text-slate-300"
+      className="flex h-9 shrink-0 items-center overflow-hidden border-b border-border/50 px-3 font-mono text-xs text-muted-foreground"
       title="Double-click or press Ctrl+L to edit path"
       onDoubleClick={onBeginEdit}
     >
@@ -42,7 +42,7 @@ export function SftpPathBar({
         <input
           ref={inputRef}
           className={[
-            'h-7 min-w-0 flex-1 rounded border bg-slate-950 px-2 text-xs text-slate-100 outline-none',
+            'h-7 min-w-0 flex-1 rounded border bg-slate-950 px-2 text-xs text-foreground outline-none',
             inputError ? 'border-destructive/80' : 'border-primary/60',
           ].join(' ')}
           value={pathDraft}
@@ -70,8 +70,8 @@ export function SftpPathBar({
                 {index > 0 && <span className="text-slate-600">/</span>}
                 <button
                   className={[
-                    'max-w-44 truncate rounded px-1.5 py-0.5 text-left hover:bg-slate-900/70 hover:text-slate-100',
-                    isLast ? 'cursor-default text-slate-100' : 'text-slate-400',
+                    'max-w-44 truncate rounded px-1.5 py-0.5 text-left hover:bg-slate-900/70 hover:text-foreground',
+                    isLast ? 'cursor-default text-foreground' : 'text-muted-foreground',
                   ].join(' ')}
                   type="button"
                   title={segment.path}
@@ -91,7 +91,7 @@ export function SftpPathBar({
         </span>
       )}
       <button
-        className="ml-2 grid size-7 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-900/70 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="ml-2 grid size-7 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-900/70 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         type="button"
         title="Edit path (Ctrl+L)"
         aria-label="Edit path"
@@ -104,7 +104,7 @@ export function SftpPathBar({
         <Pencil className="size-3.5" />
       </button>
       <button
-        className="ml-1 grid size-7 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-900/70 hover:text-slate-100"
+        className="ml-1 grid size-7 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-900/70 hover:text-foreground"
         type="button"
         title="Copy path"
         aria-label="Copy path"

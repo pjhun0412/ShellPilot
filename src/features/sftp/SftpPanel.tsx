@@ -337,7 +337,7 @@ export function SftpPanel({
   return (
     <div
       ref={panelRef}
-      className="relative flex h-full min-h-0 flex-col bg-[hsl(var(--workspace-terminal))] text-sm text-slate-100"
+      className="relative flex h-full min-h-0 flex-col bg-[hsl(var(--workspace-terminal))] text-sm text-foreground"
       onFocusCapture={handleFocusCapture}
       onKeyDown={handlePanelKeyDown}
       onPointerDownCapture={handlePointerDownCapture}

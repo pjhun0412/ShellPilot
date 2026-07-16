@@ -111,7 +111,7 @@ function SubMenu({
   return (
     <div className="group relative">
       <button
-        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs font-semibold text-slate-300 hover:bg-slate-800 group-hover:bg-slate-800"
+        className="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs font-semibold text-muted-foreground hover:bg-slate-800 group-hover:bg-slate-800"
         type="button"
       >
         <span className="grid size-4 place-items-center" />
@@ -141,7 +141,7 @@ function MenuItem({
   return (
     <button
       className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-xs font-semibold ${
-        active ? 'bg-primary/15 text-primary' : 'text-slate-300 hover:bg-slate-800'
+        active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-slate-800'
       }`}
       title={title}
       type="button"

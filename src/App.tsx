@@ -369,7 +369,7 @@ export function App() {
   };
 
   return (
-    <main className="workspace-bg grid h-screen grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+    <main className="workspace-bg grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden supports-[height:100dvh]:h-dvh">
       <MenuBar
         isAiAssistantVisible={isAiAssistantVisible}
         isTransferQueueVisible={isTransferQueueVisible}

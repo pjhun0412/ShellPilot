@@ -43,8 +43,8 @@ export function SidebarShell({
     <aside className="app-scrollbar flex min-w-0 flex-col gap-4 overflow-hidden border-r bg-card p-4">
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-2">
         <div className="min-w-0">
-          <h1 className="truncate text-base font-bold text-slate-50">{getActivityTitle(activeActivity)}</h1>
-          <p className="truncate text-xs font-medium text-slate-400">
+          <h1 className="truncate text-base font-semibold text-foreground">{getActivityTitle(activeActivity)}</h1>
+          <p className="truncate text-xs font-medium text-muted-foreground">
             {getActivityDescription(activeActivity)}
           </p>
         </div>

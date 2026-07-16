@@ -24,8 +24,8 @@ import type { SftpEntry } from './sftpBridge';
 export function SftpRestoredCard({ onReconnect }: { onReconnect: () => void }) {
   return (
     <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
-      <span className="font-medium text-slate-100">SFTP session restored</span>
-      <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+      <span className="font-medium text-foreground">SFTP session restored</span>
+      <span className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]">
         Remote file listing was not restored. Reconnect to open a new SFTP session.
       </span>
       <div className="flex flex-wrap justify-end gap-2">
@@ -40,8 +40,8 @@ export function SftpRestoredCard({ onReconnect }: { onReconnect: () => void }) {
 export function SftpClosedCard({ onReconnect }: { onReconnect: () => void }) {
   return (
     <div className="absolute left-1/2 top-1/2 grid w-[min(24rem,calc(100%-1rem))] min-w-0 -translate-x-1/2 -translate-y-1/2 gap-2 overflow-hidden rounded-md border bg-card/95 p-3 text-xs shadow-lg">
-      <span className="font-medium text-slate-100">SFTP session disconnected</span>
-      <span className="whitespace-pre-wrap break-words text-slate-300 [overflow-wrap:anywhere]">
+      <span className="font-medium text-foreground">SFTP session disconnected</span>
+      <span className="whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]">
         Remote file listing was cleared. Reconnect to browse this server again.
       </span>
       <div className="flex flex-wrap justify-end gap-2">
@@ -108,7 +108,7 @@ export function getSftpFileIcon(filename: string): { className: string; Icon: Lu
   }
 
   if (logExtensions.has(extension)) {
-    return { Icon: ScrollText, className: 'text-slate-200' };
+    return { Icon: ScrollText, className: 'text-foreground' };
   }
 
   if (documentExtensions.has(extension)) {
@@ -123,7 +123,7 @@ export function getSftpFileIcon(filename: string): { className: string; Icon: Lu
     return { Icon: Braces, className: 'text-cyan-300' };
   }
 
-  return { Icon: File, className: 'text-slate-300' };
+  return { Icon: File, className: 'text-muted-foreground' };
 }
 
 const archiveExtensions = new Set([

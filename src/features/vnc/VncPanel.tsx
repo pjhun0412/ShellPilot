@@ -342,8 +342,8 @@ export function VncPanel({ autoConnect = true, isActive: _isActive = false, pane
     <div className="grid h-full place-items-center p-6 text-center">
       <div className="grid max-w-md gap-4 rounded-lg border border-slate-800 bg-slate-950/80 p-5 text-sm shadow-xl">
         <div>
-          <div className="text-base font-semibold text-slate-100">VNC connection</div>
-          <p className="mt-1 text-slate-400">{message}</p>
+          <div className="text-base font-semibold text-foreground">VNC connection</div>
+          <p className="mt-1 text-muted-foreground">{message}</p>
         </div>
         {needsPassword && (
           <input
@@ -384,10 +384,10 @@ export function VncPanel({ autoConnect = true, isActive: _isActive = false, pane
         focusCanvas();
       }}
     >
-      <header className="flex min-h-11 items-center gap-2 border-b border-slate-800 bg-slate-950 px-3 text-xs text-slate-300">
+      <header className="flex min-h-11 items-center gap-2 border-b border-slate-800 bg-slate-950 px-3 text-xs text-muted-foreground">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-semibold text-slate-100">{session.name}</span>
+            <span className="truncate font-semibold text-foreground">{session.name}</span>
             <span className="hidden shrink-0 rounded border border-slate-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 md:inline">
               {authLabel}
             </span>
@@ -403,7 +403,7 @@ export function VncPanel({ autoConnect = true, isActive: _isActive = false, pane
                 ? 'border-sky-500/30 bg-sky-500/10 text-sky-300'
                 : status === 'failed'
                   ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                  : 'border-slate-800 text-slate-400',
+                  : 'border-slate-800 text-muted-foreground',
           ].join(' ')}
           title={message || status}
         >
@@ -411,14 +411,14 @@ export function VncPanel({ autoConnect = true, isActive: _isActive = false, pane
         </span>
         {desktopSize && (
           <span
-            className="hidden shrink-0 rounded border border-slate-800 px-2 py-1 font-mono text-[11px] text-slate-400 sm:inline"
+            className="hidden shrink-0 rounded border border-slate-800 px-2 py-1 font-mono text-[11px] text-muted-foreground sm:inline"
             title="Remote framebuffer size"
           >
             {desktopSize.width}×{desktopSize.height}
           </span>
         )}
         <button
-          className="shrink-0 rounded border border-slate-800 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-900"
+          className="shrink-0 rounded border border-slate-800 px-2 py-1 text-[11px] text-muted-foreground hover:bg-slate-900"
           type="button"
           title={displayMode === 'actual' ? 'Original size' : 'Fit to panel'}
           onClick={() => setDisplayMode(displayMode === 'actual' ? 'fit' : 'actual')}
@@ -426,7 +426,7 @@ export function VncPanel({ autoConnect = true, isActive: _isActive = false, pane
           {displayMode === 'actual' ? 'Original' : 'Fit'}
         </button>
         <button
-          className="shrink-0 rounded border border-slate-800 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded border border-slate-800 px-2 py-1 text-[11px] text-muted-foreground hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
           type="button"
           disabled={isConnecting}
           onClick={() => void connect()}
@@ -434,7 +434,7 @@ export function VncPanel({ autoConnect = true, isActive: _isActive = false, pane
           Reconnect
         </button>
         <button
-          className="shrink-0 rounded border border-slate-800 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-900"
+          className="shrink-0 rounded border border-slate-800 px-2 py-1 text-[11px] text-muted-foreground hover:bg-slate-900"
           type="button"
           onClick={() => void disconnect()}
         >

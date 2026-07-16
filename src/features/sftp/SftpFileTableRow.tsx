@@ -4,7 +4,7 @@ import type { DragEvent, MouseEvent } from 'react';
 
 import type { SftpEntry } from './sftpBridge';
 
-const fileTableRowBaseClassName = 'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-slate-200 transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-white';
+const fileTableRowBaseClassName = 'mr-2 grid min-h-9 items-center gap-x-2 rounded-md border border-transparent px-3 py-2 text-left text-xs text-foreground transition-colors hover:border-slate-700/70 hover:bg-slate-800/70 hover:text-foreground';
 
 export interface SftpFileTableParentRowProps {
   dragUploadTargetPath?: string;
@@ -49,7 +49,7 @@ export function SftpFileTableParentRow({
     <div
       className={[
         fileTableRowBaseClassName,
-        isSelected ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+        isSelected ? 'border-primary/60 bg-primary/15 text-foreground shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
         isDropTarget ? 'border-primary/70 bg-primary/20' : '',
       ].join(' ')}
       data-sftp-entry-path={parentEntryPathKey}
@@ -65,12 +65,12 @@ export function SftpFileTableParentRow({
       <span className="min-w-0 px-1">
         <span className="flex min-w-0 items-center gap-2">
           <FolderOpen className="size-4 shrink-0 text-amber-300" />
-          <span className="truncate font-semibold text-slate-100">..</span>
+          <span className="truncate font-semibold text-foreground">..</span>
         </span>
       </span>
       {visibleColumnIds.has('kind') && (
         <span className="min-w-0 px-1">
-          <span className="truncate font-mono text-[11px] text-slate-300">parent</span>
+          <span className="truncate font-mono text-[11px] text-muted-foreground">parent</span>
         </span>
       )}
       {visibleColumnIds.has('modifiedAt') && <span className="min-w-0 px-1" />}
@@ -135,7 +135,7 @@ export function SftpFileTableEntryRow({
       className={[
         fileTableRowBaseClassName,
         !isSelected && !isFocused ? 'odd:bg-slate-950/20' : '',
-        isSelected ? 'border-primary/60 bg-primary/15 text-white shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
+        isSelected ? 'border-primary/60 bg-primary/15 text-foreground shadow-[inset_3px_0_0_hsl(var(--primary))]' : '',
         isFocused ? 'border-primary/40 bg-slate-800/45' : '',
         isDropTarget ? 'border-primary/70 bg-primary/20' : '',
       ].join(' ')}

@@ -75,7 +75,7 @@ export function RdpPanelHeader({
           </div>
         ) : null}
         <div className="flex min-w-0 items-center gap-1.5 text-xs" title={session.name}>
-          <span className={density === 'wide' ? 'max-w-44 truncate font-mono text-[12px] font-semibold text-slate-100' : 'max-w-24 truncate font-mono text-[12px] font-semibold text-slate-100'}>
+          <span className={density === 'wide' ? 'max-w-44 truncate font-mono text-[12px] font-semibold text-foreground' : 'max-w-24 truncate font-mono text-[12px] font-semibold text-foreground'}>
             {endpoint}
           </span>
           {desktopSize && density === 'wide' ? (
@@ -141,26 +141,26 @@ function RdpNetworkPill({
 }) {
   return (
     <div
-      className="pointer-events-none flex min-w-0 shrink items-center overflow-hidden rounded-md border border-slate-800/90 bg-slate-950/80 text-[11px] text-slate-400 shadow-inner"
+      className="pointer-events-none flex min-w-0 shrink items-center overflow-hidden rounded-md border border-slate-800/90 bg-slate-950/80 text-[11px] text-muted-foreground shadow-inner"
       title={`${formatRdpNetworkHealth(networkStats.health)} - ${networkStats.fps.toFixed(1)} fps - ${formatRdpBytesPerSecond(
         networkStats.bytesPerSecond,
       )} - ${formatRdpFrameGap(networkStats.averageFrameGapMs)}`}
     >
-      <span className="flex items-center gap-1.5 border-r border-slate-800/80 px-2 py-1 font-semibold text-slate-200">
+      <span className="flex items-center gap-1.5 border-r border-slate-800/80 px-2 py-1 font-semibold text-foreground">
         <Activity className="size-3 text-primary" />
         <span className="size-1.5 rounded-full bg-primary" />
       </span>
-      <span className="min-w-14 border-r border-slate-800/80 px-2 py-1 text-right tabular-nums text-slate-300">
+      <span className="min-w-14 border-r border-slate-800/80 px-2 py-1 text-right tabular-nums text-muted-foreground">
         {networkStats.fps.toFixed(1)}
         <span className="ml-0.5 text-slate-500">fps</span>
       </span>
       {density !== 'compact' ? (
-        <span className="min-w-20 border-r border-slate-800/80 px-2 py-1 text-right tabular-nums text-slate-300">
+        <span className="min-w-20 border-r border-slate-800/80 px-2 py-1 text-right tabular-nums text-muted-foreground">
           {formatRdpBytesPerSecond(networkStats.bytesPerSecond)}
         </span>
       ) : null}
       {density === 'wide' ? (
-        <span className="min-w-16 px-2 py-1 text-right tabular-nums text-slate-300">
+        <span className="min-w-16 px-2 py-1 text-right tabular-nums text-muted-foreground">
           {networkStats.averageFrameGapMs === null ? '-- ms' : `${networkStats.averageFrameGapMs.toFixed(0)} ms`}
         </span>
       ) : null}
