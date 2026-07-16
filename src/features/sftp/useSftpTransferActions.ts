@@ -1,12 +1,7 @@
-import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
-
-import { appChoose } from '@/components/ui/app-dialog';
 import {
   cancelSftpTransfer,
   closeSftpUploadStream,
-  createSftpDirectory,
   downloadSftpFile,
-  listSftpDirectory,
   localPathExists,
   openSftpUploadStream,
   uploadSftpFile,
@@ -14,23 +9,29 @@ import {
   type SftpEntry,
 } from './sftpBridge';
 import {
-  getDroppedUploadPlan,
-  getSftpAncestorPaths,
-  getSftpTopLevelPathName,
   joinSftpPath,
-  type SftpDroppedUploadPlan,
 } from './sftpPathUtils';
 import {
-  createTransferId,
-  formatLocalDisplayPath,
   getLocalFileName,
   isSftpTransferCanceledError,
   joinLocalPath,
   runLimitedSftpTasks,
 } from './sftpPanelUtils';
+import {
+  chooseFileConflictDecision,
+  createDownloadTransferItem,
+  createDroppedUploadTransferItem,
+  createPathUploadTransferItem,
+  getEntriesForTransferTargetDirectory,
+} from './sftpTransferActionHelpers';
 import type { SftpTransferItem } from './sftpTransferTypes';
-
-type SftpFileConflictAction = 'cancel' | 'overwrite' | 'overwrite-all' | 'skip' | 'skip-all';
+import { startDroppedUploadPlan } from './sftpDroppedUploadActions';
+import {
+  selectDownloadFilePath,
+  selectDownloadTargetDirectory,
+  selectUploadFilePaths,
+  selectUploadFolderPath,
+} from './sftpTransferDialogs';
 
 const sftpTransferConcurrency = 2;
 const sftpUploadStreamChunkSize = 4 * 1024 * 1024;
@@ -58,23 +59,36 @@ export function useSftpTransferActions({
   setError: (message: string) => void;
   waitForTransferCompletion: (transferId: string) => Promise<void>;
 }) {
+  const getEntriesForTargetDirectory = async (targetDirectory: string) => {
+    return getEntriesForTransferTargetDirectory({
+      currentEntries,
+      currentPath,
+      panelId,
+      setError,
+      targetDirectory,
+    });
+  };
+
+  const runTrackedTransfer = async (
+    transferId: string,
+    action: () => Promise<void>,
+  ) => {
+    try {
+      const completion = waitForTransferCompletion(transferId);
+      await action();
+      await completion;
+    } catch (error) {
+      deleteTransferWaiter(transferId);
+      markTransferFailed(transferId, error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const startUpload = async () => {
     if (!isRemoteReady) {
       return;
     }
 
-    const selectedPaths = await openDialog({
-      directory: false,
-      multiple: true,
-      title: 'Select files to upload',
-    });
-
-    const localPaths = Array.isArray(selectedPaths)
-      ? selectedPaths.filter((selectedPath): selectedPath is string => typeof selectedPath === 'string')
-      : typeof selectedPaths === 'string'
-        ? [selectedPaths]
-        : [];
-
+    const localPaths = await selectUploadFilePaths();
     await startUploadFromPaths(localPaths, currentPath);
   };
 
@@ -83,13 +97,9 @@ export function useSftpTransferActions({
       return;
     }
 
-    const selectedPath = await openDialog({
-      directory: true,
-      multiple: false,
-      title: 'Select folder to upload',
-    });
+    const selectedPath = await selectUploadFolderPath();
 
-    if (typeof selectedPath !== 'string') {
+    if (!selectedPath) {
       return;
     }
 
@@ -97,102 +107,15 @@ export function useSftpTransferActions({
   };
 
   const startUploadFromDataTransfer = async (dataTransfer: DataTransfer, targetDirectory: string) => {
-    let uploadPlan: SftpDroppedUploadPlan;
-
-    try {
-      uploadPlan = await getDroppedUploadPlan(dataTransfer);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-      return;
-    }
-
-    if (!isRemoteReady || (uploadPlan.files.length === 0 && uploadPlan.directories.length === 0)) {
-      setError('Dropped files did not include readable files.');
-      return;
-    }
-
-    let targetEntries: SftpEntry[];
-
-    try {
-      targetEntries = targetDirectory === currentPath
-        ? currentEntries
-        : (await listSftpDirectory(panelId, targetDirectory)).entries;
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
-      return;
-    }
-
-    const existingNames = new Set(targetEntries.map((entry) => entry.filename));
-    const skippedTopLevelNames = new Set<string>();
-    let conflictActionForRemaining: 'overwrite' | 'skip' | undefined;
-    const topLevelNames = Array.from(new Set([
-      ...uploadPlan.directories.map(getSftpTopLevelPathName),
-      ...uploadPlan.files.map((file) => getSftpTopLevelPathName(file.relativePath)),
-    ]));
-
-    for (const topLevelName of topLevelNames) {
-      if (existingNames.has(topLevelName)) {
-        const action = conflictActionForRemaining ?? await chooseFileConflict(topLevelName, targetDirectory, 'Remote File Exists');
-
-        if (action === 'cancel' || action === undefined) {
-          return;
-        }
-
-        if (action === 'overwrite-all') {
-          conflictActionForRemaining = 'overwrite';
-        }
-
-        if (action === 'skip-all') {
-          conflictActionForRemaining = 'skip';
-        }
-
-        if (action === 'skip' || action === 'skip-all' || conflictActionForRemaining === 'skip') {
-          skippedTopLevelNames.add(topLevelName);
-          continue;
-        }
-      }
-    }
-
-    const directories = uploadPlan.directories
-      .filter((directoryPath) => !skippedTopLevelNames.has(getSftpTopLevelPathName(directoryPath)))
-      .sort((left, right) => left.split('/').length - right.split('/').length);
-    const ensuredRemoteDirectories = new Set([
+    await startDroppedUploadPlan({
+      dataTransfer,
+      getTargetEntries: getEntriesForTargetDirectory,
+      isRemoteReady,
+      panelId,
+      setError,
+      startDroppedFileUpload,
       targetDirectory,
-      ...getSftpAncestorPaths(targetDirectory),
-    ]);
-
-    for (const directoryPath of directories) {
-      const remoteDirectoryPath = joinSftpPath(targetDirectory, directoryPath);
-
-      if (ensuredRemoteDirectories.has(remoteDirectoryPath)) {
-        continue;
-      }
-
-      try {
-        await createSftpDirectory(panelId, remoteDirectoryPath);
-      } catch {
-        // Directory may already exist. Uploading files will surface real path problems.
-      }
-
-      ensuredRemoteDirectories.add(remoteDirectoryPath);
-    }
-
-    const uploadTasks: Array<() => Promise<void>> = [];
-
-    for (const uploadFile of uploadPlan.files) {
-      const topLevelName = getSftpTopLevelPathName(uploadFile.relativePath);
-
-      if (skippedTopLevelNames.has(topLevelName)) {
-        continue;
-      }
-
-      const remotePath = joinSftpPath(targetDirectory, uploadFile.relativePath);
-      await ensureRemoteDirectoriesForFile(remotePath, ensuredRemoteDirectories);
-      uploadTasks.push(() => startDroppedFileUpload(uploadFile.file, uploadFile.relativePath, remotePath));
-      existingNames.add(topLevelName);
-    }
-
-    await runLimitedSftpTasks(uploadTasks, sftpTransferConcurrency);
+    });
   };
 
   const startDownload = async () => {
@@ -210,27 +133,18 @@ export function useSftpTransferActions({
 
     if (entries.length === 1 && !entries[0].isDirectory) {
       const entry = entries[0];
-      const localPath = await saveDialog({
-        defaultPath: entry.filename,
-        title: `Download ${entry.filename}`,
-      });
+      const localPath = await selectDownloadFilePath(entry);
 
-      if (typeof localPath === 'string') {
+      if (localPath) {
         await startDownloadTransfer(entry, localPath);
       }
 
       return;
     }
 
-    const targetDirectory = await openDialog({
-      directory: true,
-      multiple: false,
-      title: entries.length === 1
-        ? `Select folder for ${entries[0].filename}`
-        : 'Select download folder',
-    });
+    const targetDirectory = await selectDownloadTargetDirectory(entries);
 
-    if (typeof targetDirectory !== 'string') {
+    if (!targetDirectory) {
       return;
     }
 
@@ -254,21 +168,20 @@ export function useSftpTransferActions({
 
       try {
         if (await localPathExists(localPath)) {
-          const action = conflictActionForRemaining ?? await chooseFileConflict(entry.filename, targetDirectory, 'Local File Exists');
+          const conflictDecision = await chooseFileConflictDecision({
+            conflictActionForRemaining,
+            filename: entry.filename,
+            targetDirectory,
+            title: 'Local File Exists',
+          });
 
-          if (action === 'cancel' || action === undefined) {
+          if (conflictDecision.shouldCancel) {
             return;
           }
 
-          if (action === 'overwrite-all') {
-            conflictActionForRemaining = 'overwrite';
-          }
+          conflictActionForRemaining = conflictDecision.conflictActionForRemaining;
 
-          if (action === 'skip-all') {
-            conflictActionForRemaining = 'skip';
-          }
-
-          if (action === 'skip' || action === 'skip-all' || conflictActionForRemaining === 'skip') {
+          if (conflictDecision.shouldSkip) {
             continue;
           }
         }
@@ -291,14 +204,9 @@ export function useSftpTransferActions({
       return;
     }
 
-    let targetEntries: SftpEntry[];
+    const targetEntries = await getEntriesForTargetDirectory(targetDirectory);
 
-    try {
-      targetEntries = targetDirectory === currentPath
-        ? currentEntries
-        : (await listSftpDirectory(panelId, targetDirectory)).entries;
-    } catch (error) {
-      setError(error instanceof Error ? error.message : String(error));
+    if (!targetEntries) {
       return;
     }
 
@@ -311,21 +219,20 @@ export function useSftpTransferActions({
       const remotePath = joinSftpPath(targetDirectory, filename);
 
       if (existingNames.has(filename)) {
-        const action = conflictActionForRemaining ?? await chooseFileConflict(filename, targetDirectory, 'Remote File Exists');
+        const conflictDecision = await chooseFileConflictDecision({
+          conflictActionForRemaining,
+          filename,
+          targetDirectory,
+          title: 'Remote File Exists',
+        });
 
-        if (action === 'cancel' || action === undefined) {
+        if (conflictDecision.shouldCancel) {
           return;
         }
 
-        if (action === 'overwrite-all') {
-          conflictActionForRemaining = 'overwrite';
-        }
+        conflictActionForRemaining = conflictDecision.conflictActionForRemaining;
 
-        if (action === 'skip-all') {
-          conflictActionForRemaining = 'skip';
-        }
-
-        if (action === 'skip' || action === 'skip-all' || conflictActionForRemaining === 'skip') {
+        if (conflictDecision.shouldSkip) {
           continue;
         }
       }
@@ -338,65 +245,28 @@ export function useSftpTransferActions({
   };
 
   const startPathUploadTransfer = async (localPath: string, remotePath: string) => {
-    const transferId = createTransferId();
-
-    addPendingTransfer({
-      direction: 'upload',
+    const { transfer, transferId } = createPathUploadTransferItem({
       localPath,
-      message: undefined,
       panelId,
       remotePath,
-      retryPayload: { kind: 'path-upload', localPath, remotePath },
-      status: 'started',
-      totalBytes: 0,
-      transferredBytes: 0,
-      transferId,
     });
 
-    try {
-      const completion = waitForTransferCompletion(transferId);
-      await uploadSftpFile(panelId, localPath, remotePath, transferId);
-      await completion;
-    } catch (error) {
-      deleteTransferWaiter(transferId);
-      markTransferFailed(transferId, error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const ensureRemoteDirectoriesForFile = async (
-    remoteFilePath: string,
-    ensuredRemoteDirectories: Set<string>,
-  ) => {
-    for (const directoryPath of getSftpAncestorPaths(remoteFilePath)) {
-      if (ensuredRemoteDirectories.has(directoryPath)) {
-        continue;
-      }
-
-      try {
-        await createSftpDirectory(panelId, directoryPath);
-      } catch {
-        // Directory may already exist. Uploading the file will surface real path problems.
-      }
-
-      ensuredRemoteDirectories.add(directoryPath);
-    }
+    addPendingTransfer(transfer);
+    await runTrackedTransfer(
+      transferId,
+      () => uploadSftpFile(panelId, localPath, remotePath, transferId),
+    );
   };
 
   const startDroppedFileUpload = async (file: File, filename: string, remotePath: string) => {
-    const transferId = createTransferId();
-
-    addPendingTransfer({
-      direction: 'upload',
-      localPath: filename,
-      message: undefined,
+    const { transfer, transferId } = createDroppedUploadTransferItem({
+      file,
+      filename,
       panelId,
       remotePath,
-      retryPayload: { file, kind: 'drop-upload', relativePath: filename, remotePath },
-      status: 'started',
-      totalBytes: file.size,
-      transferredBytes: 0,
-      transferId,
     });
+
+    addPendingTransfer(transfer);
 
     try {
       await openSftpUploadStream(panelId, filename, remotePath, transferId, file.size);
@@ -427,34 +297,17 @@ export function useSftpTransferActions({
   };
 
   const startDownloadTransfer = async (entry: SftpEntry, localPath: string) => {
-    const transferId = createTransferId();
-
-    addPendingTransfer({
-      direction: 'download',
+    const { transfer, transferId } = createDownloadTransferItem({
+      entry,
       localPath,
-      message: undefined,
       panelId,
-      remotePath: entry.path,
-      retryPayload: {
-        kind: 'download',
-        localPath,
-        remotePath: entry.path,
-        totalBytes: entry.size ?? 0,
-      },
-      status: 'started',
-      totalBytes: entry.size ?? 0,
-      transferredBytes: 0,
-      transferId,
     });
 
-    try {
-      const completion = waitForTransferCompletion(transferId);
-      await downloadSftpFile(panelId, entry.path, localPath, transferId);
-      await completion;
-    } catch (error) {
-      deleteTransferWaiter(transferId);
-      markTransferFailed(transferId, error instanceof Error ? error.message : String(error));
-    }
+    addPendingTransfer(transfer);
+    await runTrackedTransfer(
+      transferId,
+      () => downloadSftpFile(panelId, entry.path, localPath, transferId),
+    );
   };
 
   return {
@@ -466,18 +319,4 @@ export function useSftpTransferActions({
     startUploadFromPaths,
     startUploadFromDataTransfer,
   };
-}
-
-function chooseFileConflict(filename: string, targetDirectory: string, title: string) {
-  return appChoose<SftpFileConflictAction>({
-    choices: [
-      { label: 'Overwrite', tone: 'danger', value: 'overwrite' },
-      { label: 'Overwrite All', tone: 'danger', value: 'overwrite-all' },
-      { label: 'Skip', value: 'skip' },
-      { label: 'Skip All', value: 'skip-all' },
-      { label: 'Cancel', value: 'cancel' },
-    ],
-    message: `${filename} already exists in ${formatLocalDisplayPath(targetDirectory)}.\nChoose how to continue.`,
-    title,
-  });
 }
