@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronUp, FolderOpen, Plus, Star, Trash2, UploadCloud, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, FolderOpen, Plus, Star, UploadCloud, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { InlineSectionStatus } from '@/components/navigation/InlineSectionStatus';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -19,6 +20,7 @@ import {
   type SftpSidebarExplorer,
   type SftpSidebarPanelState,
 } from '@/features/sftp/sftpSidebarState';
+import { useTransientStatus } from '@/hooks/useTransientStatus';
 import type { WorkspaceTabItem } from '@/types/workspace';
 import {
   ConnectionStatusDot,
@@ -58,6 +60,12 @@ export function SftpSidebar({
   const [bookmarks, setBookmarks] = useState<SftpBookmark[]>(() => loadSftpBookmarks());
   const [bookmarkLabelInput, setBookmarkLabelInput] = useState('');
   const [bookmarkPathInput, setBookmarkPathInput] = useState('');
+  const [editingBookmark, setEditingBookmark] = useState<SftpBookmark>();
+  const {
+    clearStatus: clearBookmarkStatus,
+    showTransientStatus: showTransientBookmarkStatus,
+    statusText: bookmarkStatusText,
+  } = useTransientStatus();
   const [tabsPanelState, setTabsPanelState] = useState(() => loadSftpActivityUiState());
   const groupedExplorers = useMemo(
     () => groupSftpExplorers(explorers, panelStates),
@@ -111,7 +119,9 @@ export function SftpSidebar({
   useEffect(() => {
     setBookmarkLabelInput('');
     setBookmarkPathInput('');
-  }, [connectedExplorer?.panelId]);
+    setEditingBookmark(undefined);
+    clearBookmarkStatus();
+  }, [clearBookmarkStatus, connectedExplorer?.panelId]);
 
   const saveBookmarks = (nextBookmarks: SftpBookmark[]) => {
     setBookmarks(nextBookmarks);
@@ -128,7 +138,8 @@ export function SftpSidebar({
     const path = typedPath || normalizeRemoteBookmarkPath(explorerState?.path);
 
     if (!path) {
-      return;
+      showTransientBookmarkStatus('Current path unavailable');
+      return false;
     }
 
     const bookmark: SftpBookmark = {
@@ -140,25 +151,37 @@ export function SftpSidebar({
       username: explorer.username,
     };
     const exists = bookmarks.some(
-      (item) => item.path === bookmark.path && item.host === bookmark.host && item.username === bookmark.username,
+      (item) =>
+        item.path === bookmark.path &&
+        item.host === bookmark.host &&
+        getSftpEndpointPort(item.port) === getSftpEndpointPort(bookmark.port) &&
+        (item.username ?? '') === (bookmark.username ?? ''),
     );
 
     if (exists) {
-      return;
+      showTransientBookmarkStatus('Bookmark already exists');
+      return false;
     }
 
     setPanelStates(latestPanelStates);
+    clearBookmarkStatus();
     saveBookmarks([bookmark, ...bookmarks].slice(0, 24));
+    return true;
   };
-  const addConnectedBookmark = () => {
+  const addConnectedBookmark = (options: { path?: string } = {}) => {
     if (!connectedExplorer) {
       return;
     }
 
-    addExplorerBookmark(connectedExplorer, {
+    const didAdd = addExplorerBookmark(connectedExplorer, {
       label: bookmarkLabelInput,
-      path: bookmarkPathInput,
+      path: options.path ?? bookmarkPathInput,
     });
+
+    if (!didAdd) {
+      return;
+    }
+
     setBookmarkLabelInput('');
     setBookmarkPathInput('');
   };
@@ -195,6 +218,28 @@ export function SftpSidebar({
   const removeBookmark = (bookmarkId: string) => {
     saveBookmarks(bookmarks.filter((bookmark) => bookmark.id !== bookmarkId));
   };
+  const updateBookmark = (bookmark: SftpBookmark) => {
+    const path = normalizeRemoteBookmarkPath(bookmark.path);
+
+    if (!path) {
+      showTransientBookmarkStatus('Path is required');
+      return;
+    }
+
+    clearBookmarkStatus();
+    saveBookmarks(
+      bookmarks.map((item) =>
+        item.id === bookmark.id
+          ? {
+              ...item,
+              path,
+              title: bookmark.title.trim() || getRemotePathTitle(path),
+            }
+          : item,
+      ),
+    );
+    setEditingBookmark(undefined);
+  };
   return (
     <section className="flex h-full min-h-0 flex-col gap-3">
       {connectedExplorer ? (
@@ -214,118 +259,170 @@ export function SftpSidebar({
       ) : null}
 
       {connectedExplorer ? (
-        <section className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
-          <div className="rounded-lg border border-border/70 bg-card/50 p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Remote Bookmarks</h2>
-            </div>
-            <div className="grid gap-2">
-              <input
-                className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                placeholder="Label (optional)"
-                value={bookmarkLabelInput}
-                onChange={(event) => setBookmarkLabelInput(event.target.value)}
-              />
-              <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+        <section
+          className={[
+            'min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card/50',
+            tabsPanelState.isRemoteBookmarksCollapsed ? 'shrink-0' : 'flex flex-1 flex-col',
+          ].join(' ')}
+        >
+          <button
+            className="flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-accent/60"
+            type="button"
+            onClick={() =>
+              setTabsPanelState((current) => ({
+                ...current,
+                isRemoteBookmarksCollapsed: !current.isRemoteBookmarksCollapsed,
+              }))
+            }
+          >
+            <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Remote Bookmarks
+            </span>
+            <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {serverBookmarks.length}
+            </span>
+            {tabsPanelState.isRemoteBookmarksCollapsed ? (
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronUp className="size-3.5 text-muted-foreground" />
+            )}
+          </button>
+          {!tabsPanelState.isRemoteBookmarksCollapsed && (
+            <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-3 pb-3">
+              <div className="grid gap-2">
                 <input
-                  className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                  placeholder="Path or blank for current"
-                  value={bookmarkPathInput}
-                  onChange={(event) => setBookmarkPathInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      addConnectedBookmark();
-                    }
-                  }}
+                  className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                  placeholder="Label (optional)"
+                  value={bookmarkLabelInput}
+                  onChange={(event) => setBookmarkLabelInput(event.target.value)}
                 />
-                <Button
-                  className="h-8 w-7 px-0"
-                  size="icon"
-                  type="button"
-                  title="Add typed path or current SFTP path"
-                  aria-label="Add SFTP bookmark"
-                  disabled={!bookmarkPathInput.trim() && !panelStates[connectedExplorer.panelId]?.path}
-                  onClick={addConnectedBookmark}
-                >
-                  <Plus className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-          </div>
-          <OverlayScrollArea containerClassName="min-h-0">
-            <div className="grid gap-2 pr-2">
-              {serverBookmarks.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
-                  Save frequently used remote paths for this server here.
+                <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+                  <input
+                    className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                    placeholder="Path or blank for current"
+                    value={bookmarkPathInput}
+                    onChange={(event) => setBookmarkPathInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        addConnectedBookmark();
+                      }
+                    }}
+                  />
+                  <Button
+                    className="h-8 w-7 px-0"
+                    disabled={!panelStates[connectedExplorer.panelId]?.path}
+                    size="icon"
+                    type="button"
+                    onClick={() => addConnectedBookmark({ path: '' })}
+                    aria-label="Save current SFTP path"
+                    title="Save current path"
+                  >
+                    <Plus className="size-3.5" />
+                  </Button>
                 </div>
-              ) : (
-                serverBookmarks.map((bookmark) => (
-                  <ContextMenu key={bookmark.id}>
-                    <ContextMenuTrigger asChild>
-                      <div
-                        className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2"
-                      >
-                        <button
-                          className="grid min-w-0 gap-0.5 text-left text-xs"
-                          type="button"
-                          title="Double-click to open this remote path"
-                          onDoubleClick={() => openBookmark(bookmark)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              openBookmark(bookmark);
-                            }
-                          }}
-                        >
-                          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
-                            <Star className="size-3 shrink-0 text-primary" />
-                            <span className="truncate" title={bookmark.title}>
+                <InlineSectionStatus message={bookmarkStatusText} />
+              </div>
+              <OverlayScrollArea containerClassName="min-h-0">
+                <div className="grid gap-2">
+                  {serverBookmarks.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                      Save frequently used remote paths for this server here.
+                    </div>
+                  ) : (
+                    serverBookmarks.map((bookmark) =>
+                      editingBookmark?.id === bookmark.id ? (
+                        <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2" key={bookmark.id}>
+                          <input
+                            className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                            value={editingBookmark.title}
+                            onChange={(event) => setEditingBookmark({ ...editingBookmark, title: event.target.value })}
+                          />
+                          <input
+                            className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                            value={editingBookmark.path}
+                            onChange={(event) => setEditingBookmark({ ...editingBookmark, path: event.target.value })}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                updateBookmark(editingBookmark);
+                              }
+                              if (event.key === 'Escape') {
+                                setEditingBookmark(undefined);
+                              }
+                            }}
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <Button className="h-7 px-2 text-xs" size="sm" variant="ghost" type="button" onClick={() => setEditingBookmark(undefined)}>
+                              Cancel
+                            </Button>
+                            <Button className="h-7 px-2 text-xs" size="sm" type="button" onClick={() => updateBookmark(editingBookmark)}>
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <ContextMenu key={bookmark.id}>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2"
+                            >
+                              <button
+                                className="grid min-w-0 gap-0.5 text-left text-xs"
+                                type="button"
+                                title="Double-click to edit this remote path"
+                                onDoubleClick={() => setEditingBookmark(bookmark)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    openBookmark(bookmark);
+                                  }
+                                }}
+                              >
+                                <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+                                  <Star className="size-3.5 shrink-0 text-primary" />
+                                  <span className="truncate" title={bookmark.title}>
+                                    {bookmark.title}
+                                  </span>
+                                </span>
+                                <span
+                                  className="truncate font-mono text-[10px] text-muted-foreground"
+                                  title={formatRemotePath(bookmark.path)}
+                                >
+                                  {formatRemotePath(bookmark.path)}
+                                </span>
+                              </button>
+                              <button
+                                className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                type="button"
+                                title="Open bookmark"
+                                aria-label="Open bookmark"
+                                onClick={() => openBookmark(bookmark)}
+                              >
+                                <FolderOpen className="size-3.5" />
+                              </button>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="max-w-64">
+                            <ContextMenuLabel className="truncate" title={bookmark.title}>
                               {bookmark.title}
-                            </span>
-                          </span>
-                          <span
-                            className="truncate font-mono text-[10px] text-muted-foreground"
-                            title={formatRemotePath(bookmark.path)}
-                          >
-                            {formatRemotePath(bookmark.path)}
-                          </span>
-                        </button>
-                        <button
-                          className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                          type="button"
-                          title="Open bookmark"
-                          aria-label="Open bookmark"
-                          onClick={() => openBookmark(bookmark)}
-                        >
-                          <FolderOpen className="size-3.5" />
-                        </button>
-                        <button
-                          className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          type="button"
-                          title="Remove bookmark"
-                          aria-label="Remove bookmark"
-                          onClick={() => removeBookmark(bookmark.id)}
-                        >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent>
-                      <ContextMenuLabel>{bookmark.title}</ContextMenuLabel>
-                      <ContextMenuItem onSelect={() => openBookmark(bookmark)}>Open</ContextMenuItem>
-                      <ContextMenuItem onSelect={() => copyRemotePath(bookmark.path)}>Copy Path</ContextMenuItem>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={() => removeBookmark(bookmark.id)}
-                      >
-                        Remove Bookmark
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                ))
-              )}
+                            </ContextMenuLabel>
+                            <ContextMenuItem onSelect={() => openBookmark(bookmark)}>Open</ContextMenuItem>
+                            <ContextMenuItem onSelect={() => setEditingBookmark(bookmark)}>Edit</ContextMenuItem>
+                            <ContextMenuItem onSelect={() => copyRemotePath(bookmark.path)}>Copy Path</ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => removeBookmark(bookmark.id)}
+                            >
+                              Remove Bookmark
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      ),
+                    )
+                  )}
+                </div>
+              </OverlayScrollArea>
             </div>
-          </OverlayScrollArea>
+          )}
         </section>
       ) : showEmptyState ? (
         <EmptySftpState />
@@ -627,8 +724,10 @@ function SftpExplorerButton({
           </span>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuLabel>{ordinalLabel} · {pathTitle}</ContextMenuLabel>
+      <ContextMenuContent className="max-w-64">
+        <ContextMenuLabel className="truncate" title={`${ordinalLabel} · ${pathTitle}`}>
+          {ordinalLabel} · {pathTitle}
+        </ContextMenuLabel>
         <ContextMenuItem onSelect={onClick}>Open</ContextMenuItem>
         <ContextMenuItem onSelect={onReconnect}>Reconnect</ContextMenuItem>
         <ContextMenuItem disabled={!explorer.session} onSelect={onClone}>
@@ -653,6 +752,7 @@ function SftpExplorerButton({
 function loadSftpActivityUiState() {
   if (typeof window === 'undefined') {
     return {
+      isRemoteBookmarksCollapsed: false,
       isTabsPanelCollapsed: false,
       tabsPanelHeight: 140,
     };
@@ -663,12 +763,14 @@ function loadSftpActivityUiState() {
 
     if (!raw) {
       return {
+        isRemoteBookmarksCollapsed: false,
         isTabsPanelCollapsed: false,
         tabsPanelHeight: 140,
       };
     }
 
     const parsed = JSON.parse(raw) as Partial<{
+      isRemoteBookmarksCollapsed: boolean;
       isTabsPanelCollapsed: boolean;
       tabsPanelHeight: number;
       version: 1;
@@ -676,17 +778,20 @@ function loadSftpActivityUiState() {
 
     if (parsed.version !== 1) {
       return {
+        isRemoteBookmarksCollapsed: false,
         isTabsPanelCollapsed: false,
         tabsPanelHeight: 140,
       };
     }
 
     return {
+      isRemoteBookmarksCollapsed: Boolean(parsed.isRemoteBookmarksCollapsed),
       isTabsPanelCollapsed: Boolean(parsed.isTabsPanelCollapsed),
       tabsPanelHeight: clampTabsPanelHeight(parsed.tabsPanelHeight ?? 140),
     };
   } catch {
     return {
+      isRemoteBookmarksCollapsed: false,
       isTabsPanelCollapsed: false,
       tabsPanelHeight: 140,
     };
@@ -694,6 +799,7 @@ function loadSftpActivityUiState() {
 }
 
 function saveSftpActivityUiState(state: {
+  isRemoteBookmarksCollapsed: boolean;
   isTabsPanelCollapsed: boolean;
   tabsPanelHeight: number;
 }) {

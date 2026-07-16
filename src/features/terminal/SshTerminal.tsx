@@ -1,8 +1,8 @@
 import type { FitAddon } from '@xterm/addon-fit';
 import type { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Clipboard, Copy, Eraser, FolderOpen, PlugZap, RotateCcw } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Clipboard, Copy, Eraser, FolderOpen, PlugZap, RotateCcw, ScrollText, Star } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   ContextMenu,
@@ -10,9 +10,25 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import { Button } from '@/components/ui/button';
+import { patchStoredSession } from '@/features/sessions/sessionStorage';
+import {
+  createSshCommandInDirectory,
+  createSshCommandSnippet,
+  createSshFavoritePath,
+  notifySshSessionMetadataChanged,
+  normalizeSshCommand,
+  normalizeSshPath,
+  readSshSessionMetadata,
+  subscribeSshSessionMetadataChanged,
+  writeSshSessionMetadata,
+  type SshSessionMetadata,
+} from '@/features/ssh/sshSessionTools';
 import type { OpenSftpHandler, SessionItem } from '@/types/workspace';
 import { pasteClipboardToSsh, querySshCurrentDirectory } from './sshTerminalBridge';
 import { SshClosedCard, SshFailureCard, SshRestoredCard } from './SshTerminalStatusCards';
@@ -53,8 +69,10 @@ export function SshTerminal({
   const shouldRememberPasswordRef = useRef(true);
   const shouldRememberUsernameRef = useRef(true);
   const terminalRef = useRef<Terminal>();
+  const sshMetadataRef = useRef<SshSessionMetadata>(readSshSessionMetadata(session));
   const [manualPassword, setManualPassword] = useState('');
   const [manualUsername, setManualUsername] = useState('');
+  const [contextSelection, setContextSelection] = useState('');
   const [shouldRememberPassword, setShouldRememberPassword] = useState(true);
   const [shouldRememberUsername, setShouldRememberUsername] = useState(true);
   const {
@@ -110,6 +128,20 @@ export function SshTerminal({
 
   useActiveTerminalFocus({ focusKey: status, isActive, terminalRef });
 
+  useEffect(() => {
+    sshMetadataRef.current = readSshSessionMetadata(session);
+  }, [session.id, session.metadata]);
+
+  useEffect(
+    () =>
+      subscribeSshSessionMetadataChanged(({ metadata, sessionId }) => {
+        if (sessionId === session.id) {
+          sshMetadataRef.current = metadata;
+        }
+      }),
+    [session.id],
+  );
+
   const copySelection = () => {
     copyTerminalSelection(terminalRef.current);
   };
@@ -119,13 +151,107 @@ export function SshTerminal({
     terminalRef.current?.focus();
   };
 
+  const refreshContextSelection = () => {
+    setContextSelection(normalizeSshCommand(terminalRef.current?.getSelection() ?? ''));
+  };
+
+  const saveCurrentPath = async () => {
+    const path = normalizeSshPath((await querySshCurrentDirectory(panelId)) ?? '');
+
+    if (!path) {
+      return;
+    }
+
+    const metadata = sshMetadataRef.current;
+
+    if (metadata.favoritePaths.some((item) => item.path === path)) {
+      return;
+    }
+
+    const nextMetadata: SshSessionMetadata = {
+      commandSnippets: metadata.commandSnippets,
+      favoritePaths: [
+        ...metadata.favoritePaths,
+        createSshFavoritePath(path),
+      ],
+    };
+
+    const didSave = await patchStoredSession({
+      notifyWorkspace: false,
+      sessionId: session.id,
+      patch: {
+        metadata: writeSshSessionMetadata(session, nextMetadata),
+      },
+    });
+
+    if (didSave) {
+      sshMetadataRef.current = nextMetadata;
+      notifySshSessionMetadataChanged({ metadata: nextMetadata, sessionId: session.id });
+    }
+  };
+
+  const saveSelectedCommand = async ({ withCurrentPath = false }: { withCurrentPath?: boolean } = {}) => {
+    const selectedCommand = normalizeSshCommand(contextSelection);
+
+    if (!selectedCommand) {
+      return;
+    }
+
+    const currentPath = withCurrentPath
+      ? normalizeSshPath((await querySshCurrentDirectory(panelId)) ?? '')
+      : '';
+
+    if (withCurrentPath && !currentPath) {
+      return;
+    }
+
+    const command = withCurrentPath
+      ? createSshCommandInDirectory(currentPath, selectedCommand)
+      : selectedCommand;
+    const metadata = sshMetadataRef.current;
+
+    if (metadata.commandSnippets.some((item) => item.command === command)) {
+      return;
+    }
+
+    const nextMetadata: SshSessionMetadata = {
+      commandSnippets: [
+        ...metadata.commandSnippets,
+        createSshCommandSnippet(command, undefined, {
+          basePath: currentPath,
+          displayCommand: withCurrentPath ? selectedCommand : undefined,
+        }),
+      ],
+      favoritePaths: metadata.favoritePaths,
+    };
+
+    const didSave = await patchStoredSession({
+      notifyWorkspace: false,
+      sessionId: session.id,
+      patch: {
+        metadata: writeSshSessionMetadata(session, nextMetadata),
+      },
+    });
+
+    if (didSave) {
+      sshMetadataRef.current = nextMetadata;
+      notifySshSessionMetadataChanged({ metadata: nextMetadata, sessionId: session.id });
+    }
+  };
+
   const openSftp = async () => {
     const initialPath = await querySshCurrentDirectory(panelId);
     onOpenSftp?.(session, { initialPath, revealInSidebar: false });
   };
 
   return (
-    <ContextMenu>
+    <ContextMenu
+      onOpenChange={(isOpen) => {
+        if (isOpen) {
+          refreshContextSelection();
+        }
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           className="shellpilot-terminal relative h-full min-h-0 overflow-hidden bg-[hsl(var(--workspace-terminal))] px-3 pt-3 pb-0"
@@ -204,6 +330,25 @@ export function SshTerminal({
           <Eraser className="size-3.5" />
           Clear
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void saveCurrentPath()}>
+          <Star className="size-3.5" />
+          Save current path
+        </ContextMenuItem>
+        <ContextMenuSub>
+          <ContextMenuSubTrigger disabled={!contextSelection}>
+            <ScrollText className="mr-2 size-3.5" />
+            Save selected command
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            <ContextMenuItem onSelect={() => void saveSelectedCommand()}>
+              Save as typed
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void saveSelectedCommand({ withCurrentPath: true })}>
+              Save with current path
+            </ContextMenuItem>
+          </ContextMenuSubContent>
+        </ContextMenuSub>
         <ContextMenuSeparator />
         <ContextMenuItem disabled={!onOpenSftp} onSelect={() => void openSftp()}>
           <FolderOpen className="size-3.5" />

@@ -1,7 +1,24 @@
-import { ChevronDown, ChevronUp, FolderOpen, Plus, Star, Terminal, Trash2, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { ChevronDown, ChevronUp, Clipboard, Play, Plus, ScrollText, Star, Terminal, X } from 'lucide-react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 
 import { Button } from '@/components/ui/button';
+import { InlineSectionStatus } from '@/components/navigation/InlineSectionStatus';
+import { SidebarActionMenu } from '@/components/navigation/SidebarActionMenu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import {
   subscribeConnectionStatus,
@@ -10,15 +27,23 @@ import {
 import { patchStoredSession } from '@/features/sessions/sessionStorage';
 import { querySshCurrentDirectory, writeSshData } from '@/features/terminal/sshTerminalBridge';
 import { focusRegisteredTerminal } from '@/features/terminal/terminalRegistry';
+import { useTransientStatus } from '@/hooks/useTransientStatus';
 import type { OpenSftpHandler, WorkspaceTabItem } from '@/types/workspace';
 
 import {
   createSshCdCommand,
+  createSshCommandInDirectory,
+  createSshCommandSnippet,
   createSshFavoritePath,
+  createSshSnippetPayload,
+  notifySshSessionMetadataChanged,
+  normalizeSshCommand,
   normalizeSshPath,
   readSshSessionMetadata,
+  subscribeSshSessionMetadataChanged,
+  type SshCommandSnippet,
   type SshFavoritePath,
-  writeSshFavoritePathsMetadata,
+  writeSshSessionMetadata,
 } from './sshSessionTools';
 
 const SSH_ACTIVITY_UI_STORAGE_KEY = 'shellpilot.ssh.activity.ui.v1';
@@ -43,9 +68,12 @@ export function SshActivityPanel({
     () => workspaceTabs.filter(isSshTerminalTab),
     [workspaceTabs],
   );
+  const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const activeSshTab = useMemo(
-    () => sshTabs.find((tab) => tab.id === activePanelId) ?? sshTabs[0],
-    [activePanelId, sshTabs],
+    () =>
+      sshTabs.find((tab) => tab.id === activePanelId && connectionStatuses[tab.id] === 'connected') ??
+      sshTabs.find((tab) => connectionStatuses[tab.id] === 'connected'),
+    [activePanelId, connectionStatuses, sshTabs],
   );
   const activeSession = activeSshTab?.session;
   const [favoritePathInput, setFavoritePathInput] = useState('');
@@ -53,21 +81,61 @@ export function SshActivityPanel({
   const [favoritePaths, setFavoritePaths] = useState<SshFavoritePath[]>(
     () => readSshSessionMetadata(activeSession).favoritePaths,
   );
-  const [statusText, setStatusText] = useState<string>();
+  const [snippetLabelInput, setSnippetLabelInput] = useState('');
+  const [snippetCommandInput, setSnippetCommandInput] = useState('');
+  const [commandSnippets, setCommandSnippets] = useState<SshCommandSnippet[]>(
+    () => readSshSessionMetadata(activeSession).commandSnippets,
+  );
+  const [editingFavoritePath, setEditingFavoritePath] = useState<SshFavoritePath>();
+  const [editingCommandSnippet, setEditingCommandSnippet] = useState<SshCommandSnippet>();
+  const {
+    clearStatus: clearFavoriteStatus,
+    setPersistentStatus: setPersistentFavoriteStatus,
+    showTransientStatus: showTransientFavoriteStatus,
+    statusText: favoriteStatusText,
+  } = useTransientStatus();
+  const {
+    clearStatus: clearSnippetStatus,
+    setPersistentStatus: setPersistentSnippetStatus,
+    showTransientStatus: showTransientSnippetStatus,
+    statusText: snippetStatusText,
+  } = useTransientStatus();
   const [tabsPanelState, setTabsPanelState] = useState(() => loadSshActivityUiState());
-  const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const showEmptyState = useDelayedEmptyState(!activeSshTab || !activeSession);
+  const activeSshStatus = activeSshTab ? connectionStatuses[activeSshTab.id] : undefined;
+  const canWriteToActiveSsh = activeSshStatus === 'connected';
 
   useLayoutEffect(() => {
-    setFavoritePaths(readSshSessionMetadata(activeSession).favoritePaths);
+    const metadata = readSshSessionMetadata(activeSession);
+
+    setFavoritePaths(metadata.favoritePaths);
+    setCommandSnippets(metadata.commandSnippets);
     setFavoritePathInput('');
     setFavoriteLabelInput('');
-    setStatusText(undefined);
-  }, [activeSession?.id]);
+    setSnippetCommandInput('');
+    setSnippetLabelInput('');
+    setEditingCommandSnippet(undefined);
+    setEditingFavoritePath(undefined);
+    clearFavoriteStatus();
+    clearSnippetStatus();
+  }, [activeSession?.id, clearFavoriteStatus, clearSnippetStatus]);
 
   useEffect(() => {
     saveSshActivityUiState(tabsPanelState);
   }, [tabsPanelState]);
+
+  useEffect(
+    () =>
+      subscribeSshSessionMetadataChanged(({ metadata, sessionId }) => {
+        if (sessionId !== activeSession?.id) {
+          return;
+        }
+
+        setFavoritePaths(metadata.favoritePaths);
+        setCommandSnippets(metadata.commandSnippets);
+      }),
+    [activeSession?.id],
+  );
 
   useEffect(
     () =>
@@ -86,19 +154,64 @@ export function SshActivityPanel({
     }
 
     setFavoritePaths(nextFavoritePaths);
-    setStatusText(undefined);
+    clearFavoriteStatus();
+    const nextMetadata = {
+      commandSnippets,
+      favoritePaths: nextFavoritePaths,
+    };
     try {
       const didSave = await patchStoredSession({
         notifyWorkspace: false,
         sessionId: activeSession.id,
         patch: {
-          metadata: writeSshFavoritePathsMetadata(activeSession, nextFavoritePaths),
+          metadata: writeSshSessionMetadata(activeSession, nextMetadata),
         },
       });
 
-      setStatusText(didSave ? undefined : 'Session not found');
+      if (didSave) {
+        notifySshSessionMetadataChanged({
+          sessionId: activeSession.id,
+          metadata: nextMetadata,
+        });
+        clearFavoriteStatus();
+      } else {
+        setPersistentFavoriteStatus('Session not found');
+      }
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : 'Failed to save SSH paths.');
+      setPersistentFavoriteStatus(error instanceof Error ? error.message : 'Failed to save SSH paths.');
+    }
+  };
+  const saveCommandSnippets = async (nextCommandSnippets: SshCommandSnippet[]) => {
+    if (!activeSession) {
+      return;
+    }
+
+    setCommandSnippets(nextCommandSnippets);
+    clearSnippetStatus();
+    const nextMetadata = {
+      commandSnippets: nextCommandSnippets,
+      favoritePaths,
+    };
+    try {
+      const didSave = await patchStoredSession({
+        notifyWorkspace: false,
+        sessionId: activeSession.id,
+        patch: {
+          metadata: writeSshSessionMetadata(activeSession, nextMetadata),
+        },
+      });
+
+      if (didSave) {
+        notifySshSessionMetadataChanged({
+          sessionId: activeSession.id,
+          metadata: nextMetadata,
+        });
+        clearSnippetStatus();
+      } else {
+        setPersistentSnippetStatus('Session not found');
+      }
+    } catch (error) {
+      setPersistentSnippetStatus(error instanceof Error ? error.message : 'Failed to save SSH snippets.');
     }
   };
   const resolveFavoritePathInput = async () => {
@@ -117,8 +230,13 @@ export function SshActivityPanel({
   const addFavoritePath = async () => {
     const path = normalizeSshPath((await resolveFavoritePathInput()) ?? '');
 
-    if (!path || favoritePaths.some((item) => item.path === path)) {
-      setStatusText(path ? undefined : 'Current path unavailable');
+    if (!path) {
+      showTransientFavoriteStatus('Current path unavailable');
+      return;
+    }
+
+    if (favoritePaths.some((item) => item.path === path)) {
+      showTransientFavoriteStatus('Path already exists');
       return;
     }
 
@@ -134,12 +252,110 @@ export function SshActivityPanel({
   const removeFavoritePath = (favoritePathId: string) => {
     void saveFavoritePaths(favoritePaths.filter((item) => item.id !== favoritePathId));
   };
+  const updateFavoritePath = (favoritePath: SshFavoritePath) => {
+    const path = normalizeSshPath(favoritePath.path);
+
+    if (!path) {
+      showTransientFavoriteStatus('Path is required');
+      return;
+    }
+
+    void saveFavoritePaths(
+      favoritePaths.map((item) =>
+        item.id === favoritePath.id
+          ? {
+              ...item,
+              label: favoritePath.label.trim() || path,
+              path,
+            }
+          : item,
+      ),
+    ).then(() => setEditingFavoritePath(undefined));
+  };
+  const addCommandSnippet = async (options: { useCurrentDirectory?: boolean } = {}) => {
+    const typedCommand = normalizeSshCommand(snippetCommandInput);
+
+    if (!typedCommand) {
+      showTransientSnippetStatus('Command is required');
+      return;
+    }
+
+    const currentDirectory = options.useCurrentDirectory && activeSshTab
+      ? normalizeSshPath((await querySshCurrentDirectory(activeSshTab.id)) ?? '')
+      : '';
+
+    if (options.useCurrentDirectory && !currentDirectory) {
+      showTransientSnippetStatus('Current path unavailable');
+      return;
+    }
+
+    const command = options.useCurrentDirectory
+      ? createSshCommandInDirectory(currentDirectory, typedCommand)
+      : typedCommand;
+
+    if (commandSnippets.some((item) => item.command === command)) {
+      showTransientSnippetStatus('Snippet already exists');
+      return;
+    }
+
+    const nextCommandSnippets = [
+      ...commandSnippets,
+      createSshCommandSnippet(command, snippetLabelInput || createCommandSnippetLabel(typedCommand), {
+        basePath: currentDirectory,
+        displayCommand: options.useCurrentDirectory ? typedCommand : undefined,
+      }),
+    ];
+
+    setSnippetCommandInput('');
+    setSnippetLabelInput('');
+    await saveCommandSnippets(nextCommandSnippets);
+  };
+  const removeCommandSnippet = (snippetId: string) => {
+    void saveCommandSnippets(commandSnippets.filter((item) => item.id !== snippetId));
+  };
+  const updateCommandSnippet = (snippet: SshCommandSnippet) => {
+    const command = normalizeSshCommand(snippet.command);
+
+    if (!command) {
+      showTransientSnippetStatus('Command is required');
+      return;
+    }
+
+    void saveCommandSnippets(
+      commandSnippets.map((item) =>
+        item.id === snippet.id
+          ? {
+              ...item,
+              command,
+              basePath: undefined,
+              displayCommand: undefined,
+              label: snippet.label.trim() || command,
+            }
+          : item,
+      ),
+    ).then(() => setEditingCommandSnippet(undefined));
+  };
   const sendCdCommand = (path: string) => {
     if (!activeSshTab) {
       return;
     }
 
     void writeSshData(activeSshTab.id, createSshCdCommand(path)).then(() => {
+      focusRegisteredTerminal(activeSshTab.id);
+    });
+  };
+  const sendSnippetCommand = (snippet: SshCommandSnippet, shouldRun: boolean) => {
+    if (!activeSshTab || !canWriteToActiveSsh) {
+      return;
+    }
+
+    const payload = createSshSnippetPayload(snippet.command, shouldRun);
+
+    if (!payload) {
+      return;
+    }
+
+    void writeSshData(activeSshTab.id, payload).then(() => {
       focusRegisteredTerminal(activeSshTab.id);
     });
   };
@@ -176,7 +392,7 @@ export function SshActivityPanel({
   }
 
   return (
-    <section className="grid h-full min-h-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3">
+    <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-3">
       <div className="rounded-lg border border-border/70 bg-slate-950/35 p-3">
         <div className="flex min-w-0 items-start gap-2">
           <Terminal className="mt-0.5 size-4 text-primary" />
@@ -190,102 +406,148 @@ export function SshActivityPanel({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border/70 bg-card/50 p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Favorite Paths</h2>
-        </div>
-        <div className="grid gap-2">
-          <input
-            className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-            placeholder="Label (optional)"
-            value={favoriteLabelInput}
-            onChange={(event) => setFavoriteLabelInput(event.target.value)}
-          />
-          <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+      <div className="flex min-h-0 flex-col gap-3">
+        <CollapsibleToolSection
+          count={favoritePaths.length}
+          isCollapsed={tabsPanelState.isFavoritePathsCollapsed}
+          onToggleCollapsed={() =>
+            setTabsPanelState((current) => ({
+              ...current,
+              isFavoritePathsCollapsed: !current.isFavoritePathsCollapsed,
+            }))
+          }
+          title="Favorite Paths"
+        >
+          <div className="grid gap-2">
             <input
-              className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-              placeholder="Path or blank for current"
-              value={favoritePathInput}
-              onChange={(event) => setFavoritePathInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  void addFavoritePath();
-                }
-              }}
+              className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+              placeholder="Label (optional)"
+              value={favoriteLabelInput}
+              onChange={(event) => setFavoriteLabelInput(event.target.value)}
             />
-            <Button
-              className="h-8 w-7 px-0"
-              size="icon"
-              type="button"
-              onClick={() => void addFavoritePath()}
-              aria-label="Add SSH favorite path"
-              title="Add typed path or current SSH directory"
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          </div>
-          {statusText && (
-            <div className="truncate text-[10px] leading-3 text-destructive" aria-live="polite">
-              {statusText}
+            <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+              <input
+                className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                placeholder="Path or blank for current"
+                value={favoritePathInput}
+                onChange={(event) => setFavoritePathInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void addFavoritePath();
+                  }
+                }}
+              />
+              <Button
+                className="h-8 w-7 px-0"
+                size="icon"
+                type="button"
+                onClick={() => void addFavoritePath()}
+                aria-label="Add SSH favorite path"
+                title="Add typed path or current SSH directory"
+              >
+                <Plus className="size-3.5" />
+              </Button>
             </div>
-          )}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1">
-        <OverlayScrollArea>
-          <div className="grid gap-2 pr-2">
-            {favoritePaths.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
-                Save frequently used remote paths here. Use the terminal button to send a cd command.
-              </div>
-            ) : (
-              favoritePaths.map((favoritePath) => (
-                <div
-                  className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2"
-                  key={favoritePath.id}
-                >
-                  <div className="grid min-w-0 gap-0.5">
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
-                      <Star className="size-3 text-primary" />
-                      <span className="truncate" title={favoritePath.label}>{favoritePath.label}</span>
-                    </span>
-                    <span className="truncate font-mono text-[10px] text-muted-foreground" title={favoritePath.path}>
-                      {favoritePath.path}
-                    </span>
-                  </div>
-                  <button
-                    className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                    type="button"
-                    title="Go to path in SSH"
-                    aria-label="Go to path in SSH"
-                    onClick={() => sendCdCommand(favoritePath.path)}
-                  >
-                    <Terminal className="size-3.5" />
-                  </button>
-                  <button
-                    className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                    type="button"
-                    title="Open path in SFTP"
-                    aria-label="Open path in SFTP"
-                    onClick={() => openSftpAtPath(favoritePath.path)}
-                  >
-                    <FolderOpen className="size-3.5" />
-                  </button>
-                  <button
-                    className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    type="button"
-                    title="Remove path"
-                    aria-label="Remove path"
-                    onClick={() => removeFavoritePath(favoritePath.id)}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
-                </div>
-              ))
-            )}
+            <InlineSectionStatus message={favoriteStatusText} />
           </div>
-        </OverlayScrollArea>
+          <div className="min-h-0">
+            <OverlayScrollArea>
+              <div className="grid gap-2">
+                {favoritePaths.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                    Save frequently used remote paths here. Use the terminal button to send a cd command.
+                  </div>
+                ) : (
+                  favoritePaths.map((favoritePath) => (
+                    <FavoritePathCard
+                      editingValue={editingFavoritePath?.id === favoritePath.id ? editingFavoritePath : undefined}
+                      favoritePath={favoritePath}
+                      key={favoritePath.id}
+                      onCancelEdit={() => setEditingFavoritePath(undefined)}
+                      onChangeEdit={setEditingFavoritePath}
+                      onEdit={() => setEditingFavoritePath(favoritePath)}
+                      onOpenSftp={() => openSftpAtPath(favoritePath.path)}
+                      onRemove={() => removeFavoritePath(favoritePath.id)}
+                      onSaveEdit={updateFavoritePath}
+                      onSendCd={() => sendCdCommand(favoritePath.path)}
+                    />
+                  ))
+                )}
+              </div>
+            </OverlayScrollArea>
+          </div>
+        </CollapsibleToolSection>
+
+        <CollapsibleToolSection
+          count={commandSnippets.length}
+          isCollapsed={tabsPanelState.isCommandSnippetsCollapsed}
+          onToggleCollapsed={() =>
+            setTabsPanelState((current) => ({
+              ...current,
+              isCommandSnippetsCollapsed: !current.isCommandSnippetsCollapsed,
+            }))
+          }
+          title="Command Snippets"
+        >
+          <div className="grid gap-2">
+            <input
+              className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+              placeholder="Label (optional)"
+              value={snippetLabelInput}
+              onChange={(event) => setSnippetLabelInput(event.target.value)}
+            />
+            <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+              <input
+                className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                placeholder="Command, e.g. tail -f ~/app/logs/app.log"
+                value={snippetCommandInput}
+                onChange={(event) => setSnippetCommandInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void addCommandSnippet();
+                  }
+                }}
+              />
+              <SidebarActionMenu
+                ariaLabel="Choose SSH command snippet save mode"
+                icon={<Plus className="size-3.5" />}
+                items={[
+                  { label: 'Save as typed', onSelect: () => void addCommandSnippet() },
+                  { label: 'Save with current path', onSelect: () => void addCommandSnippet({ useCurrentDirectory: true }) },
+                ]}
+                title="Choose snippet save mode"
+              />
+            </div>
+            <InlineSectionStatus message={snippetStatusText} />
+          </div>
+          <div className="min-h-0">
+            <OverlayScrollArea>
+              <div className="grid gap-2">
+                {commandSnippets.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                    Save commands for this SSH session. Paste inserts text; Run sends Enter.
+                  </div>
+                ) : (
+                  commandSnippets.map((snippet) => (
+                    <CommandSnippetCard
+                      canWrite={canWriteToActiveSsh}
+                      editingValue={editingCommandSnippet?.id === snippet.id ? editingCommandSnippet : undefined}
+                      key={snippet.id}
+                      onCancelEdit={() => setEditingCommandSnippet(undefined)}
+                      onChangeEdit={setEditingCommandSnippet}
+                      onEdit={() => setEditingCommandSnippet(snippet)}
+                      onPaste={() => sendSnippetCommand(snippet, false)}
+                      onRemove={() => removeCommandSnippet(snippet.id)}
+                      onRun={() => sendSnippetCommand(snippet, true)}
+                      onSaveEdit={updateCommandSnippet}
+                      snippet={snippet}
+                    />
+                  ))
+                )}
+              </div>
+            </OverlayScrollArea>
+          </div>
+        </CollapsibleToolSection>
       </div>
 
       <SshTabsPanel
@@ -308,6 +570,255 @@ export function SshActivityPanel({
   );
 }
 
+function CollapsibleToolSection({
+  children,
+  count,
+  isCollapsed,
+  onToggleCollapsed,
+  title,
+}: {
+  children: ReactNode;
+  count: number;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
+  title: string;
+}) {
+  return (
+    <section
+      className={[
+        'min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card/50',
+        isCollapsed ? 'shrink-0' : 'flex flex-1 flex-col',
+      ].join(' ')}
+    >
+      <button
+        className="flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-accent/60"
+        type="button"
+        onClick={onToggleCollapsed}
+      >
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </span>
+        <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          {count}
+        </span>
+        {isCollapsed ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevronUp className="size-3.5 text-muted-foreground" />}
+      </button>
+      {!isCollapsed && (
+        <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-3 pb-3">
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FavoritePathCard({
+  editingValue,
+  favoritePath,
+  onCancelEdit,
+  onChangeEdit,
+  onEdit,
+  onOpenSftp,
+  onRemove,
+  onSaveEdit,
+  onSendCd,
+}: {
+  editingValue?: SshFavoritePath;
+  favoritePath: SshFavoritePath;
+  onCancelEdit: () => void;
+  onChangeEdit: (favoritePath: SshFavoritePath) => void;
+  onEdit: () => void;
+  onOpenSftp: () => void;
+  onRemove: () => void;
+  onSaveEdit: (favoritePath: SshFavoritePath) => void;
+  onSendCd: () => void;
+}) {
+  if (editingValue) {
+    return (
+      <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2">
+        <input
+          className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+          value={editingValue.label}
+          onChange={(event) => onChangeEdit({ ...editingValue, label: event.target.value })}
+        />
+        <input
+          className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+          value={editingValue.path}
+          onChange={(event) => onChangeEdit({ ...editingValue, path: event.target.value })}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              onSaveEdit(editingValue);
+            }
+            if (event.key === 'Escape') {
+              onCancelEdit();
+            }
+          }}
+        />
+        <div className="flex justify-end gap-1.5">
+          <Button className="h-7 px-2 text-xs" size="sm" variant="ghost" type="button" onClick={onCancelEdit}>
+            Cancel
+          </Button>
+          <Button className="h-7 px-2 text-xs" size="sm" type="button" onClick={() => onSaveEdit(editingValue)}>
+            Save
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2">
+          <button className="grid min-w-0 gap-0.5 text-left" type="button" onDoubleClick={onEdit}>
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+              <Star className="size-3.5 shrink-0 text-primary" />
+              <span className="truncate" title={favoritePath.label}>{favoritePath.label}</span>
+            </span>
+            <span className="truncate font-mono text-[10px] text-muted-foreground" title={favoritePath.path}>
+              {favoritePath.path}
+            </span>
+          </button>
+          <button
+            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            type="button"
+            title="Go to path in SSH"
+            aria-label="Go to path in SSH"
+            onClick={onSendCd}
+          >
+            <Terminal className="size-3.5" />
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="max-w-64">
+        <ContextMenuLabel className="truncate" title={favoritePath.label}>
+          {favoritePath.label}
+        </ContextMenuLabel>
+        <ContextMenuItem onSelect={onSendCd}>Go to path in SSH</ContextMenuItem>
+        <ContextMenuItem onSelect={onOpenSftp}>Open path in SFTP</ContextMenuItem>
+        <ContextMenuItem onSelect={onEdit}>Edit</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onRemove}>
+          Remove path
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function CommandSnippetCard({
+  canWrite,
+  editingValue,
+  onCancelEdit,
+  onChangeEdit,
+  onEdit,
+  onPaste,
+  onRemove,
+  onRun,
+  onSaveEdit,
+  snippet,
+}: {
+  canWrite: boolean;
+  editingValue?: SshCommandSnippet;
+  onCancelEdit: () => void;
+  onChangeEdit: (snippet: SshCommandSnippet) => void;
+  onEdit: () => void;
+  onPaste: () => void;
+  onRemove: () => void;
+  onRun: () => void;
+  onSaveEdit: (snippet: SshCommandSnippet) => void;
+  snippet: SshCommandSnippet;
+}) {
+  const displayCommand = getSnippetDisplayCommand(snippet);
+  const basePath = getSnippetBasePath(snippet);
+  const commandTitle = displayCommand !== snippet.command
+    ? `${basePath ? `Base path: ${basePath}\n` : ''}Runs: ${snippet.command}`
+    : snippet.command;
+
+  if (editingValue) {
+    return (
+      <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2">
+        <input
+          className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+          value={editingValue.label}
+          onChange={(event) => onChangeEdit({ ...editingValue, label: event.target.value })}
+        />
+        <input
+          className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+          value={editingValue.command}
+          onChange={(event) => onChangeEdit({ ...editingValue, command: event.target.value })}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              onSaveEdit(editingValue);
+            }
+            if (event.key === 'Escape') {
+              onCancelEdit();
+            }
+          }}
+        />
+        <div className="flex justify-end gap-1.5">
+          <Button className="h-7 px-2 text-xs" size="sm" variant="ghost" type="button" onClick={onCancelEdit}>
+            Cancel
+          </Button>
+          <Button className="h-7 px-2 text-xs" size="sm" type="button" onClick={() => onSaveEdit(editingValue)}>
+            Save
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2">
+          <button className="grid min-w-0 gap-0.5 text-left" type="button" onDoubleClick={onEdit}>
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
+              <ScrollText className="size-3.5 shrink-0 text-primary" />
+              <span className="truncate" title={snippet.label}>{snippet.label}</span>
+            </span>
+            <span className="truncate font-mono text-[10px] text-muted-foreground" title={commandTitle}>
+              {displayCommand}
+            </span>
+          </button>
+          <button
+            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            type="button"
+            title={canWrite ? 'Paste command' : 'Reconnect SSH before pasting'}
+            aria-label="Paste command"
+            disabled={!canWrite}
+            onClick={onPaste}
+          >
+            <Clipboard className="size-3.5" />
+          </button>
+          <button
+            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            type="button"
+            title={canWrite ? 'Run command' : 'Reconnect SSH before running'}
+            aria-label="Run command"
+            disabled={!canWrite}
+            onClick={onRun}
+          >
+            <Play className="size-3.5" />
+          </button>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="max-w-64">
+        <ContextMenuLabel className="truncate" title={snippet.label}>
+          {snippet.label}
+        </ContextMenuLabel>
+        <ContextMenuItem disabled={!canWrite} onSelect={onPaste}>Paste command</ContextMenuItem>
+        <ContextMenuItem disabled={!canWrite} onSelect={onRun}>Run command</ContextMenuItem>
+        <ContextMenuItem onSelect={onEdit}>Edit</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={onRemove}>
+          Remove snippet
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 function EmptySshState() {
   return (
     <div className="min-h-0">
@@ -316,6 +827,30 @@ function EmptySshState() {
       </div>
     </div>
   );
+}
+
+function createCommandSnippetLabel(command: string) {
+  return command.split(/\s+/).slice(0, 3).join(' ') || 'Command';
+}
+
+function getSnippetDisplayCommand(snippet: SshCommandSnippet) {
+  if (snippet.displayCommand) {
+    return snippet.displayCommand;
+  }
+
+  const commandMatch = /^cd -- '(?:[^']|'\\'')*' && (.+)$/.exec(snippet.command);
+
+  return commandMatch?.[1] ?? snippet.command;
+}
+
+function getSnippetBasePath(snippet: SshCommandSnippet) {
+  if (snippet.basePath) {
+    return snippet.basePath;
+  }
+
+  const pathMatch = /^cd -- '((?:[^']|'\\'')*)' && .+$/.exec(snippet.command);
+
+  return pathMatch?.[1]?.replace(/'\\''/g, "'") ?? '';
 }
 
 function useDelayedEmptyState(shouldShow: boolean) {
@@ -532,6 +1067,8 @@ function getSshStatusDotClassName(status?: ConnectionStatus) {
 function loadSshActivityUiState() {
   if (typeof window === 'undefined') {
     return {
+      isCommandSnippetsCollapsed: true,
+      isFavoritePathsCollapsed: false,
       isTabsPanelCollapsed: false,
       tabsPanelHeight: 140,
     };
@@ -542,12 +1079,16 @@ function loadSshActivityUiState() {
 
     if (!raw) {
       return {
+        isCommandSnippetsCollapsed: true,
+        isFavoritePathsCollapsed: false,
         isTabsPanelCollapsed: false,
         tabsPanelHeight: 140,
       };
     }
 
     const parsed = JSON.parse(raw) as Partial<{
+      isCommandSnippetsCollapsed: boolean;
+      isFavoritePathsCollapsed: boolean;
       isTabsPanelCollapsed: boolean;
       tabsPanelHeight: number;
       version: 1;
@@ -555,17 +1096,23 @@ function loadSshActivityUiState() {
 
     if (parsed.version !== 1) {
       return {
+        isCommandSnippetsCollapsed: true,
+        isFavoritePathsCollapsed: false,
         isTabsPanelCollapsed: false,
         tabsPanelHeight: 140,
       };
     }
 
     return {
+      isCommandSnippetsCollapsed: parsed.isCommandSnippetsCollapsed ?? true,
+      isFavoritePathsCollapsed: Boolean(parsed.isFavoritePathsCollapsed),
       isTabsPanelCollapsed: Boolean(parsed.isTabsPanelCollapsed),
       tabsPanelHeight: clampTabsPanelHeight(parsed.tabsPanelHeight ?? 140),
     };
   } catch {
     return {
+      isCommandSnippetsCollapsed: true,
+      isFavoritePathsCollapsed: false,
       isTabsPanelCollapsed: false,
       tabsPanelHeight: 140,
     };
@@ -573,6 +1120,8 @@ function loadSshActivityUiState() {
 }
 
 function saveSshActivityUiState(state: {
+  isCommandSnippetsCollapsed: boolean;
+  isFavoritePathsCollapsed: boolean;
   isTabsPanelCollapsed: boolean;
   tabsPanelHeight: number;
 }) {
