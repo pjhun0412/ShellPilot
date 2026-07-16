@@ -2,10 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Terminal } from '@xterm/xterm';
 
 import {
-  hasRememberedCredentialPassword,
-  resolveKeyCredentialRef,
-  resolvePasswordCredentialRef,
-} from '@/features/connections/sshConnection';
+  createSshConnectionTarget,
+  SshShellOpenError,
+  type SshConnectionTargetOptions,
+} from '@/features/connections/sshTarget';
 import type { SessionItem } from '@/types/workspace';
 
 export interface SshTerminalEvent {
@@ -35,36 +35,8 @@ export type SshTerminalErrorCode =
   | 'username_missing'
   | string;
 
-export class SshShellOpenError extends Error {
-  authPrompt: boolean;
-  code: SshTerminalErrorCode;
-  retryable: boolean;
-
-  constructor({
-    authPrompt,
-    code,
-    message,
-    retryable,
-  }: {
-    authPrompt: boolean;
-    code: SshTerminalErrorCode;
-    message: string;
-    retryable: boolean;
-  }) {
-    super(message);
-    this.name = 'SshShellOpenError';
-    this.authPrompt = authPrompt;
-    this.code = code;
-    this.retryable = retryable;
-  }
-}
-
-export interface SshShellOpenOptions {
-  acceptNewHostKey?: boolean;
-  acceptedHostKeyFingerprint?: string;
-  password?: string;
-  username?: string;
-}
+export { SshShellOpenError };
+export type SshShellOpenOptions = SshConnectionTargetOptions;
 
 const lastSshPtySizeByPanel = new Map<string, string>();
 
@@ -74,58 +46,9 @@ export async function openSshShell(
   options: SshShellOpenOptions = {},
 ) {
   lastSshPtySizeByPanel.delete(panelId);
-  const privateKeyPath = typeof session.metadata?.privateKeyPath === 'string' ? session.metadata.privateKeyPath : null;
-  const username = options.username?.trim() || session.username?.trim() || '';
-  const usesPasswordCredential =
-    session.authMethod === 'password' ||
-    session.authMethod === 'os-credential' ||
-    session.authMethod === 'interactive' ||
-    !session.authMethod;
-  const passwordCredentialRef = resolvePasswordCredentialRef(session);
-  const hasPasswordCredential =
-    session.credentialRef?.kind === 'password' ||
-    hasRememberedCredentialPassword(passwordCredentialRef.id);
-
-  if (!username) {
-    throw new SshShellOpenError({
-      authPrompt: true,
-      code: 'username_missing',
-      message: 'SSH username is not set. Enter a username to connect.',
-      retryable: true,
-    });
-  }
-
-  if (usesPasswordCredential && !options.password && !hasPasswordCredential) {
-    throw new SshShellOpenError({
-      authPrompt: true,
-      code: 'auth_missing',
-      message:
-        session.authMethod === 'interactive'
-          ? 'Interactive authentication response is not saved. Enter a response to connect.'
-          : 'SSH password is not saved. Enter a password to connect.',
-      retryable: true,
-    });
-  }
 
   await invoke('ssh_open_shell', {
-    target: {
-      acceptNewHostKey: options.acceptNewHostKey ?? false,
-      acceptedHostKeyFingerprint: options.acceptedHostKeyFingerprint ?? null,
-      authMethod: session.authMethod ?? 'password',
-      credentialId: usesPasswordCredential && !options.password ? passwordCredentialRef.id : null,
-      host: session.host,
-      panelId,
-      password: usesPasswordCredential ? options.password ?? null : null,
-      passphrase: session.authMethod === 'key' ? options.password ?? null : null,
-      passphraseCredentialId:
-        session.authMethod === 'key' && !options.password
-          ? resolveKeyCredentialRef(session).id
-          : null,
-      port: session.port ?? 22,
-      privateKeyPath,
-      sessionId: session.id,
-      username,
-    },
+    target: createSshConnectionTarget(panelId, session, options),
   });
 }
 

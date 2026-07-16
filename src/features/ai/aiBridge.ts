@@ -1,10 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-import {
-  resolveKeyCredentialRef,
-  resolvePasswordCredentialRef,
-} from '@/features/connections/sshConnection';
+import { createSshConnectionTarget } from '@/features/connections/sshTarget';
 import type { SessionItem } from '@/types/workspace';
 
 export interface AiProviderInfo {
@@ -88,25 +85,9 @@ export async function runReadonlyRemoteCommands(
 }
 
 function createSshToolTarget(panelId: string, session: SessionItem) {
-  const privateKeyPath = typeof session.metadata?.privateKeyPath === 'string' ? session.metadata.privateKeyPath : null;
-  const usesPasswordCredential =
-    session.authMethod === 'password' ||
-    session.authMethod === 'os-credential' ||
-    session.authMethod === 'interactive' ||
-    !session.authMethod;
-
-  return {
+  return createSshConnectionTarget(panelId, session, {
     acceptNewHostKey: false,
-    authMethod: session.authMethod ?? 'password',
-    credentialId: usesPasswordCredential ? resolvePasswordCredentialRef(session).id : null,
-    host: session.host,
-    panelId,
-    password: null,
-    passphrase: null,
-    passphraseCredentialId: session.authMethod === 'key' ? resolveKeyCredentialRef(session).id : null,
-    port: session.port ?? 22,
-    privateKeyPath,
-    sessionId: session.id,
-    username: session.username?.trim() ?? '',
-  };
+    validateUsername: false,
+    validatePasswordCredential: false,
+  });
 }

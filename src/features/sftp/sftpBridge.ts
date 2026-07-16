@@ -2,12 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import {
-  hasRememberedCredentialPassword,
-  resolveKeyCredentialRef,
-  resolvePasswordCredentialRef,
-} from '@/features/connections/sshConnection';
+  createSshConnectionTarget,
+  type SshConnectionTargetOptions,
+} from '@/features/connections/sshTarget';
 import type { SessionItem } from '@/types/workspace';
-import { SshShellOpenError, type SshShellOpenOptions } from '@/features/terminal/sshTerminalBridge';
 
 export interface SftpEntry {
   filename: string;
@@ -66,9 +64,9 @@ export interface SftpTransferEvent {
 export async function openSftpSession(
   panelId: string,
   session: SessionItem,
-  options: SshShellOpenOptions = {},
+  options: SshConnectionTargetOptions = {},
 ) {
-  const target = createSftpTarget(panelId, session, options);
+  const target = createSshConnectionTarget(panelId, session, options);
 
   await invoke('sftp_open', { target });
 }
@@ -175,58 +173,4 @@ export async function listenSftpTransferEvents(
   listener: (event: SftpTransferEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<SftpTransferEvent>('shellpilot-sftp-transfer', (event) => listener(event.payload));
-}
-
-function createSftpTarget(panelId: string, session: SessionItem, options: SshShellOpenOptions) {
-  const privateKeyPath = typeof session.metadata?.privateKeyPath === 'string' ? session.metadata.privateKeyPath : null;
-  const username = options.username?.trim() || session.username?.trim() || '';
-  const usesPasswordCredential =
-    session.authMethod === 'password' ||
-    session.authMethod === 'os-credential' ||
-    session.authMethod === 'interactive' ||
-    !session.authMethod;
-  const passwordCredentialRef = resolvePasswordCredentialRef(session);
-  const hasPasswordCredential =
-    session.credentialRef?.kind === 'password' ||
-    hasRememberedCredentialPassword(passwordCredentialRef.id);
-
-  if (!username) {
-    throw new SshShellOpenError({
-      authPrompt: true,
-      code: 'username_missing',
-      message: 'SSH username is not set. Enter a username to connect.',
-      retryable: true,
-    });
-  }
-
-  if (usesPasswordCredential && !options.password && !hasPasswordCredential) {
-    throw new SshShellOpenError({
-      authPrompt: true,
-      code: 'auth_missing',
-      message:
-        session.authMethod === 'interactive'
-          ? 'Interactive authentication response is not saved. Enter a response to connect.'
-          : 'SSH password is not saved. Enter a password to connect.',
-      retryable: true,
-    });
-  }
-
-  return {
-    acceptNewHostKey: options.acceptNewHostKey ?? false,
-    acceptedHostKeyFingerprint: options.acceptedHostKeyFingerprint ?? null,
-    authMethod: session.authMethod ?? 'password',
-    credentialId: usesPasswordCredential && !options.password ? passwordCredentialRef.id : null,
-    host: session.host,
-    panelId,
-    password: usesPasswordCredential ? options.password ?? null : null,
-    passphrase: session.authMethod === 'key' ? options.password ?? null : null,
-    passphraseCredentialId:
-      session.authMethod === 'key' && !options.password
-        ? resolveKeyCredentialRef(session).id
-        : null,
-    port: session.port ?? 22,
-    privateKeyPath,
-    sessionId: session.id,
-    username,
-  };
 }
