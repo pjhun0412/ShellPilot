@@ -1,6 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { NoteDocument, NoteFolderMeta, NoteMeta, NotesListResult, NotesSearchResult } from './notesTypes';
+import type {
+  NoteAsset,
+  NoteDocument,
+  NoteFolderMeta,
+  NoteMeta,
+  NotesListResult,
+  NotesSearchResult,
+} from './notesTypes';
 
 export async function listNotes() {
   return invoke<NotesListResult>('notes_list');
@@ -20,6 +27,27 @@ export async function searchNotes(query: string) {
 
 export async function updateNote(id: string, content: string) {
   return invoke<NoteMeta>('notes_update', { content, id });
+}
+
+export async function saveNoteAsset(id: string, file: File, data: number[]) {
+  return invoke<NoteAsset>('notes_save_asset', {
+    data,
+    fileName: file.name,
+    id,
+    mimeType: file.type,
+  });
+}
+
+export async function revealNotesRoot() {
+  return invoke<void>('notes_reveal_root');
+}
+
+export async function revealNoteFile(id: string) {
+  return invoke<void>('notes_reveal_file', { id });
+}
+
+export async function revealNoteAssets(id: string) {
+  return invoke<void>('notes_reveal_assets', { id });
 }
 
 export async function renameNote(id: string, title: string) {

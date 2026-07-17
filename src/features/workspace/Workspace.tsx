@@ -5,6 +5,7 @@ import {
   subscribeConnectionStatus,
   type ConnectionStatus,
 } from '@/features/connections/connectionStatus';
+import { subscribeNotesMetaChanged } from '@/features/notes/notesNavigation';
 import {
   requestSftpSidebarDisconnect,
   requestSftpSidebarReconnect,
@@ -150,6 +151,50 @@ export function Workspace({
         if (typeof patch.name === 'string' && patch.name.trim()) {
           model.doAction(Actions.renameTab(tab.getId(), createSessionPanelTitle(config.panelType, patch.name.trim())));
         }
+        didUpdate = true;
+      });
+
+      if (didUpdate) {
+        onModelChange(model);
+        setWorkspaceVersion((version) => version + 1);
+      }
+    });
+  }, [model, onModelChange]);
+
+  useEffect(() => {
+    return subscribeNotesMetaChanged((notes) => {
+      let didUpdate = false;
+
+      model.visitNodes((node) => {
+        if (node.getType() !== 'tab') {
+          return;
+        }
+
+        const tab = node as TabNode;
+        const config = tab.getConfig() as {
+          noteId?: string;
+          panelType?: WorkspacePanelType;
+        };
+
+        if (config.panelType !== 'note' || !config.noteId) {
+          return;
+        }
+
+        const note = notes.find((candidate) => candidate.id === config.noteId);
+
+        if (!note) {
+          return;
+        }
+
+        model.doAction(
+          Actions.updateNodeAttributes(tab.getId(), {
+            config: {
+              ...config,
+              noteId: note.id,
+            },
+          } as never),
+        );
+        model.doAction(Actions.renameTab(tab.getId(), `${note.title}.md`));
         didUpdate = true;
       });
 

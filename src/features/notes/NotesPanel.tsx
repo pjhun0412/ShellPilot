@@ -8,14 +8,20 @@ import { NotesEditorToolbar } from './NotesEditorToolbar';
 import { NotesMarkdownEditor, type NotesEditorScrollState } from './NotesMarkdownEditor';
 import { NotesPanelHeader } from './NotesPanelHeader';
 import { type NotesEditorCommand } from './notesEditorCommands';
-import { dispatchNotesChanged, subscribeNoteNavigation, type NoteNavigationRequest } from './notesNavigation';
-import { readNote, updateNote } from './notesBridge';
+import {
+  dispatchNotesChanged,
+  subscribeNoteNavigation,
+  subscribeNotesMetaChanged,
+  type NoteNavigationRequest,
+} from './notesNavigation';
+import { readNote, saveNoteAsset, updateNote } from './notesBridge';
 import type { NoteMeta, NoteViewMode } from './notesTypes';
 
 type SaveStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
 
 export function NotesPanel({ noteId }: { noteId?: string }) {
   const [content, setContent] = useState('');
+  const [assetBaseDir, setAssetBaseDir] = useState('');
   const [error, setError] = useState<string>();
   const [meta, setMeta] = useState<NoteMeta>();
   const [preferences, setPreferences] = useState(() => loadPreferences());
@@ -51,8 +57,21 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
       }
 
       captureScrollPositions();
-      setViewMode('live');
       window.setTimeout(() => setNavigationTarget(request), 0);
+    });
+  }, [noteId]);
+
+  useEffect(() => {
+    if (!noteId) {
+      return undefined;
+    }
+
+    return subscribeNotesMetaChanged((notes) => {
+      const updatedNote = notes.find((note) => note.id === noteId);
+
+      if (updatedNote) {
+        setMeta(updatedNote);
+      }
     });
   }, [noteId]);
 
@@ -80,6 +99,7 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
         contentRef.current = document.content;
         dirtyRef.current = false;
         scrollStateRef.current = { editorTop: 0, previewTop: 0 };
+        setAssetBaseDir(document.assetBaseDir);
         setContent(document.content);
         setMeta(document.meta);
         setSaveStatus('idle');
@@ -195,6 +215,14 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
     command(view);
   };
 
+  const saveImageAsset = async (file: File, data: number[]) => {
+    if (!noteId) {
+      throw new Error('Missing note id.');
+    }
+
+    return saveNoteAsset(noteId, file, data);
+  };
+
   return (
     <section className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-background">
       <NotesPanelHeader
@@ -235,6 +263,7 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
         ) : (
           <NotesMarkdownEditor
             content={content}
+            assetBaseDir={assetBaseDir}
             editorTheme={preferences.notes.editor}
             editorRef={editorRef}
             previewScrollRef={previewScrollRef}
@@ -247,6 +276,7 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
               setContent(value);
               scheduleSave(value);
             }}
+            onSaveImageAsset={saveImageAsset}
           />
         )}
 

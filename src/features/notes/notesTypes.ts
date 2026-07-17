@@ -14,8 +14,16 @@ export interface NoteFolderMeta {
 }
 
 export interface NoteDocument {
+  assetBaseDir: string;
   content: string;
   meta: NoteMeta;
+}
+
+export interface NoteAsset {
+  absolutePath: string;
+  fileName: string;
+  markdownPath: string;
+  mimeType: string;
 }
 
 export interface NotesListResult {

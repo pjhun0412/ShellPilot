@@ -1,6 +1,7 @@
 import { markdown } from '@codemirror/lang-markdown';
 import { EditorSelection } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import MarkdownPreview from '@uiw/react-markdown-preview';
 import '@uiw/react-markdown-preview/markdown.css';
@@ -11,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { insertBold, insertItalic, insertLink } from './notesEditorCommands';
 import { createCodeMirrorTheme, markdownHighlightExtension, type NotesEditorThemeOptions } from './notesEditorTheme';
 import type { NoteNavigationRequest } from './notesNavigation';
-import type { NoteViewMode } from './notesTypes';
+import type { NoteAsset, NoteViewMode } from './notesTypes';
 
 export interface NotesEditorScrollState {
   editorTop: number;
@@ -19,6 +20,7 @@ export interface NotesEditorScrollState {
 }
 
 export function NotesMarkdownEditor({
+  assetBaseDir,
   content,
   editorTheme,
   editorRef,
@@ -29,7 +31,9 @@ export function NotesMarkdownEditor({
   scrollStateRef,
   showLineNumbers,
   viewMode,
+  onSaveImageAsset,
 }: {
+  assetBaseDir: string;
   content: string;
   editorTheme: NotesEditorThemeOptions;
   editorRef: React.RefObject<ReactCodeMirrorRef>;
@@ -40,6 +44,7 @@ export function NotesMarkdownEditor({
   scrollStateRef: React.MutableRefObject<NotesEditorScrollState>;
   showLineNumbers: boolean;
   viewMode: NoteViewMode;
+  onSaveImageAsset: (file: File, data: number[]) => Promise<NoteAsset>;
 }) {
   const previousViewModeRef = useRef(viewMode);
   const codeMirrorTheme = useMemo(() => createCodeMirrorTheme(editorTheme), [editorTheme]);
@@ -51,6 +56,44 @@ export function NotesMarkdownEditor({
         { key: 'Mod-k', run: insertLink },
       ]),
     [],
+  );
+  const imageAssetHandler = useMemo(
+    () =>
+      EditorView.domEventHandlers({
+        drop: (event, view) => {
+          const imageFiles = getImageFiles(event.dataTransfer?.files);
+
+          if (imageFiles.length === 0) {
+            return false;
+          }
+
+          event.preventDefault();
+
+          const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (position !== null) {
+            view.dispatch({
+              selection: EditorSelection.cursor(position),
+            });
+          }
+
+          void insertImageAssets(view, imageFiles, onSaveImageAsset);
+
+          return true;
+        },
+        paste: (event, view) => {
+          const imageFiles = getImageFiles(event.clipboardData?.files);
+
+          if (imageFiles.length === 0) {
+            return false;
+          }
+
+          event.preventDefault();
+          void insertImageAssets(view, imageFiles, onSaveImageAsset);
+
+          return true;
+        },
+      }),
+    [onSaveImageAsset],
   );
 
   useEffect(() => {
@@ -147,7 +190,14 @@ export function NotesMarkdownEditor({
             highlightActiveLineGutter: true,
           }}
           className="notes-codemirror app-scrollbar"
-          extensions={[markdown(), markdownHighlightExtension, codeMirrorTheme, EditorView.lineWrapping, editorKeymap]}
+          extensions={[
+            markdown(),
+            markdownHighlightExtension,
+            codeMirrorTheme,
+            EditorView.lineWrapping,
+            editorKeymap,
+            imageAssetHandler,
+          ]}
           height="100%"
           indentWithTab
           placeholder="Write Markdown notes..."
@@ -160,11 +210,92 @@ export function NotesMarkdownEditor({
 
       {viewMode !== 'edit' && (
         <div ref={previewScrollRef} className="notes-markdown-preview app-scrollbar">
-          <MarkdownPreview className="notes-markdown-preview-body" source={content} wrapperElement={{ 'data-color-mode': 'dark' }} />
+          <MarkdownPreview
+            className="notes-markdown-preview-body"
+            source={content}
+            urlTransform={(url) => resolveNotePreviewUrl(url, assetBaseDir)}
+            wrapperElement={{ 'data-color-mode': 'dark' }}
+          />
         </div>
       )}
     </div>
   );
+}
+
+async function insertImageAssets(
+  view: EditorView,
+  files: File[],
+  onSaveImageAsset: (file: File, data: number[]) => Promise<NoteAsset>,
+) {
+  const inserted = new Array<string>();
+
+  for (const file of files) {
+    const data = await readFileBytes(file);
+    const asset = await onSaveImageAsset(file, data);
+    const label = normalizeImageAltText(file.name || asset.fileName);
+
+    inserted.push(`![${label}](${asset.markdownPath})`);
+  }
+
+  insertMarkdownBlock(view, inserted.join('\n'));
+}
+
+function insertMarkdownBlock(view: EditorView, markdown: string) {
+  const selection = view.state.selection.main;
+  const before = view.state.doc.sliceString(Math.max(0, selection.from - 1), selection.from);
+  const after = view.state.doc.sliceString(selection.to, Math.min(view.state.doc.length, selection.to + 1));
+  const prefix = selection.from > 0 && before !== '\n' ? '\n\n' : '';
+  const suffix = selection.to < view.state.doc.length && after !== '\n' ? '\n\n' : '\n';
+  const insert = `${prefix}${markdown}${suffix}`;
+
+  view.dispatch({
+    changes: { from: selection.from, insert, to: selection.to },
+    selection: EditorSelection.cursor(selection.from + insert.length),
+    scrollIntoView: true,
+  });
+  view.focus();
+}
+
+function getImageFiles(fileList?: FileList | null) {
+  if (!fileList) {
+    return [];
+  }
+
+  return Array.from(fileList).filter((file) => file.type.startsWith('image/'));
+}
+
+async function readFileBytes(file: File) {
+  return Array.from(new Uint8Array(await file.arrayBuffer()));
+}
+
+function normalizeImageAltText(fileName: string) {
+  return fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/[-_]+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'image';
+}
+
+function resolveNotePreviewUrl(url: string, assetBaseDir: string) {
+  if (!assetBaseDir || isExternalUrl(url)) {
+    return url;
+  }
+
+  const normalizedUrl = url.replace(/\\/g, '/');
+  const match = normalizedUrl.match(/(?:^|\/)assets\/note-[A-Za-z0-9-]+\/([^/?#]+)/);
+
+  if (!match) {
+    return url;
+  }
+
+  const fileName = decodeURIComponent(match[1]);
+  const separator = assetBaseDir.includes('\\') ? '\\' : '/';
+
+  return convertFileSrc(`${assetBaseDir}${separator}${fileName}`);
+}
+
+function isExternalUrl(url: string) {
+  return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url);
 }
 
 function resolveNavigationRange(view: EditorView, navigation: NoteNavigationRequest) {

@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FileText, Folder, FolderPlus, Plus, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, Plus, Search } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -10,6 +10,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { appConfirm } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
@@ -20,11 +21,14 @@ import {
   deleteNote,
   deleteNoteFolder,
   listNotes,
+  revealNoteAssets,
+  revealNoteFile,
+  revealNotesRoot,
   renameNote,
   renameNoteFolder,
   searchNotes,
 } from './notesBridge';
-import { dispatchNoteNavigation, subscribeNotesChanged } from './notesNavigation';
+import { dispatchNoteNavigation, dispatchNotesMetaChanged, subscribeNotesChanged } from './notesNavigation';
 import type { NoteFolderMeta, NoteMeta, NoteSearchResultItem } from './notesTypes';
 
 type NoteTreeNode =
@@ -277,7 +281,8 @@ export function NotesSidebar({
     setError(undefined);
 
     try {
-      await renameNote(note.id, path);
+      const updatedNote = await renameNote(note.id, path);
+      dispatchNotesMetaChanged(updatedNote);
       await refreshNotes();
     } catch (caught) {
       setError(formatError(caught));
@@ -285,7 +290,14 @@ export function NotesSidebar({
   };
 
   const handleDeleteNote = async (note: NoteMeta) => {
-    if (!window.confirm(`Delete note "${note.title}"?`)) {
+    const confirmed = await appConfirm({
+      confirmLabel: 'Delete',
+      message: `Delete note "${note.title}"?`,
+      title: 'Delete note',
+      tone: 'danger',
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -311,6 +323,7 @@ export function NotesSidebar({
 
     try {
       const result = await renameNoteFolder(path, nextPath);
+      dispatchNotesMetaChanged(result.notes);
       setFolders(result.folders);
       setNotes(result.notes);
       setCollapsedFolders((current) => {
@@ -325,7 +338,14 @@ export function NotesSidebar({
   };
 
   const handleDeleteFolder = async (path: string) => {
-    if (!window.confirm(`Delete folder "${path}" and all notes inside it?`)) {
+    const confirmed = await appConfirm({
+      confirmLabel: 'Delete',
+      message: `Delete folder "${path}" and all notes inside it?`,
+      title: 'Delete folder',
+      tone: 'danger',
+    });
+
+    if (!confirmed) {
       return;
     }
 
@@ -376,10 +396,12 @@ export function NotesSidebar({
     try {
       if (payload.type === 'folder') {
         const result = await renameNoteFolder(payload.path, nextPath);
+        dispatchNotesMetaChanged(result.notes);
         setFolders(result.folders);
         setNotes(result.notes);
       } else {
-        await renameNote(payload.id, nextPath);
+        const updatedNote = await renameNote(payload.id, nextPath);
+        dispatchNotesMetaChanged(updatedNote);
         await refreshNotes();
       }
       setCollapsedFolders((current) => {
@@ -445,6 +467,36 @@ export function NotesSidebar({
         next.delete(parentPath);
         return next;
       });
+    }
+  };
+
+  const handleRevealNotesRoot = async () => {
+    setError(undefined);
+
+    try {
+      await revealNotesRoot();
+    } catch (caught) {
+      setError(formatError(caught));
+    }
+  };
+
+  const handleRevealNoteFile = async (note: NoteMeta) => {
+    setError(undefined);
+
+    try {
+      await revealNoteFile(note.id);
+    } catch (caught) {
+      setError(formatError(caught));
+    }
+  };
+
+  const handleRevealNoteAssets = async (note: NoteMeta) => {
+    setError(undefined);
+
+    try {
+      await revealNoteAssets(note.id);
+    } catch (caught) {
+      setError(formatError(caught));
     }
   };
 
@@ -552,6 +604,9 @@ export function NotesSidebar({
                       onDragOverFolder={setDragOverFolderPath}
                       onDropOnFolder={handleDropOnFolder}
                       onOpenNote={openNote}
+                      onRevealNoteAssets={handleRevealNoteAssets}
+                      onRevealNoteFile={handleRevealNoteFile}
+                      onRevealNotesRoot={handleRevealNotesRoot}
                       onToggleSearchNote={(noteId) =>
                         setCollapsedSearchNotes((current) => {
                           const next = new Set(current);
@@ -612,6 +667,11 @@ export function NotesSidebar({
           <FolderPlus className="size-3.5" />
           New folder
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void handleRevealNotesRoot()}>
+          <FolderOpen className="size-3.5" />
+          Open notes folder
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -636,6 +696,9 @@ function NoteTreeNodeView({
   onDragOverFolder,
   onDropOnFolder,
   onOpenNote,
+  onRevealNoteAssets,
+  onRevealNoteFile,
+  onRevealNotesRoot,
   onRenameFolder,
   onRenameNote,
   onSubmitPendingInput,
@@ -663,6 +726,9 @@ function NoteTreeNodeView({
   onDragOverFolder: (folderPath: string) => void;
   onDropOnFolder: (event: React.DragEvent, targetFolderPath: string) => Promise<void>;
   onOpenNote: (note: NoteMeta, navigation?: { lineNumber?: number; query?: string }) => void;
+  onRevealNoteAssets: (note: NoteMeta) => Promise<void>;
+  onRevealNoteFile: (note: NoteMeta) => Promise<void>;
+  onRevealNotesRoot: () => Promise<void>;
   onRenameFolder: (path: string) => void;
   onRenameNote: (note: NoteMeta) => void;
   onSubmitPendingInput: () => void;
@@ -703,6 +769,9 @@ function NoteTreeNodeView({
             onDragOverFolder={onDragOverFolder}
             onDropOnFolder={onDropOnFolder}
             onOpenNote={onOpenNote}
+            onRevealNoteAssets={onRevealNoteAssets}
+            onRevealNoteFile={onRevealNoteFile}
+            onRevealNotesRoot={onRevealNotesRoot}
             onRenameFolder={onRenameFolder}
             onRenameNote={onRenameNote}
             onSubmitPendingInput={onSubmitPendingInput}
@@ -752,6 +821,20 @@ function NoteTreeNodeView({
 
                 onToggleFolder(node.path);
               }}
+              onKeyDown={(event) => {
+                if (event.key === 'F2') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onRenameFolder(node.path);
+                  return;
+                }
+
+                if (event.key === 'Delete') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void onDeleteFolder(node.path);
+                }
+              }}
               onDragStart={(event) => writeDragPayload(event, { path: node.path, type: 'folder' })}
               onDragLeave={onDragLeaveFolder}
               onDragOver={(event) => {
@@ -777,6 +860,11 @@ function NoteTreeNodeView({
             <ContextMenuItem onSelect={() => onCreateFolder(node.path)}>
               <FolderPlus className="size-3.5" />
               New folder
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => void onRevealNotesRoot()}>
+              <FolderOpen className="size-3.5" />
+              Open notes folder
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onSelect={() => onRenameFolder(node.path)}>Rename folder</ContextMenuItem>
@@ -835,6 +923,20 @@ function NoteTreeNodeView({
             }
 
             onOpenNote(node.note);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'F2') {
+              event.preventDefault();
+              event.stopPropagation();
+              onRenameNote(node.note);
+              return;
+            }
+
+            if (event.key === 'Delete') {
+              event.preventDefault();
+              event.stopPropagation();
+              void onDeleteNote(node.note);
+            }
           }}
           onDragStart={(event) =>
             writeDragPayload(event, {
@@ -923,6 +1025,15 @@ function NoteTreeNodeView({
         <ContextMenuLabel>{node.note.path}</ContextMenuLabel>
         <ContextMenuItem onSelect={() => onOpenNote(node.note)}>Open</ContextMenuItem>
         <ContextMenuItem onSelect={() => onRenameNote(node.note)}>Rename note</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void onRevealNoteFile(node.note)}>
+          <FolderOpen className="size-3.5" />
+          Reveal note file
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void onRevealNoteAssets(node.note)}>
+          <FolderOpen className="size-3.5" />
+          Open assets folder
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           className="text-destructive focus:text-destructive"
