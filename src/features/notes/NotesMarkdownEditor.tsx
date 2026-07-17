@@ -1,4 +1,5 @@
 import { markdown } from '@codemirror/lang-markdown';
+import { EditorSelection } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import MarkdownPreview from '@uiw/react-markdown-preview';
@@ -8,7 +9,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 import { insertBold, insertItalic, insertLink } from './notesEditorCommands';
-import { codeMirrorTheme, markdownHighlightExtension } from './notesEditorTheme';
+import { createCodeMirrorTheme, markdownHighlightExtension, type NotesEditorThemeOptions } from './notesEditorTheme';
+import type { NoteNavigationRequest } from './notesNavigation';
 import type { NoteViewMode } from './notesTypes';
 
 export interface NotesEditorScrollState {
@@ -18,24 +20,29 @@ export interface NotesEditorScrollState {
 
 export function NotesMarkdownEditor({
   content,
+  editorTheme,
   editorRef,
   onBlur,
   onChange,
+  navigationTarget,
   previewScrollRef,
   scrollStateRef,
   showLineNumbers,
   viewMode,
 }: {
   content: string;
+  editorTheme: NotesEditorThemeOptions;
   editorRef: React.RefObject<ReactCodeMirrorRef>;
   onBlur: () => void;
   onChange: (value: string) => void;
+  navigationTarget?: NoteNavigationRequest;
   previewScrollRef: React.RefObject<HTMLDivElement>;
   scrollStateRef: React.MutableRefObject<NotesEditorScrollState>;
   showLineNumbers: boolean;
   viewMode: NoteViewMode;
 }) {
   const previousViewModeRef = useRef(viewMode);
+  const codeMirrorTheme = useMemo(() => createCodeMirrorTheme(editorTheme), [editorTheme]);
   const editorKeymap = useMemo(
     () =>
       keymap.of([
@@ -100,6 +107,28 @@ export function NotesMarkdownEditor({
     });
   }, [editorRef, previewScrollRef, scrollStateRef, viewMode]);
 
+  useEffect(() => {
+    if (!navigationTarget || viewMode === 'preview') {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const view = editorRef.current?.view;
+
+      if (!view) {
+        return;
+      }
+
+      const range = resolveNavigationRange(view, navigationTarget);
+
+      view.dispatch({
+        selection: EditorSelection.range(range.from, range.to),
+        scrollIntoView: true,
+      });
+      view.focus();
+    });
+  }, [editorRef, navigationTarget, viewMode]);
+
   return (
     <div
       className={cn(
@@ -136,4 +165,48 @@ export function NotesMarkdownEditor({
       )}
     </div>
   );
+}
+
+function resolveNavigationRange(view: EditorView, navigation: NoteNavigationRequest) {
+  const query = navigation.query?.trim().toLowerCase();
+  const doc = view.state.doc;
+
+  if (navigation.lineNumber && navigation.lineNumber <= doc.lines) {
+    const line = doc.line(navigation.lineNumber);
+    const match = findQueryInText(line.text, query);
+
+    if (match) {
+      return { from: line.from + match.from, to: line.from + match.to };
+    }
+
+    return { from: line.from, to: line.from };
+  }
+
+  if (query) {
+    const content = doc.toString();
+    const matchIndex = content.toLowerCase().indexOf(query);
+
+    if (matchIndex >= 0) {
+      return { from: matchIndex, to: matchIndex + query.length };
+    }
+  }
+
+  return { from: 0, to: 0 };
+}
+
+function findQueryInText(text: string, query?: string) {
+  if (!query) {
+    return undefined;
+  }
+
+  const matchIndex = text.toLowerCase().indexOf(query);
+
+  if (matchIndex < 0) {
+    return undefined;
+  }
+
+  return {
+    from: matchIndex,
+    to: matchIndex + query.length,
+  };
 }

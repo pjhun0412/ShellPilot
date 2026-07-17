@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronUp,
+  FileText,
   Folder,
   KeyRound,
   RotateCcw,
@@ -66,6 +67,12 @@ export function SettingsPanel() {
       title: 'SFTP',
     },
     {
+      description: 'Markdown editor font, spacing, and display defaults for Notes.',
+      icon: FileText,
+      id: 'notes',
+      title: 'Notes',
+    },
+    {
       description: 'Known hosts, key handling, agent behavior, and connection defaults.',
       icon: ShieldCheck,
       id: 'ssh-security',
@@ -127,7 +134,7 @@ export function SettingsPanel() {
   );
 }
 
-type SettingsSectionId = 'general' | 'terminal' | 'sftp' | 'ssh-security' | 'credentials';
+type SettingsSectionId = 'general' | 'terminal' | 'sftp' | 'notes' | 'ssh-security' | 'credentials';
 
 interface SettingsSection {
   description: string;
@@ -414,6 +421,109 @@ function SettingsSectionContent({
             }))
           }
         />
+      </SettingsList>
+    );
+  }
+
+  if (sectionId === 'notes') {
+    return (
+      <SettingsList>
+        <SettingsTextInput
+          description="Applied to Notes Markdown editors. Use a monospace stack for stable tables and code blocks."
+          matches={matchesSetting(searchQuery, 'notes editor markdown font family monospace d2coding')}
+          title="Editor font family"
+          value={preferences.notes.editor.fontFamily}
+          onChange={(value) =>
+            updatePreference((current) => ({
+              ...current,
+              notes: {
+                ...current.notes,
+                editor: {
+                  ...current.notes.editor,
+                  fontFamily: value,
+                },
+              },
+            }))
+          }
+        />
+        <SettingsNumberInput
+          description="Notes editor character size in pixels."
+          matches={matchesSetting(searchQuery, 'notes editor markdown font size')}
+          max={24}
+          min={10}
+          title="Editor font size"
+          value={preferences.notes.editor.fontSize}
+          onChange={(value) =>
+            updatePreference((current) => ({
+              ...current,
+              notes: {
+                ...current.notes,
+                editor: {
+                  ...current.notes.editor,
+                  fontSize: value,
+                },
+              },
+            }))
+          }
+        />
+        <SettingsNumberInput
+          description="Line spacing multiplier for Notes Markdown editor rows."
+          matches={matchesSetting(searchQuery, 'notes editor markdown line height spacing')}
+          max={2.4}
+          min={1}
+          step={0.05}
+          title="Editor line height"
+          value={preferences.notes.editor.lineHeight}
+          onChange={(value) =>
+            updatePreference((current) => ({
+              ...current,
+              notes: {
+                ...current.notes,
+                editor: {
+                  ...current.notes.editor,
+                  lineHeight: value,
+                },
+              },
+            }))
+          }
+        />
+        <SettingsToggle
+          checked={preferences.notes.editor.showLineNumbers}
+          description="Default line number visibility for Notes editors. The editor header toggle can still override the current tab."
+          matches={matchesSetting(searchQuery, 'notes editor markdown line numbers')}
+          title="Show line numbers by default"
+          onChange={(checked) =>
+            updatePreference((current) => ({
+              ...current,
+              notes: {
+                ...current.notes,
+                editor: {
+                  ...current.notes.editor,
+                  showLineNumbers: checked,
+                },
+              },
+            }))
+          }
+        />
+        <SettingsActionRow
+          description="Restore Notes editor preferences to ShellPilot defaults."
+          matches={matchesSetting(searchQuery, 'notes editor reset defaults')}
+          title="Reset Notes editor defaults"
+        >
+          <button
+            className="inline-flex h-8 items-center gap-2 rounded border border-slate-700 bg-slate-900 px-3 text-xs font-semibold text-foreground hover:border-slate-600 hover:bg-slate-800"
+            type="button"
+            onClick={() =>
+              updatePreference((current) => ({
+                ...current,
+                notes: { ...defaultPreferences.notes },
+              }))
+            }
+          >
+            <RotateCcw className="size-3.5" />
+            Reset
+          </button>
+        </SettingsActionRow>
       </SettingsList>
     );
   }

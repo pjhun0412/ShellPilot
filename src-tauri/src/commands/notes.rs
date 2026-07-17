@@ -6,6 +6,8 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
+const NOTE_SEARCH_INDEX_VERSION: u32 = 3;
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NotesIndex {
@@ -13,6 +15,8 @@ struct NotesIndex {
     folders: Vec<NoteFolderMeta>,
     #[serde(default)]
     notes: Vec<NoteMeta>,
+    #[serde(default)]
+    search: Vec<NoteSearchEntry>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -48,6 +52,49 @@ pub struct NoteDocument {
     pub content: String,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteSearchEntry {
+    id: String,
+    #[serde(default)]
+    lines: Vec<NoteSearchLine>,
+    text: String,
+    preview: String,
+    updated_at: u64,
+    #[serde(default)]
+    version: u32,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteSearchLine {
+    line_number: usize,
+    text: String,
+    preview: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotesSearchResult {
+    pub notes: Vec<NoteSearchResultItem>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSearchResultItem {
+    pub matches: Vec<NoteSearchMatch>,
+    pub note: NoteMeta,
+    pub snippet: Option<String>,
+    pub match_kind: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSearchMatch {
+    pub line_number: Option<usize>,
+    pub snippet: String,
+}
+
 #[tauri::command]
 pub fn notes_list(app: AppHandle) -> Result<NotesListResult, String> {
     let paths = notes_paths(&app)?;
@@ -55,12 +102,15 @@ pub fn notes_list(app: AppHandle) -> Result<NotesListResult, String> {
 
     normalize_index(&mut index);
 
-    index.folders.sort_by(|left, right| left.path.cmp(&right.path));
+    index
+        .folders
+        .sort_by(|left, right| left.path.cmp(&right.path));
     index.notes.sort_by(|left, right| {
-        right
-            .updated_at
-            .cmp(&left.updated_at)
-            .then_with(|| left.title.to_ascii_lowercase().cmp(&right.title.to_ascii_lowercase()))
+        right.updated_at.cmp(&left.updated_at).then_with(|| {
+            left.title
+                .to_ascii_lowercase()
+                .cmp(&right.title.to_ascii_lowercase())
+        })
     });
 
     Ok(NotesListResult {
@@ -91,6 +141,7 @@ pub fn notes_create(app: AppHandle, title: String) -> Result<NoteDocument, Strin
         .map_err(|error| format!("failed to create note content: {error}"))?;
 
     index.notes.push(meta.clone());
+    update_search_entry(&mut index, &id, &content, now);
     add_parent_folders(&mut index, &meta.path, now);
     write_notes_index(&paths.index, &index)?;
 
@@ -165,12 +216,15 @@ pub fn notes_delete_folder(app: AppHandle, path: String) -> Result<NotesListResu
         .map(|note| note.id.clone())
         .collect::<Vec<_>>();
 
-    index
-        .folders
-        .retain(|folder| folder.path != folder_path && !folder.path.starts_with(&format!("{folder_path}/")));
+    index.folders.retain(|folder| {
+        folder.path != folder_path && !folder.path.starts_with(&format!("{folder_path}/"))
+    });
     index
         .notes
         .retain(|note| !note.path.starts_with(&format!("{folder_path}/")));
+    index
+        .search
+        .retain(|entry| !removed_note_ids.iter().any(|note_id| note_id == &entry.id));
     normalize_index(&mut index);
     write_notes_index(&paths.index, &index)?;
 
@@ -198,6 +252,85 @@ pub fn notes_read(app: AppHandle, id: String) -> Result<NoteDocument, String> {
 }
 
 #[tauri::command]
+pub fn notes_search(app: AppHandle, query: String) -> Result<NotesSearchResult, String> {
+    let query = normalize_search_query(&query);
+
+    if query.is_empty() {
+        return Ok(NotesSearchResult { notes: Vec::new() });
+    }
+
+    let paths = notes_paths(&app)?;
+    let mut index = read_notes_index(&paths.index)?;
+    let index_changed = ensure_search_index(&mut index, &paths.pages)?;
+
+    if index_changed {
+        write_notes_index(&paths.index, &index)?;
+    }
+
+    let mut results = index
+        .notes
+        .iter()
+        .filter_map(|note| {
+            let metadata = normalize_search_text(&format!(
+                "{} {} {}",
+                note.title,
+                note.path,
+                note.tags.join(" ")
+            ));
+            let content_entry = index.search.iter().find(|entry| entry.id == note.id);
+
+            if metadata.contains(&query) {
+                let matches = content_entry
+                    .map(|entry| build_search_matches(&entry.lines, &query))
+                    .unwrap_or_default();
+
+                return Some(NoteSearchResultItem {
+                    matches,
+                    note: note.clone(),
+                    snippet: content_entry
+                        .map(|entry| entry.preview.clone())
+                        .filter(|preview| !preview.is_empty()),
+                    match_kind: "metadata".to_string(),
+                });
+            }
+
+            let entry = content_entry?;
+            if !entry.text.contains(&query) {
+                return None;
+            }
+
+            let matches = build_search_matches(&entry.lines, &query);
+            let snippet = matches
+                .first()
+                .map(|matched| matched.snippet.clone())
+                .or_else(|| build_search_snippet(&entry.preview, &query));
+
+            Some(NoteSearchResultItem {
+                matches,
+                note: note.clone(),
+                snippet,
+                match_kind: "content".to_string(),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    results.sort_by(|left, right| {
+        note_search_rank(&left.match_kind)
+            .cmp(&note_search_rank(&right.match_kind))
+            .then_with(|| right.note.updated_at.cmp(&left.note.updated_at))
+            .then_with(|| {
+                left.note
+                    .title
+                    .to_ascii_lowercase()
+                    .cmp(&right.note.title.to_ascii_lowercase())
+            })
+    });
+    results.truncate(50);
+
+    Ok(NotesSearchResult { notes: results })
+}
+
+#[tauri::command]
 pub fn notes_update(app: AppHandle, id: String, content: String) -> Result<NoteMeta, String> {
     let id = validate_note_id(&id)?;
     let paths = notes_paths(&app)?;
@@ -206,7 +339,9 @@ pub fn notes_update(app: AppHandle, id: String, content: String) -> Result<NoteM
     let updated_at = current_timestamp_ms();
     let meta = update_note_meta(&mut index, &id, updated_at)?;
 
-    fs::write(content_path, content).map_err(|error| format!("failed to update note content: {error}"))?;
+    fs::write(content_path, &content)
+        .map_err(|error| format!("failed to update note content: {error}"))?;
+    update_search_entry(&mut index, &id, &content, updated_at);
     write_notes_index(&paths.index, &index)?;
 
     Ok(meta)
@@ -239,6 +374,7 @@ pub fn notes_delete(app: AppHandle, id: String) -> Result<bool, String> {
     let original_len = index.notes.len();
 
     index.notes.retain(|note| note.id != id);
+    index.search.retain(|entry| entry.id != id);
 
     if index.notes.len() == original_len {
         return Ok(false);
@@ -268,7 +404,8 @@ fn notes_paths(app: &AppHandle) -> Result<NotesPaths, String> {
         .join("notes");
     let pages = directory.join("pages");
 
-    fs::create_dir_all(&pages).map_err(|error| format!("failed to create notes directory: {error}"))?;
+    fs::create_dir_all(&pages)
+        .map_err(|error| format!("failed to create notes directory: {error}"))?;
 
     Ok(NotesPaths {
         index: directory.join("index.json"),
@@ -281,7 +418,8 @@ fn read_notes_index(path: &Path) -> Result<NotesIndex, String> {
         return Ok(NotesIndex::default());
     }
 
-    let content = fs::read_to_string(path).map_err(|error| format!("failed to read notes index: {error}"))?;
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("failed to read notes index: {error}"))?;
 
     serde_json::from_str(&content).map_err(|error| format!("failed to parse notes index: {error}"))
 }
@@ -293,7 +431,8 @@ fn write_notes_index(path: &Path, index: &NotesIndex) -> Result<(), String> {
 
     fs::write(&temporary_path, content)
         .map_err(|error| format!("failed to write notes index temporary file: {error}"))?;
-    fs::rename(&temporary_path, path).map_err(|error| format!("failed to commit notes index update: {error}"))
+    fs::rename(&temporary_path, path)
+        .map_err(|error| format!("failed to commit notes index update: {error}"))
 }
 
 fn add_parent_folders(index: &mut NotesIndex, note_path: &str, timestamp: u64) {
@@ -338,6 +477,14 @@ fn normalize_index(index: &mut NotesIndex) {
     }
 
     index.folders = folders;
+    let note_ids = index
+        .notes
+        .iter()
+        .map(|note| note.id.as_str())
+        .collect::<Vec<_>>();
+    index
+        .search
+        .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.id));
 }
 
 fn add_parent_folder_paths(folders: &mut Vec<NoteFolderMeta>, note_path: &str, timestamp: u64) {
@@ -464,4 +611,147 @@ fn update_note_meta_fields(
     update(note);
 
     Ok(note.clone())
+}
+
+fn update_search_entry(index: &mut NotesIndex, id: &str, content: &str, updated_at: u64) {
+    let entry = NoteSearchEntry {
+        id: id.to_string(),
+        lines: build_search_lines(content),
+        preview: normalize_preview_text(content),
+        text: normalize_search_text(content),
+        updated_at,
+        version: NOTE_SEARCH_INDEX_VERSION,
+    };
+
+    if let Some(current) = index.search.iter_mut().find(|current| current.id == id) {
+        *current = entry;
+    } else {
+        index.search.push(entry);
+    }
+}
+
+fn ensure_search_index(index: &mut NotesIndex, pages: &Path) -> Result<bool, String> {
+    let mut changed = false;
+    let notes = index.notes.clone();
+
+    for note in notes {
+        let existing = index.search.iter().find(|entry| entry.id == note.id);
+
+        if existing.is_some_and(|entry| {
+            entry.updated_at >= note.updated_at && entry.version >= NOTE_SEARCH_INDEX_VERSION
+        }) {
+            continue;
+        }
+
+        let content = fs::read_to_string(note_content_path(pages, &note.id)?)
+            .map_err(|error| format!("failed to read note content for search: {error}"))?;
+        update_search_entry(index, &note.id, &content, note.updated_at);
+        changed = true;
+    }
+
+    let note_ids = index
+        .notes
+        .iter()
+        .map(|note| note.id.as_str())
+        .collect::<Vec<_>>();
+    let original_len = index.search.len();
+    index
+        .search
+        .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.id));
+
+    Ok(changed || original_len != index.search.len())
+}
+
+fn normalize_search_query(query: &str) -> String {
+    normalize_search_text(query).chars().take(120).collect()
+}
+
+fn normalize_search_text(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn normalize_preview_text(content: &str) -> String {
+    content
+        .lines()
+        .take(120)
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(8000)
+        .collect()
+}
+
+fn build_search_lines(content: &str) -> Vec<NoteSearchLine> {
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let preview = line.trim();
+
+            if preview.is_empty() {
+                return None;
+            }
+
+            Some(NoteSearchLine {
+                line_number: index + 1,
+                text: normalize_search_text(preview),
+                preview: preview.chars().take(220).collect(),
+            })
+        })
+        .take(2000)
+        .collect()
+}
+
+fn build_search_snippet(preview: &str, query: &str) -> Option<String> {
+    let normalized_preview = normalize_search_text(preview);
+    let match_index = normalized_preview.find(query)?;
+    let start = match_index.saturating_sub(64);
+    let snippet = preview
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if snippet.is_empty() {
+        return None;
+    }
+
+    Some(
+        snippet
+            .chars()
+            .skip(start)
+            .take(160)
+            .collect::<String>()
+            .trim()
+            .to_string(),
+    )
+}
+
+fn build_search_matches(lines: &[NoteSearchLine], query: &str) -> Vec<NoteSearchMatch> {
+    lines
+        .iter()
+        .filter_map(|line| {
+            if !line.text.contains(query) {
+                return None;
+            }
+
+            Some(NoteSearchMatch {
+                line_number: Some(line.line_number),
+                snippet: line.preview.clone(),
+            })
+        })
+        .take(8)
+        .collect()
+}
+
+fn note_search_rank(match_kind: &str) -> u8 {
+    match match_kind {
+        "metadata" => 0,
+        _ => 1,
+    }
 }

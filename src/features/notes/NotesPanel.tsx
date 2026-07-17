@@ -1,12 +1,14 @@
 import { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import { useEffect, useRef, useState } from 'react';
 
+import { loadPreferences, subscribePreferences, updatePreferences } from '@/features/settings/appPreferences';
 import { cn } from '@/lib/utils';
 
 import { NotesEditorToolbar } from './NotesEditorToolbar';
 import { NotesMarkdownEditor, type NotesEditorScrollState } from './NotesMarkdownEditor';
 import { NotesPanelHeader } from './NotesPanelHeader';
 import { type NotesEditorCommand } from './notesEditorCommands';
+import { subscribeNoteNavigation, type NoteNavigationRequest } from './notesNavigation';
 import { readNote, updateNote } from './notesBridge';
 import type { NoteMeta, NoteViewMode } from './notesTypes';
 
@@ -16,9 +18,11 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
   const [content, setContent] = useState('');
   const [error, setError] = useState<string>();
   const [meta, setMeta] = useState<NoteMeta>();
+  const [preferences, setPreferences] = useState(() => loadPreferences());
+  const [navigationTarget, setNavigationTarget] = useState<NoteNavigationRequest>();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('loading');
   const [viewMode, setViewMode] = useState<NoteViewMode>('live');
-  const [showLineNumbers, setShowLineNumbers] = useState(true);
+  const [showLineNumbers, setShowLineNumbers] = useState(() => preferences.notes.editor.showLineNumbers);
   const contentRef = useRef('');
   const dirtyRef = useRef(false);
   const editorRef = useRef<ReactCodeMirrorRef>(null);
@@ -33,6 +37,28 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => subscribePreferences(setPreferences), []);
+
+  useEffect(() => {
+    if (!noteId) {
+      return undefined;
+    }
+
+    return subscribeNoteNavigation((request) => {
+      if (request.noteId !== noteId) {
+        return;
+      }
+
+      captureScrollPositions();
+      setViewMode('live');
+      window.setTimeout(() => setNavigationTarget(request), 0);
+    });
+  }, [noteId]);
+
+  useEffect(() => {
+    setShowLineNumbers(preferences.notes.editor.showLineNumbers);
+  }, [preferences.notes.editor.showLineNumbers]);
 
   useEffect(() => {
     if (!noteId) {
@@ -175,7 +201,24 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
         showLineNumbers={showLineNumbers}
         viewMode={viewMode}
         onChangeViewMode={changeViewMode}
-        onToggleLineNumbers={() => setShowLineNumbers((current) => !current)}
+        onToggleLineNumbers={() =>
+          setShowLineNumbers((current) => {
+            const next = !current;
+
+            updatePreferences((preferences) => ({
+              ...preferences,
+              notes: {
+                ...preferences.notes,
+                editor: {
+                  ...preferences.notes.editor,
+                  showLineNumbers: next,
+                },
+              },
+            }));
+
+            return next;
+          })
+        }
       />
 
       <div
@@ -191,8 +234,10 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
         ) : (
           <NotesMarkdownEditor
             content={content}
+            editorTheme={preferences.notes.editor}
             editorRef={editorRef}
             previewScrollRef={previewScrollRef}
+            navigationTarget={navigationTarget}
             scrollStateRef={scrollStateRef}
             showLineNumbers={showLineNumbers}
             viewMode={viewMode}

@@ -1,11 +1,11 @@
 # Notes 설계 메모
 
-ShellPilot Notes는 SSH/SFTP/RDP/VNC 작업 중 외부 메모 도구를 오가지 않도록 앱 내부에서 Markdown 작업 노트를 관리하는 기능이다. 1차 구현은 세션에 강제 연결하지 않는 일반 노트를 기본으로 하며, 세션/그룹 연결, 백링크, 본문 검색은 후속 확장으로 둔다.
+ShellPilot Notes는 SSH/SFTP/RDP/VNC 작업 중 외부 메모 도구를 오가지 않도록 앱 내부에서 Markdown 작업 노트를 관리하는 기능이다. 현재 구현은 세션에 강제 연결하지 않는 일반 노트를 기본으로 하며, 세션/그룹 연결과 백링크는 후속 확장으로 둔다.
 
 ## 현재 1차 범위
 
 - Active Bar에 `Notes` 항목 추가
-- 좌측 Notes 패널에서 Obsidian식 path 기반 트리, 폴더/노트 inline 생성, 메타데이터 검색 제공
+- 좌측 Notes 패널에서 Obsidian식 path 기반 트리, 폴더/노트 inline 생성, 메타데이터/본문 검색 제공
 - 폴더/노트 rename, delete, drag/drop 이동 제공
 - 폴더는 비어 있어도 `index.json`에 별도 메타데이터로 저장
 - 노트는 중앙 Workspace 탭에서 Markdown으로 편집
@@ -29,7 +29,7 @@ notes/
     note-*.md
 ```
 
-`index.json`은 트리/검색에 필요한 가벼운 메타데이터만 보관한다.
+`index.json`은 트리/검색에 필요한 가벼운 메타데이터와 본문 검색용 축약 인덱스를 보관한다.
 
 ```json
 {
@@ -40,6 +40,14 @@ notes/
       "path": "운영/고성스마트시티",
       "tags": ["운영", "tomcat"],
       "createdAt": 1784282400000,
+      "updatedAt": 1784283600000
+    }
+  ],
+  "search": [
+    {
+      "id": "note-20260717-...",
+      "text": "normalized searchable body text",
+      "preview": "검색 결과 스니펫에 사용할 축약 본문",
       "updatedAt": 1784283600000
     }
   ],
@@ -62,6 +70,7 @@ notes/
 - `notes_list()`
 - `notes_create(title)`
 - `notes_read(id)`
+- `notes_search(query)`
 - `notes_update(id, content)`
 - `notes_rename(id, title)`
 - `notes_delete(id)`
@@ -115,13 +124,14 @@ src/features/notes/
 
 ## 검색 정책
 
-1차 검색은 클라이언트 메타데이터 필터링만 수행한다.
+검색은 `notes_search(query)` 명령을 통해 수행한다.
 
 - title
 - path
 - tags
+- 본문 축약 인덱스
 
-본문 전체 검색은 파일 다중 읽기/인덱싱/성능 문제가 있어 후속 작업으로 분리한다.
+저장 시 `index.json.search`에 정규화된 본문 텍스트와 스니펫용 preview를 갱신한다. 기존 노트처럼 검색 인덱스가 없는 항목은 첫 검색 시 누락분만 본문 파일에서 읽어 보강한 뒤 atomic replace로 저장한다. 사이드바는 입력 후 짧은 debounce를 거쳐 검색하고, 본문 매칭 결과에는 `Body · ...` 스니펫을 표시한다.
 
 ## 트리 표시 정책
 
@@ -144,7 +154,7 @@ src/features/notes/
 
 - `[[노트명]]` 링크와 없는 노트 생성
 - `#태그` 자동완성
-- 본문 전체 검색 인덱스
+- 검색어 하이라이트와 결과 내 위치 이동
 - 세션/그룹 관련 노트 연결
 - SSH 선택 텍스트를 노트에 저장
 - SFTP 경로를 노트에 저장

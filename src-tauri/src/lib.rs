@@ -45,6 +45,7 @@ pub fn run() {
             commands::notes::notes_read,
             commands::notes::notes_rename,
             commands::notes::notes_rename_folder,
+            commands::notes::notes_search,
             commands::notes::notes_update,
             commands::local_pty::open_elevated_local_terminal,
             commands::sftp::local_list,

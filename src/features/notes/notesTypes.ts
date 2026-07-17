@@ -23,4 +23,20 @@ export interface NotesListResult {
   notes: NoteMeta[];
 }
 
+export interface NoteSearchResultItem {
+  matches: NoteSearchMatch[];
+  matchKind: 'metadata' | 'content';
+  note: NoteMeta;
+  snippet?: string;
+}
+
+export interface NoteSearchMatch {
+  lineNumber?: number;
+  snippet: string;
+}
+
+export interface NotesSearchResult {
+  notes: NoteSearchResultItem[];
+}
+
 export type NoteViewMode = 'edit' | 'live' | 'preview';

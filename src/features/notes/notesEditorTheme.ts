@@ -2,17 +2,23 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 
-export const codeMirrorTheme = EditorView.theme(
-  {
+export interface NotesEditorThemeOptions {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+}
+
+export function createCodeMirrorTheme({ fontFamily, fontSize, lineHeight }: NotesEditorThemeOptions) {
+  return EditorView.theme({
     '&': {
       height: '100%',
       backgroundColor: 'hsl(var(--background))',
       color: '#d4d4d4',
-      fontSize: '14px',
+      fontSize: `${fontSize}px`,
     },
     '.cm-scroller': {
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      lineHeight: '1.64',
+      fontFamily,
+      lineHeight: String(lineHeight),
       overflow: 'auto',
     },
     '.cm-content': {
@@ -43,6 +49,15 @@ export const codeMirrorTheme = EditorView.theme(
       backgroundColor: '#264f78 !important',
       color: '#ffffff !important',
     },
+    '.cm-selectionMatch': {
+      backgroundColor: 'rgba(156, 111, 0, 0.45) !important',
+    },
+    '.cm-searchMatch': {
+      backgroundColor: 'rgba(156, 111, 0, 0.52) !important',
+    },
+    '.cm-searchMatch-selected': {
+      backgroundColor: 'rgba(202, 138, 4, 0.64) !important',
+    },
     '&.cm-focused': {
       outline: 'none',
     },
@@ -56,9 +71,8 @@ export const codeMirrorTheme = EditorView.theme(
       backgroundColor: '#3a3d41',
       color: '#d4d4d4',
     },
-  },
-  { dark: true },
-);
+  }, { dark: true });
+}
 
 export const markdownHighlightExtension = syntaxHighlighting(
   HighlightStyle.define([

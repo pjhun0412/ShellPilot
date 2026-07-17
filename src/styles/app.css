@@ -244,6 +244,18 @@
     color: #ffffff !important;
   }
 
+  .notes-codemirror .cm-selectionMatch {
+    background-color: rgb(156 111 0 / 45%) !important;
+  }
+
+  .notes-codemirror .cm-searchMatch {
+    background-color: rgb(156 111 0 / 52%) !important;
+  }
+
+  .notes-codemirror .cm-searchMatch-selected {
+    background-color: rgb(202 138 4 / 64%) !important;
+  }
+
   .notes-codemirror .cm-scroller {
     scrollbar-color: transparent transparent;
     scrollbar-width: thin;

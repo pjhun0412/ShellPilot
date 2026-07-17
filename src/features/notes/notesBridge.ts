@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { NoteDocument, NoteFolderMeta, NoteMeta, NotesListResult } from './notesTypes';
+import type { NoteDocument, NoteFolderMeta, NoteMeta, NotesListResult, NotesSearchResult } from './notesTypes';
 
 export async function listNotes() {
   return invoke<NotesListResult>('notes_list');
@@ -12,6 +12,10 @@ export async function createNote(title: string) {
 
 export async function readNote(id: string) {
   return invoke<NoteDocument>('notes_read', { id });
+}
+
+export async function searchNotes(query: string) {
+  return invoke<NotesSearchResult>('notes_search', { query });
 }
 
 export async function updateNote(id: string, content: string) {

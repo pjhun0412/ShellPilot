@@ -8,6 +8,14 @@ export interface ShellPilotPreferences {
   connection: {
     keepaliveIntervalSeconds: number;
   };
+  notes: {
+    editor: {
+      fontFamily: string;
+      fontSize: number;
+      lineHeight: number;
+      showLineNumbers: boolean;
+    };
+  };
   sftp: {
     showHiddenFiles: boolean;
   };
@@ -43,6 +51,8 @@ export interface DiagnosticHighlightRule {
 }
 
 export const appPreferencesStorageKey = 'shellpilot.preferences.v1';
+
+export const defaultMonospaceFontFamily = 'D2Coding, Cascadia Mono, Consolas, monospace';
 
 export const defaultDiagnosticRules: DiagnosticHighlightRule[] = [
   {
@@ -135,6 +145,14 @@ export const defaultPreferences: ShellPilotPreferences = {
   connection: {
     keepaliveIntervalSeconds: 60,
   },
+  notes: {
+    editor: {
+      fontFamily: defaultMonospaceFontFamily,
+      fontSize: 14,
+      lineHeight: 1.64,
+      showLineNumbers: true,
+    },
+  },
   sftp: {
     showHiddenFiles: true,
   },
@@ -143,7 +161,7 @@ export const defaultPreferences: ShellPilotPreferences = {
     cursorBlink: true,
     diagnosticRules: defaultDiagnosticRules,
     diagnosticsHighlight: true,
-    fontFamily: 'Cascadia Mono, D2Coding, Consolas, monospace',
+    fontFamily: defaultMonospaceFontFamily,
     fontSize: 13,
     lineHeight: 1.35,
     localTerminalProfileId: defaultLocalTerminalProfileId,
@@ -201,6 +219,14 @@ function normalizePreferences(value: Partial<ShellPilotPreferences>): ShellPilot
         600,
         defaultPreferences.connection.keepaliveIntervalSeconds,
       ),
+    },
+    notes: {
+      editor: {
+        fontFamily: value.notes?.editor?.fontFamily?.trim() || defaultPreferences.notes.editor.fontFamily,
+        fontSize: clampNumber(value.notes?.editor?.fontSize, 10, 24, defaultPreferences.notes.editor.fontSize),
+        lineHeight: clampNumber(value.notes?.editor?.lineHeight, 1, 2.4, defaultPreferences.notes.editor.lineHeight),
+        showLineNumbers: value.notes?.editor?.showLineNumbers ?? defaultPreferences.notes.editor.showLineNumbers,
+      },
     },
     sftp: {
       showHiddenFiles: value.sftp?.showHiddenFiles ?? defaultPreferences.sftp.showHiddenFiles,

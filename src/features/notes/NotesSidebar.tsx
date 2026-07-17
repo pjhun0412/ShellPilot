@@ -21,8 +21,10 @@ import {
   listNotes,
   renameNote,
   renameNoteFolder,
+  searchNotes,
 } from './notesBridge';
-import type { NoteFolderMeta, NoteMeta } from './notesTypes';
+import { dispatchNoteNavigation } from './notesNavigation';
+import type { NoteFolderMeta, NoteMeta, NoteSearchResultItem } from './notesTypes';
 
 type NoteTreeNode =
   | {
@@ -35,6 +37,7 @@ type NoteTreeNode =
   | {
       key: string;
       note: NoteMeta;
+      searchResult?: NoteSearchResultItem;
       type: 'note';
     };
 
@@ -75,9 +78,11 @@ export function NotesSidebar({
   const [error, setError] = useState<string>();
   const [isCreating, setIsCreating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   const [folders, setFolders] = useState<NoteFolderMeta[]>([]);
   const [notes, setNotes] = useState<NoteMeta[]>([]);
   const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<NoteSearchResultItem[]>([]);
   const [dragOverFolderPath, setDragOverFolderPath] = useState<string>();
   const [pendingInput, setPendingInput] = useState<PendingTreeInput>();
 
@@ -88,12 +93,26 @@ export function NotesSidebar({
       return { folders, notes };
     }
 
+    if (searchResults.length > 0) {
+      return {
+        folders: folders.filter((folder) => folder.path.toLowerCase().includes(keyword)),
+        notes: searchResults.map((result) => result.note),
+      };
+    }
+
     return {
       folders: folders.filter((folder) => folder.path.toLowerCase().includes(keyword)),
       notes: notes.filter((note) => [note.title, note.path, ...note.tags].join(' ').toLowerCase().includes(keyword)),
     };
-  }, [folders, notes, query]);
-  const noteTree = useMemo(() => buildNoteTree(filtered.folders, filtered.notes), [filtered]);
+  }, [folders, notes, query, searchResults]);
+  const searchResultByNoteId = useMemo(
+    () => new Map(searchResults.map((result) => [result.note.id, result])),
+    [searchResults],
+  );
+  const noteTree = useMemo(
+    () => buildNoteTree(filtered.folders, filtered.notes, searchResultByNoteId),
+    [filtered, searchResultByNoteId],
+  );
   const isFiltering = query.trim().length > 0;
 
   const refreshNotes = async () => {
@@ -113,13 +132,58 @@ export function NotesSidebar({
     void refreshNotes();
   }, []);
 
-  const openNote = (note: NoteMeta) => {
+  useEffect(() => {
+    const keyword = query.trim();
+
+    if (!keyword) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return undefined;
+    }
+
+    let isCanceled = false;
+    setIsSearching(true);
+
+    const timeoutId = window.setTimeout(() => {
+      void searchNotes(keyword)
+        .then((result) => {
+          if (!isCanceled) {
+            setSearchResults(result.notes);
+          }
+        })
+        .catch((caught) => {
+          if (!isCanceled) {
+            setError(formatError(caught));
+          }
+        })
+        .finally(() => {
+          if (!isCanceled) {
+            setIsSearching(false);
+          }
+        });
+    }, 180);
+
+    return () => {
+      isCanceled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [query]);
+
+  const openNote = (note: NoteMeta, navigation?: { lineNumber?: number; query?: string }) => {
     onAddPanel({
       id: createNotePanelId(note.id),
       noteId: note.id,
       title: `${note.title}.md`,
       type: 'note',
     });
+
+    if (navigation) {
+      dispatchNoteNavigation({
+        lineNumber: navigation.lineNumber,
+        noteId: note.id,
+        query: navigation.query,
+      });
+    }
   };
 
   const createNoteAtPath = async (folderPath?: string) => {
@@ -423,7 +487,9 @@ export function NotesSidebar({
                     description={
                       notes.length === 0 && folders.length === 0
                         ? 'Create folders and Markdown notes like an Obsidian vault.'
-                        : 'Try another title, path, or tag.'
+                        : isSearching
+                          ? 'Searching note contents...'
+                          : 'Try another title, path, tag, or note body text.'
                     }
                   />
                 ) : (
@@ -436,6 +502,7 @@ export function NotesSidebar({
                       node={node}
                       dragOverFolderPath={dragOverFolderPath}
                       pendingInput={pendingInput}
+                      query={query}
                       onCancelPendingInput={() => setPendingInput(undefined)}
                       onChangePendingInput={(value) =>
                         pendingInput ? setPendingInput({ ...pendingInput, value } as PendingTreeInput) : undefined
@@ -507,6 +574,7 @@ function NoteTreeNodeView({
   onRenameNote,
   onSubmitPendingInput,
   pendingInput,
+  query,
   onToggleFolder,
 }: {
   collapsedFolders: Set<string>;
@@ -523,11 +591,12 @@ function NoteTreeNodeView({
   onDragLeaveFolder: () => void;
   onDragOverFolder: (folderPath: string) => void;
   onDropOnFolder: (event: React.DragEvent, targetFolderPath: string) => Promise<void>;
-  onOpenNote: (note: NoteMeta) => void;
+  onOpenNote: (note: NoteMeta, navigation?: { lineNumber?: number; query?: string }) => void;
   onRenameFolder: (path: string) => void;
   onRenameNote: (note: NoteMeta) => void;
   onSubmitPendingInput: () => void;
   pendingInput?: PendingTreeInput;
+  query: string;
   onToggleFolder: (path: string) => void;
 }) {
   if (node.type === 'folder') {
@@ -547,6 +616,7 @@ function NoteTreeNodeView({
             isFiltering={isFiltering}
             node={child}
             pendingInput={pendingInput}
+            query={query}
             onCancelPendingInput={onCancelPendingInput}
             onChangePendingInput={onChangePendingInput}
             onCreateFolder={onCreateFolder}
@@ -665,7 +735,7 @@ function NoteTreeNodeView({
       <ContextMenuTrigger asChild>
         <button
           className={cn(
-            'grid h-7 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-1.5 rounded-md px-1.5 text-left text-sm text-foreground/85 outline-none transition hover:bg-accent/60 focus-visible:bg-accent',
+            'grid min-h-7 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground/85 outline-none transition hover:bg-accent/60 focus-visible:bg-accent',
           )}
           type="button"
           draggable
@@ -688,8 +758,38 @@ function NoteTreeNodeView({
             })
           }
         >
-          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{node.note.title}</span>
+          <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0">
+            <span className="block truncate">{node.note.title}</span>
+            {node.searchResult ? (
+              <span className="mt-0.5 block space-y-0.5">
+                {getSearchPreviewLines(node.searchResult).map((match, index) => (
+                  <span
+                    className="block truncate rounded-sm text-[11px] leading-4 text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+                    key={`${match.lineNumber ?? 'preview'}-${index}`}
+                    role="button"
+                    tabIndex={0}
+                    title={match.snippet}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenNote(node.note, { lineNumber: match.lineNumber, query });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onOpenNote(node.note, { lineNumber: match.lineNumber, query });
+                      }
+                    }}
+                  >
+                    {node.searchResult?.matchKind === 'content' ? 'Body' : 'Info'}
+                    {match.lineNumber ? `:${match.lineNumber}` : ''} —{' '}
+                    <HighlightedSearchText query={query} text={match.snippet} />
+                  </span>
+                ))}
+              </span>
+            ) : null}
+          </span>
         </button>
       </ContextMenuTrigger>
       <ContextMenuContent onCloseAutoFocus={(event) => event.preventDefault()}>
@@ -808,7 +908,11 @@ function PendingTreeInputRow({
   );
 }
 
-function buildNoteTree(folders: NoteFolderMeta[], notes: NoteMeta[]): NoteTreeNode[] {
+function buildNoteTree(
+  folders: NoteFolderMeta[],
+  notes: NoteMeta[],
+  searchResultByNoteId = new Map<string, NoteSearchResultItem>(),
+): NoteTreeNode[] {
   const root = createFolderNode('', '');
 
   folders.forEach((folder) => ensureFolder(root, splitPath(folder.path)));
@@ -819,6 +923,7 @@ function buildNoteTree(folders: NoteFolderMeta[], notes: NoteMeta[]): NoteTreeNo
     parent.children.push({
       key: note.id,
       note,
+      searchResult: searchResultByNoteId.get(note.id),
       type: 'note',
     });
   });
@@ -989,6 +1094,49 @@ function hasDragPayload(event: React.DragEvent) {
 
 function createNotePanelId(noteId: string) {
   return `note-${noteId}`;
+}
+
+function getSearchPreviewLines(result: NoteSearchResultItem) {
+  if (result.matches.length > 0) {
+    return result.matches;
+  }
+
+  if (result.snippet) {
+    return [{ snippet: result.snippet }];
+  }
+
+  return [];
+}
+
+function HighlightedSearchText({ query, text }: { query: string; text: string }) {
+  const keyword = query.trim();
+
+  if (!keyword) {
+    return <>{text}</>;
+  }
+
+  const parts = text.split(new RegExp(`(${escapeRegExp(keyword)})`, 'ig'));
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.toLowerCase() === keyword.toLowerCase() ? (
+          <mark
+            className="rounded-sm bg-[rgb(156_111_0_/_52%)] px-0.5 text-foreground"
+            key={`${part}-${index}`}
+          >
+            {part}
+          </mark>
+        ) : (
+          <span key={`${part}-${index}`}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function NotesEmptyState({ description, title }: { description: string; title: string }) {
