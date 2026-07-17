@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, Plus, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, Plus, Search, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -98,6 +98,7 @@ export function NotesSidebar({
   const [pendingInput, setPendingInput] = useState<PendingTreeInput>();
   const [collapsedSearchNotes, setCollapsedSearchNotes] = useState<Set<string>>(() => new Set());
   const [expandedSearchNotes, setExpandedSearchNotes] = useState<Set<string>>(() => new Set());
+  const errorDismissTimerRef = useRef<number>();
   const activeNoteId = useMemo(
     () => workspaceTabs.find((tab) => tab.id === activePanelId && tab.type === 'note')?.noteId,
     [activePanelId, workspaceTabs],
@@ -132,14 +133,35 @@ export function NotesSidebar({
   );
   const isFiltering = query.trim().length > 0;
 
-  const refreshNotes = async () => {
+  const clearError = () => {
+    if (errorDismissTimerRef.current) {
+      window.clearTimeout(errorDismissTimerRef.current);
+      errorDismissTimerRef.current = undefined;
+    }
+
     setError(undefined);
+  };
+
+  const showError = (message: string) => {
+    if (errorDismissTimerRef.current) {
+      window.clearTimeout(errorDismissTimerRef.current);
+    }
+
+    setError(message);
+    errorDismissTimerRef.current = window.setTimeout(() => {
+      setError(undefined);
+      errorDismissTimerRef.current = undefined;
+    }, 5000);
+  };
+
+  const refreshNotes = async () => {
+    clearError();
     try {
       const result = await listNotes();
       setFolders(result.folders);
       setNotes(result.notes);
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     } finally {
       setIsLoading(false);
     }
@@ -150,6 +172,15 @@ export function NotesSidebar({
   }, []);
 
   useEffect(
+    () => () => {
+      if (errorDismissTimerRef.current) {
+        window.clearTimeout(errorDismissTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(
     () =>
       subscribeNotesChanged(() => {
         void refreshNotes();
@@ -158,7 +189,7 @@ export function NotesSidebar({
         if (keyword) {
           void searchNotes(keyword)
             .then((result) => setSearchResults(result.notes))
-            .catch((caught) => setError(formatError(caught)));
+            .catch((caught) => showError(formatError(caught)));
         }
       }),
     [query],
@@ -185,7 +216,7 @@ export function NotesSidebar({
         })
         .catch((caught) => {
           if (!isCanceled) {
-            setError(formatError(caught));
+            showError(formatError(caught));
           }
         })
         .finally(() => {
@@ -230,7 +261,7 @@ export function NotesSidebar({
       ...notes.map((note) => note.path),
     ]);
     setIsCreating(true);
-    setError(undefined);
+    clearError();
 
     try {
       const note = await createNote(path);
@@ -239,7 +270,7 @@ export function NotesSidebar({
       setPendingInput({ kind: 'rename-note', note: note.meta, value: note.meta.title });
       openNote(note.meta);
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     } finally {
       setIsCreating(false);
     }
@@ -251,7 +282,7 @@ export function NotesSidebar({
       ...notes.map((note) => note.path),
     ]);
     setIsCreating(true);
-    setError(undefined);
+    clearError();
 
     try {
       const folder = await createNoteFolder(path);
@@ -265,7 +296,7 @@ export function NotesSidebar({
         return next;
       });
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     } finally {
       setIsCreating(false);
     }
@@ -278,14 +309,14 @@ export function NotesSidebar({
       return;
     }
 
-    setError(undefined);
+    clearError();
 
     try {
       const updatedNote = await renameNote(note.id, path);
       dispatchNotesMetaChanged(updatedNote);
       await refreshNotes();
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
@@ -301,14 +332,14 @@ export function NotesSidebar({
       return;
     }
 
-    setError(undefined);
+    clearError();
 
     try {
       await deleteNote(note.id);
       onClosePanel(createNotePanelId(note.id));
       await refreshNotes();
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
@@ -319,7 +350,7 @@ export function NotesSidebar({
       return;
     }
 
-    setError(undefined);
+    clearError();
 
     try {
       const result = await renameNoteFolder(path, nextPath);
@@ -333,7 +364,7 @@ export function NotesSidebar({
         return next;
       });
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
@@ -349,7 +380,7 @@ export function NotesSidebar({
       return;
     }
 
-    setError(undefined);
+    clearError();
 
     try {
       const notePanelIdsToClose = notes
@@ -360,7 +391,7 @@ export function NotesSidebar({
       setFolders(result.folders);
       setNotes(result.notes);
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
@@ -387,11 +418,11 @@ export function NotesSidebar({
     }
 
     if (payload.type === 'folder' && (targetFolderPath === payload.path || targetFolderPath.startsWith(`${payload.path}/`))) {
-      setError('Cannot move a folder inside itself.');
+      showError('Cannot move a folder inside itself.');
       return;
     }
 
-    setError(undefined);
+    clearError();
 
     try {
       if (payload.type === 'folder') {
@@ -410,7 +441,7 @@ export function NotesSidebar({
         return next;
       });
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
@@ -471,32 +502,32 @@ export function NotesSidebar({
   };
 
   const handleRevealNotesRoot = async () => {
-    setError(undefined);
+    clearError();
 
     try {
       await revealNotesRoot();
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
   const handleRevealNoteFile = async (note: NoteMeta) => {
-    setError(undefined);
+    clearError();
 
     try {
       await revealNoteFile(note.id);
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
   const handleRevealNoteAssets = async (note: NoteMeta) => {
-    setError(undefined);
+    clearError();
 
     try {
       await revealNoteAssets(note.id);
     } catch (caught) {
-      setError(formatError(caught));
+      showError(formatError(caught));
     }
   };
 
@@ -540,8 +571,16 @@ export function NotesSidebar({
           </div>
 
           {error && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {error}
+            <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <span className="min-w-0 flex-1">{error}</span>
+              <button
+                className="rounded p-0.5 text-destructive/80 transition hover:bg-destructive/10 hover:text-destructive"
+                type="button"
+                aria-label="Dismiss note error"
+                onClick={clearError}
+              >
+                <X className="size-3.5" />
+              </button>
             </div>
           )}
 

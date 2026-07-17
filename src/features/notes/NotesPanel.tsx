@@ -1,4 +1,5 @@
 import { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
+import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { loadPreferences, subscribePreferences, updatePreferences } from '@/features/settings/appPreferences';
@@ -281,8 +282,16 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
         )}
 
         {error && (
-          <div className="border-t border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">
-            {error}
+          <div className="flex items-start gap-2 border-t border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+            <span className="min-w-0 flex-1">{error}</span>
+            <button
+              className="rounded p-0.5 text-destructive/80 transition hover:bg-destructive/10 hover:text-destructive"
+              type="button"
+              aria-label="Dismiss note error"
+              onClick={() => setError(undefined)}
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
         )}
       </div>
