@@ -216,4 +216,117 @@
     width: 0 !important;
     height: 0 !important;
   }
+
+  .notes-editor-frame {
+    min-height: 0;
+  }
+
+  .notes-toolbar {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .notes-codemirror {
+    height: 100% !important;
+    min-height: 0;
+    background: hsl(var(--background));
+    color: #d4d4d4;
+  }
+
+  .notes-codemirror .cm-editor {
+    height: 100%;
+  }
+
+  .notes-codemirror .cm-content ::selection,
+  .notes-codemirror .cm-line ::selection,
+  .notes-codemirror .cm-line::selection {
+    background-color: #264f78 !important;
+    color: #ffffff !important;
+  }
+
+  .notes-codemirror .cm-scroller {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .notes-codemirror:hover .cm-scroller {
+    scrollbar-color: hsl(var(--scrollbar-thumb) / 0.78) transparent;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-track,
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    background-clip: content-box;
+  }
+
+  .notes-codemirror:hover .cm-scroller::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--scrollbar-thumb) / 0.78);
+  }
+
+  .notes-markdown-preview {
+    min-height: 0;
+    overflow: auto;
+    border-left: 1px solid hsl(var(--border) / 0.72);
+    background: hsl(var(--background));
+    padding: 1.75rem 2rem;
+    color: #d4d4d4;
+  }
+
+  .notes-markdown-preview.wmde-markdown,
+  .notes-markdown-preview .wmde-markdown,
+  .notes-markdown-preview .wmde-markdown-var {
+    background: hsl(var(--background));
+    color: #d4d4d4;
+    font-size: 0.875rem;
+    line-height: 1.68;
+  }
+
+  .notes-markdown-preview h1,
+  .notes-markdown-preview h2,
+  .notes-markdown-preview h3,
+  .notes-markdown-preview h4,
+  .notes-markdown-preview h5,
+  .notes-markdown-preview h6 {
+    color: #d4d4d4;
+    border-color: hsl(var(--border) / 0.72);
+  }
+
+  .notes-markdown-preview a {
+    color: #4fc1ff;
+  }
+
+  .notes-markdown-preview hr {
+    border-color: hsl(var(--border) / 0.72);
+  }
+
+  .notes-markdown-preview code {
+    background: hsl(var(--card) / 0.78);
+    color: #ce9178;
+  }
+
+  .notes-markdown-preview table {
+    display: table;
+    width: 100%;
+  }
+
+  .notes-markdown-preview th,
+  .notes-markdown-preview td {
+    border-color: hsl(var(--border) / 0.72);
+  }
+
+  .notes-markdown-preview blockquote {
+    border-left-color: #6a9955;
+    color: #c8c8c8;
+  }
 }

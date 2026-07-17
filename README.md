@@ -80,6 +80,15 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 - 새 버전이 있으면 확인 대화상자 표시, 사용자 동의 후에만 다운로드·설치
 - `Help → Check for Updates`로 수동 확인 가능 (현재 Windows 우선 지원)
 
+### 📝 Notes
+
+- ShellPilot 안에서 Markdown 작업 노트를 생성하고 탭으로 편집
+- CodeMirror 기반 Edit / Live / Preview 모드, 라인 넘버 토글
+- Markdown 툴바와 `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K` 단축키
+- 노트 목록은 title/path/tags 기준으로 빠르게 필터링
+- 입력 중 자동 저장, 탭 닫기 시 pending 저장 flush로 마지막 입력 유실 방지
+- 노트 index는 app data directory에 atomic replace 방식으로 저장
+
 ## 보안 정책
 
 - 세션 데이터에는 host, port, username, tag, group, auth method, credential reference만 저장합니다.
@@ -173,6 +182,7 @@ scripts/
 - [RDP 인계 문서](docs/rdp-handoff.md)
 - [VNC 설계 메모](docs/vnc-design.md)
 - [AI Tool Layer 설계](docs/ai-tool-layer-design.md)
+- [Notes 설계 메모](docs/notes-design.md)
 - [릴리즈와 자동 업데이트](docs/release-update.md)
 - [1.0.2 릴리스 노트](docs/release-1.0.2.md)
 - [macOS 지원 메모](docs/macos-support.md)

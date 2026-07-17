@@ -140,7 +140,7 @@ export function App() {
   const addPanel = (panel: WorkspacePanel) => {
     const existingNode = modelRef.current.getNodeById(panel.id);
 
-    if ((panel.type === 'settings' || panel.type === 'ai') && existingNode?.getType() === 'tab') {
+    if ((panel.type === 'settings' || panel.type === 'ai' || panel.type === 'note') && existingNode?.getType() === 'tab') {
       modelRef.current.doAction(Actions.selectTab(panel.id));
       setLastAddedPanelId(panel.id);
       setLayoutVersion((version) => version + 1);
@@ -148,7 +148,7 @@ export function App() {
     }
 
     const activeTabset = modelRef.current.getActiveTabset() ?? modelRef.current.getFirstTabSet();
-    const tabId = panel.type === 'settings' ? panel.id : `${panel.id}-${Date.now()}`;
+    const tabId = panel.type === 'settings' || panel.type === 'note' ? panel.id : `${panel.id}-${Date.now()}`;
 
     modelRef.current.doAction(
       Actions.addTab(
@@ -162,6 +162,7 @@ export function App() {
             autoConnect: true,
             initialPath: panel.initialPath,
             localPtyTarget: panel.localPtyTarget,
+            noteId: panel.noteId,
             panelType: panel.type,
             session: panel.session,
           },

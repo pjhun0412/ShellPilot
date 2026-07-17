@@ -2,6 +2,7 @@ import { PanelLeftClose } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { AiSidebar } from '@/features/ai/AiSidebar';
+import { NotesSidebar } from '@/features/notes/NotesSidebar';
 import type { SftpSidebarExplorer } from '@/features/sftp/sftpSidebarState';
 import { SshActivityPanel } from '@/features/ssh/SshActivityPanel';
 import {
@@ -132,6 +133,10 @@ function SidebarContent({
         workspaceTabs={workspaceTabs}
       />
     );
+  }
+
+  if (activeActivity === 'notes') {
+    return <NotesSidebar onAddPanel={onAddPanel} onClosePanel={onClosePanel} />;
   }
 
   if (activeActivity === 'tabs') {
