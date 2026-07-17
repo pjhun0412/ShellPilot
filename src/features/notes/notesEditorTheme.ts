@@ -12,8 +12,8 @@ export function createCodeMirrorTheme({ fontFamily, fontSize, lineHeight }: Note
   return EditorView.theme({
     '&': {
       height: '100%',
-      backgroundColor: 'hsl(var(--background))',
-      color: '#d4d4d4',
+      backgroundColor: '#0d1117',
+      color: '#c9d1d9',
       fontSize: `${fontSize}px`,
     },
     '.cm-scroller': {
@@ -23,15 +23,15 @@ export function createCodeMirrorTheme({ fontFamily, fontSize, lineHeight }: Note
     },
     '.cm-content': {
       caretColor: '#ffffff',
-      padding: '16px 0 20px',
+      padding: '18px 0 24px',
     },
     '.cm-line': {
-      padding: '0 20px',
+      padding: '0 22px',
     },
     '.cm-gutters': {
-      backgroundColor: 'hsl(var(--background))',
-      borderRight: '1px solid hsl(var(--border) / 0.72)',
-      color: '#858585',
+      backgroundColor: '#0d1117',
+      borderRight: '1px solid #30363d',
+      color: '#6e7681',
       paddingRight: '4px',
     },
     '.cm-lineNumbers .cm-gutterElement': {
@@ -39,11 +39,11 @@ export function createCodeMirrorTheme({ fontFamily, fontSize, lineHeight }: Note
       padding: '0 10px 0 12px',
     },
     '.cm-activeLine': {
-      backgroundColor: 'hsl(var(--card) / 0.56)',
+      backgroundColor: '#161b22',
     },
     '.cm-activeLineGutter': {
-      backgroundColor: 'hsl(var(--card) / 0.56)',
-      color: '#c6c6c6',
+      backgroundColor: '#161b22',
+      color: '#8b949e',
     },
     '& ::selection, .cm-content ::selection': {
       backgroundColor: '#264f78 !important',
@@ -68,21 +68,21 @@ export function createCodeMirrorTheme({ fontFamily, fontSize, lineHeight }: Note
       color: '#858585',
     },
     '.cm-matchingBracket': {
-      backgroundColor: '#3a3d41',
-      color: '#d4d4d4',
+      backgroundColor: '#30363d',
+      color: '#c9d1d9',
     },
   }, { dark: true });
 }
 
 export const markdownHighlightExtension = syntaxHighlighting(
   HighlightStyle.define([
-    { tag: tags.heading, color: '#569cd6', fontWeight: '600' },
-    { tag: tags.strong, color: '#d4d4d4', fontWeight: '700' },
-    { tag: tags.emphasis, color: '#d4d4d4', fontStyle: 'italic' },
-    { tag: tags.link, color: '#d4d4d4' },
-    { tag: tags.url, color: '#4fc1ff' },
-    { tag: tags.quote, color: '#6a9955' },
-    { tag: tags.monospace, color: '#ce9178' },
-    { tag: [tags.meta, tags.processingInstruction, tags.contentSeparator], color: '#808080' },
+    { tag: tags.heading, color: '#79c0ff', fontWeight: '600' },
+    { tag: tags.strong, color: '#c9d1d9', fontWeight: '700' },
+    { tag: tags.emphasis, color: '#c9d1d9', fontStyle: 'italic' },
+    { tag: tags.link, color: '#c9d1d9' },
+    { tag: tags.url, color: '#58a6ff' },
+    { tag: tags.quote, color: '#8b949e' },
+    { tag: tags.monospace, color: '#a5d6ff' },
+    { tag: [tags.meta, tags.processingInstruction, tags.contentSeparator], color: '#6e7681' },
   ]),
 );

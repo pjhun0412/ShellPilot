@@ -136,7 +136,15 @@ function SidebarContent({
   }
 
   if (activeActivity === 'notes') {
-    return <NotesSidebar onAddPanel={onAddPanel} onClosePanel={onClosePanel} />;
+    return (
+      <NotesSidebar
+        activePanelId={activePanelId}
+        onAddPanel={onAddPanel}
+        onClosePanel={onClosePanel}
+        onSelectPanel={onSelectPanel}
+        workspaceTabs={workspaceTabs}
+      />
+    );
   }
 
   if (activeActivity === 'tabs') {

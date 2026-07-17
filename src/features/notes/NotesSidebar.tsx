@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, FileText, Folder, FolderPlus, Plus, Search } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { WorkspacePanel } from '@/types/workspace';
+import type { WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
 
 import {
   createNote,
@@ -23,7 +24,7 @@ import {
   renameNoteFolder,
   searchNotes,
 } from './notesBridge';
-import { dispatchNoteNavigation } from './notesNavigation';
+import { dispatchNoteNavigation, subscribeNotesChanged } from './notesNavigation';
 import type { NoteFolderMeta, NoteMeta, NoteSearchResultItem } from './notesTypes';
 
 type NoteTreeNode =
@@ -68,11 +69,17 @@ type PendingTreeInput =
     };
 
 export function NotesSidebar({
+  activePanelId,
   onAddPanel,
   onClosePanel,
+  onSelectPanel,
+  workspaceTabs,
 }: {
+  activePanelId?: string;
   onAddPanel: (panel: WorkspacePanel) => void;
   onClosePanel: (panelId: string) => void;
+  onSelectPanel: (panelId: string) => void;
+  workspaceTabs: WorkspaceTabItem[];
 }) {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string>();
@@ -85,6 +92,12 @@ export function NotesSidebar({
   const [searchResults, setSearchResults] = useState<NoteSearchResultItem[]>([]);
   const [dragOverFolderPath, setDragOverFolderPath] = useState<string>();
   const [pendingInput, setPendingInput] = useState<PendingTreeInput>();
+  const [collapsedSearchNotes, setCollapsedSearchNotes] = useState<Set<string>>(() => new Set());
+  const [expandedSearchNotes, setExpandedSearchNotes] = useState<Set<string>>(() => new Set());
+  const activeNoteId = useMemo(
+    () => workspaceTabs.find((tab) => tab.id === activePanelId && tab.type === 'note')?.noteId,
+    [activePanelId, workspaceTabs],
+  );
 
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -132,6 +145,21 @@ export function NotesSidebar({
     void refreshNotes();
   }, []);
 
+  useEffect(
+    () =>
+      subscribeNotesChanged(() => {
+        void refreshNotes();
+        const keyword = query.trim();
+
+        if (keyword) {
+          void searchNotes(keyword)
+            .then((result) => setSearchResults(result.notes))
+            .catch((caught) => setError(formatError(caught)));
+        }
+      }),
+    [query],
+  );
+
   useEffect(() => {
     const keyword = query.trim();
 
@@ -170,12 +198,18 @@ export function NotesSidebar({
   }, [query]);
 
   const openNote = (note: NoteMeta, navigation?: { lineNumber?: number; query?: string }) => {
-    onAddPanel({
-      id: createNotePanelId(note.id),
-      noteId: note.id,
-      title: `${note.title}.md`,
-      type: 'note',
-    });
+    const existingPanel = workspaceTabs.find((tab) => tab.type === 'note' && tab.noteId === note.id);
+
+    if (existingPanel) {
+      onSelectPanel(existingPanel.id);
+    } else {
+      onAddPanel({
+        id: createNotePanelId(note.id),
+        noteId: note.id,
+        title: `${note.title}.md`,
+        type: 'note',
+      });
+    }
 
     if (navigation) {
       dispatchNoteNavigation({
@@ -480,7 +514,7 @@ export function NotesSidebar({
             {isLoading ? (
               <NotesEmptyState title="Loading notes" description="Reading your local note index..." />
             ) : (
-              <div className="space-y-0.5 py-1">
+              <div className="space-y-0.5 px-1 py-1">
                 {noteTree.length === 0 ? (
                   <NotesEmptyState
                     title={notes.length === 0 && folders.length === 0 ? 'No notes yet' : 'No matching notes'}
@@ -496,8 +530,11 @@ export function NotesSidebar({
                   noteTree.map((node) => (
                     <NoteTreeNodeView
                       key={node.key}
+                      activeNoteId={activeNoteId}
                       collapsedFolders={collapsedFolders}
+                      collapsedSearchNotes={collapsedSearchNotes}
                       depth={0}
+                      expandedSearchNotes={expandedSearchNotes}
                       isFiltering={isFiltering}
                       node={node}
                       dragOverFolderPath={dragOverFolderPath}
@@ -515,6 +552,32 @@ export function NotesSidebar({
                       onDragOverFolder={setDragOverFolderPath}
                       onDropOnFolder={handleDropOnFolder}
                       onOpenNote={openNote}
+                      onToggleSearchNote={(noteId) =>
+                        setCollapsedSearchNotes((current) => {
+                          const next = new Set(current);
+
+                          if (next.has(noteId)) {
+                            next.delete(noteId);
+                          } else {
+                            next.add(noteId);
+                          }
+
+                          return next;
+                        })
+                      }
+                      onToggleSearchMatches={(noteId) =>
+                        setExpandedSearchNotes((current) => {
+                          const next = new Set(current);
+
+                          if (next.has(noteId)) {
+                            next.delete(noteId);
+                          } else {
+                            next.add(noteId);
+                          }
+
+                          return next;
+                        })
+                      }
                       onRenameFolder={(folderPath) =>
                         setPendingInput({
                           folderPath,
@@ -555,9 +618,12 @@ export function NotesSidebar({
 }
 
 function NoteTreeNodeView({
+  activeNoteId,
   collapsedFolders,
+  collapsedSearchNotes,
   depth,
   dragOverFolderPath,
+  expandedSearchNotes,
   isFiltering,
   node,
   onCancelPendingInput,
@@ -573,13 +639,18 @@ function NoteTreeNodeView({
   onRenameFolder,
   onRenameNote,
   onSubmitPendingInput,
+  onToggleSearchNote,
+  onToggleSearchMatches,
   pendingInput,
   query,
   onToggleFolder,
 }: {
+  activeNoteId?: string;
   collapsedFolders: Set<string>;
+  collapsedSearchNotes: Set<string>;
   depth: number;
   dragOverFolderPath?: string;
+  expandedSearchNotes: Set<string>;
   isFiltering: boolean;
   node: NoteTreeNode;
   onCancelPendingInput: () => void;
@@ -595,6 +666,8 @@ function NoteTreeNodeView({
   onRenameFolder: (path: string) => void;
   onRenameNote: (note: NoteMeta) => void;
   onSubmitPendingInput: () => void;
+  onToggleSearchNote: (noteId: string) => void;
+  onToggleSearchMatches: (noteId: string) => void;
   pendingInput?: PendingTreeInput;
   query: string;
   onToggleFolder: (path: string) => void;
@@ -610,9 +683,12 @@ function NoteTreeNodeView({
         {node.children.map((child) => (
           <NoteTreeNodeView
             key={child.key}
+            activeNoteId={activeNoteId}
             collapsedFolders={collapsedFolders}
+            collapsedSearchNotes={collapsedSearchNotes}
             depth={depth + 1}
             dragOverFolderPath={dragOverFolderPath}
+            expandedSearchNotes={expandedSearchNotes}
             isFiltering={isFiltering}
             node={child}
             pendingInput={pendingInput}
@@ -630,6 +706,8 @@ function NoteTreeNodeView({
             onRenameFolder={onRenameFolder}
             onRenameNote={onRenameNote}
             onSubmitPendingInput={onSubmitPendingInput}
+            onToggleSearchNote={onToggleSearchNote}
+            onToggleSearchMatches={onToggleSearchMatches}
             onToggleFolder={onToggleFolder}
           />
         ))}
@@ -730,12 +808,21 @@ function NoteTreeNodeView({
     );
   }
 
+  const isActive = activeNoteId === node.note.id;
+  const searchLines = node.searchResult ? getSearchPreviewLines(node.searchResult) : [];
+  const hasSearchMatches = searchLines.length > 0;
+  const isSearchCollapsed = collapsedSearchNotes.has(node.note.id);
+  const isSearchExpanded = expandedSearchNotes.has(node.note.id);
+  const visibleSearchLines = isSearchCollapsed ? [] : isSearchExpanded ? searchLines : searchLines.slice(0, 3);
+  const hiddenSearchLineCount = searchLines.length - visibleSearchLines.length;
+
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <button
           className={cn(
-            'grid min-h-7 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-sm text-foreground/85 outline-none transition hover:bg-accent/60 focus-visible:bg-accent',
+            'grid min-h-7 w-full min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-start gap-1.5 rounded-md border border-transparent px-1.5 py-1 text-left text-sm text-foreground/85 outline-none transition hover:bg-accent/60 focus-visible:bg-accent',
+            isActive && 'border-primary/30 bg-primary/10 text-foreground',
           )}
           type="button"
           draggable
@@ -758,12 +845,42 @@ function NoteTreeNodeView({
             })
           }
         >
-          <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          {hasSearchMatches ? (
+            <span
+              className="mt-0.5 inline-grid size-3.5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+              role="button"
+              tabIndex={0}
+              title={isSearchCollapsed ? 'Show matches' : 'Hide matches'}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleSearchNote(node.note.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onToggleSearchNote(node.note.id);
+                }
+              }}
+            >
+              {isSearchCollapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </span>
+          ) : (
+            <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          )}
           <span className="min-w-0">
-            <span className="block truncate">{node.note.title}</span>
-            {node.searchResult ? (
+            <span className="flex min-w-0 items-center gap-1.5">
+              {hasSearchMatches ? <FileText className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+              <span className="truncate">{node.note.title}</span>
+              {hasSearchMatches ? (
+                <span className="ml-auto shrink-0 rounded border border-border/80 px-1 text-[10px] leading-4 text-muted-foreground">
+                  {searchLines.length}
+                </span>
+              ) : null}
+            </span>
+            {node.searchResult && !isSearchCollapsed ? (
               <span className="mt-0.5 block space-y-0.5">
-                {getSearchPreviewLines(node.searchResult).map((match, index) => (
+                {visibleSearchLines.map((match, index) => (
                   <span
                     className="block truncate rounded-sm text-[11px] leading-4 text-muted-foreground hover:bg-accent/70 hover:text-foreground"
                     key={`${match.lineNumber ?? 'preview'}-${index}`}
@@ -787,6 +904,16 @@ function NoteTreeNodeView({
                     <HighlightedSearchText query={query} text={match.snippet} />
                   </span>
                 ))}
+                {hiddenSearchLineCount > 0 ? (
+                  <SearchMatchToggle onToggle={() => onToggleSearchMatches(node.note.id)}>
+                    +{hiddenSearchLineCount} more matches
+                  </SearchMatchToggle>
+                ) : null}
+                {isSearchExpanded && searchLines.length > 3 ? (
+                  <SearchMatchToggle onToggle={() => onToggleSearchMatches(node.note.id)}>
+                    Show fewer
+                  </SearchMatchToggle>
+                ) : null}
               </span>
             ) : null}
           </span>
@@ -1132,6 +1259,29 @@ function HighlightedSearchText({ query, text }: { query: string; text: string })
         ),
       )}
     </>
+  );
+}
+
+function SearchMatchToggle({ children, onToggle }: { children: ReactNode; onToggle: () => void }) {
+  return (
+    <span
+      className="block truncate rounded-sm text-[11px] leading-4 text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+      role="button"
+      tabIndex={0}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          event.stopPropagation();
+          onToggle();
+        }
+      }}
+    >
+      {children}
+    </span>
   );
 }
 

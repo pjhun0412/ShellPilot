@@ -37,6 +37,7 @@ export function NotesPanelHeader({
               ? 'border-primary/35 bg-primary/14 text-primary hover:bg-primary/18'
               : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground',
           )}
+          aria-pressed={showLineNumbers}
           title={showLineNumbers ? 'Hide line numbers' : 'Show line numbers'}
           type="button"
           onClick={onToggleLineNumbers}
@@ -78,6 +79,7 @@ function ModeButton({
         'inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold transition-colors',
         active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
       )}
+      aria-pressed={active}
       type="button"
       onClick={onClick}
     >

@@ -6,6 +6,7 @@ export interface NoteNavigationRequest {
 }
 
 export const notesNavigationEventName = 'shellpilot.notes.navigate';
+export const notesChangedEventName = 'shellpilot.notes.changed';
 
 export function dispatchNoteNavigation(request: Omit<NoteNavigationRequest, 'requestId'>) {
   const detail: NoteNavigationRequest = {
@@ -26,4 +27,14 @@ export function subscribeNoteNavigation(handler: (request: NoteNavigationRequest
   window.addEventListener(notesNavigationEventName, listener);
 
   return () => window.removeEventListener(notesNavigationEventName, listener);
+}
+
+export function dispatchNotesChanged() {
+  window.dispatchEvent(new Event(notesChangedEventName));
+}
+
+export function subscribeNotesChanged(handler: () => void) {
+  window.addEventListener(notesChangedEventName, handler);
+
+  return () => window.removeEventListener(notesChangedEventName, handler);
 }

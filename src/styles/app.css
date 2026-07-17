@@ -229,8 +229,8 @@
   .notes-codemirror {
     height: 100% !important;
     min-height: 0;
-    background: hsl(var(--background));
-    color: #d4d4d4;
+    background: #0d1117;
+    color: #c9d1d9;
   }
 
   .notes-codemirror .cm-editor {
@@ -289,19 +289,24 @@
   .notes-markdown-preview {
     min-height: 0;
     overflow: auto;
-    border-left: 1px solid hsl(var(--border) / 0.72);
-    background: hsl(var(--background));
-    padding: 1.75rem 2rem;
-    color: #d4d4d4;
+    border-left: 1px solid #30363d;
+    background: #0d1117;
+    padding: 2rem;
+    color: #c9d1d9;
   }
 
   .notes-markdown-preview.wmde-markdown,
   .notes-markdown-preview .wmde-markdown,
   .notes-markdown-preview .wmde-markdown-var {
-    background: hsl(var(--background));
-    color: #d4d4d4;
+    background: #0d1117;
+    color: #c9d1d9;
     font-size: 0.875rem;
-    line-height: 1.68;
+    line-height: 1.65;
+  }
+
+  .notes-markdown-preview .notes-markdown-preview-body {
+    max-width: 980px;
+    margin: 0 auto;
   }
 
   .notes-markdown-preview h1,
@@ -310,35 +315,63 @@
   .notes-markdown-preview h4,
   .notes-markdown-preview h5,
   .notes-markdown-preview h6 {
-    color: #d4d4d4;
-    border-color: hsl(var(--border) / 0.72);
+    color: #f0f6fc;
+    border-color: #30363d;
+    font-weight: 600;
   }
 
   .notes-markdown-preview a {
-    color: #4fc1ff;
+    color: #58a6ff;
   }
 
   .notes-markdown-preview hr {
-    border-color: hsl(var(--border) / 0.72);
+    border-color: #30363d;
+    background-color: #30363d;
   }
 
   .notes-markdown-preview code {
-    background: hsl(var(--card) / 0.78);
-    color: #ce9178;
+    border-radius: 6px;
+    background: rgb(110 118 129 / 0.4);
+    color: #c9d1d9;
+  }
+
+  .notes-markdown-preview pre {
+    border-radius: 6px;
+    background: #161b22 !important;
+    color: #c9d1d9;
+  }
+
+  .notes-markdown-preview pre code {
+    background: transparent;
+    color: inherit;
   }
 
   .notes-markdown-preview table {
     display: table;
     width: 100%;
+    border-collapse: collapse;
+  }
+
+  .notes-markdown-preview tr {
+    border-top: 1px solid #30363d;
+  }
+
+  .notes-markdown-preview tr:nth-child(2n) {
+    background: #161b22;
   }
 
   .notes-markdown-preview th,
   .notes-markdown-preview td {
-    border-color: hsl(var(--border) / 0.72);
+    border-color: #30363d;
   }
 
   .notes-markdown-preview blockquote {
-    border-left-color: #6a9955;
-    color: #c8c8c8;
+    border-left-color: #30363d;
+    color: #8b949e;
+  }
+
+  .notes-markdown-preview img {
+    max-width: 100%;
+    background: #0d1117;
   }
 }

@@ -20,17 +20,17 @@ export function NotesEditorToolbar({ onCommand }: { onCommand: (command: NotesEd
   return (
     <div className="app-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto border-b border-border/80 bg-background px-3 py-1.5">
       <div className="notes-toolbar inline-flex shrink-0 items-center rounded-md border border-border/80 bg-card/70 p-0.5">
-        <ToolbarButton label="Bold" onClick={() => onCommand(insertBold)}>
+        <ToolbarButton label="Bold" shortcut="Ctrl/Cmd+B" onClick={() => onCommand(insertBold)}>
           <Bold className="size-3.5" />
         </ToolbarButton>
-        <ToolbarButton label="Italic" onClick={() => onCommand(insertItalic)}>
+        <ToolbarButton label="Italic" shortcut="Ctrl/Cmd+I" onClick={() => onCommand(insertItalic)}>
           <Italic className="size-3.5" />
         </ToolbarButton>
         <ToolbarSeparator />
         <ToolbarButton label="Heading" onClick={() => onCommand(insertHeading)}>
           <Heading2 className="size-3.5" />
         </ToolbarButton>
-        <ToolbarButton label="Link" onClick={() => onCommand(insertLink)}>
+        <ToolbarButton label="Link" shortcut="Ctrl/Cmd+K" onClick={() => onCommand(insertLink)}>
           <Link className="size-3.5" />
         </ToolbarButton>
         <ToolbarButton label="Inline code" onClick={() => onCommand(insertInlineCode)}>
@@ -63,12 +63,16 @@ function ToolbarButton({
   children,
   label,
   onClick,
+  shortcut,
 }: {
   active?: boolean;
   children: ReactNode;
   label: string;
   onClick: () => void;
+  shortcut?: string;
 }) {
+  const title = shortcut ? `${label} (${shortcut})` : label;
+
   return (
     <button
       className={cn(
@@ -77,7 +81,8 @@ function ToolbarButton({
           ? 'bg-primary/14 text-primary'
           : 'text-[#cccccc] hover:bg-muted/70 hover:text-foreground active:bg-primary/10',
       )}
-      title={label}
+      aria-label={title}
+      title={title}
       type="button"
       onClick={onClick}
     >

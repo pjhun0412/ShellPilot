@@ -8,7 +8,7 @@ import { NotesEditorToolbar } from './NotesEditorToolbar';
 import { NotesMarkdownEditor, type NotesEditorScrollState } from './NotesMarkdownEditor';
 import { NotesPanelHeader } from './NotesPanelHeader';
 import { type NotesEditorCommand } from './notesEditorCommands';
-import { subscribeNoteNavigation, type NoteNavigationRequest } from './notesNavigation';
+import { dispatchNotesChanged, subscribeNoteNavigation, type NoteNavigationRequest } from './notesNavigation';
 import { readNote, updateNote } from './notesBridge';
 import type { NoteMeta, NoteViewMode } from './notesTypes';
 
@@ -163,6 +163,7 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
 
       setMeta(updatedMeta);
       setSaveStatus('idle');
+      dispatchNotesChanged();
     } catch (caught) {
       dirtyRef.current = true;
       if (!mountedRef.current) {
