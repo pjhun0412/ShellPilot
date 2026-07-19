@@ -82,10 +82,13 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 
 ### 📝 Notes
 
-- ShellPilot 안에서 Markdown 작업 노트를 생성하고 탭으로 편집
-- CodeMirror 기반 Edit / Live / Preview 모드, 라인 넘버 토글
-- Markdown 툴바와 `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K` 단축키
-- 노트 목록은 title/path/tags 기준으로 빠르게 필터링
+- 옵시디언 스타일의 폴더/노트 트리, CodeMirror 기반 Markdown 편집(Edit / Live / Preview), 라인 넘버 토글
+- Markdown 툴바(Bold/Italic/제목/링크/코드/인용/리스트/체크리스트/테이블)와 `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K` 단축키
+- `[[노트]]`, `[[폴더/노트]]`, `[[노트#heading]]`, `[[노트|alias]]` wiki link — 클릭 시 노트 열기/heading 이동, 없는 노트는 생성 제안
+- Backlink / Outgoing link / Unlinked mention 패널, 노트 rename·이동 시 wiki link 자동 갱신
+- 본문 `#tag` 추출 후 사이드바에 태그 목록·카운트 표시, 태그 클릭으로 검색 필터링
+- 제목/경로/태그/본문 라인 기반 검색, 결과 라인 클릭 시 해당 위치로 이동
+- 이미지/일반 파일 첨부(드래그 드롭·붙여넣기), 실행형 위험 확장자는 안전한 확장자로 자동 대체
 - 입력 중 자동 저장, 탭 닫기 시 pending 저장 flush로 마지막 입력 유실 방지
 - 노트 index는 app data directory에 atomic replace 방식으로 저장
 
@@ -197,6 +200,8 @@ scripts/
 - SFTP Commander 모드(로컬/원격 2-pane), pinned/recent 경로
 - SFTP 전송 일시정지/이어받기, 로컬 파일 접근 dialog-grant 기반 제한
 - VNC TLS(VeNCrypt) 지원, RDP/VNC credential 바인딩을 SSH/SFTP 수준으로 확장
+- Notes 본문 전체 검색 인덱스 최적화 및 대용량 vault 대응, 백링크/태그 패널 별도 사이드 패널화
+- Notes Markdown 확장 문법(Mermaid, callout, task query) 검토
 - macOS 자동 업데이트, code signing, GitHub Release 업로드 자동화
 
 ## 라이선스
