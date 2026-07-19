@@ -5,14 +5,17 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import MarkdownPreview from '@uiw/react-markdown-preview';
 import '@uiw/react-markdown-preview/markdown.css';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
+import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import { cn } from '@/lib/utils';
 
 import { insertBold, insertItalic, insertLink } from './notesEditorCommands';
 import { createCodeMirrorTheme, markdownHighlightExtension, type NotesEditorThemeOptions } from './notesEditorTheme';
+import { createWikiLinkPreviewSource, readWikiLinkPreviewTarget } from './notesLinkUtils';
+import { createWikiLinkCompletion } from './notesWikiCompletion';
 import type { NoteNavigationRequest } from './notesNavigation';
-import type { NoteAsset, NoteViewMode } from './notesTypes';
+import type { NoteAsset, NoteMeta, NoteViewMode } from './notesTypes';
 
 export interface NotesEditorScrollState {
   editorTop: number;
@@ -27,11 +30,13 @@ export function NotesMarkdownEditor({
   onBlur,
   onChange,
   navigationTarget,
+  notes,
   previewScrollRef,
   scrollStateRef,
   showLineNumbers,
   viewMode,
   onSaveImageAsset,
+  onOpenWikiLink,
 }: {
   assetBaseDir: string;
   content: string;
@@ -40,14 +45,17 @@ export function NotesMarkdownEditor({
   onBlur: () => void;
   onChange: (value: string) => void;
   navigationTarget?: NoteNavigationRequest;
+  notes: NoteMeta[];
   previewScrollRef: React.RefObject<HTMLDivElement>;
   scrollStateRef: React.MutableRefObject<NotesEditorScrollState>;
   showLineNumbers: boolean;
   viewMode: NoteViewMode;
   onSaveImageAsset: (file: File, data: number[]) => Promise<NoteAsset>;
+  onOpenWikiLink: (target: string) => void;
 }) {
   const previousViewModeRef = useRef(viewMode);
   const codeMirrorTheme = useMemo(() => createCodeMirrorTheme(editorTheme), [editorTheme]);
+  const wikiLinkCompletion = useMemo(() => createWikiLinkCompletion(notes), [notes]);
   const editorKeymap = useMemo(
     () =>
       keymap.of([
@@ -57,13 +65,13 @@ export function NotesMarkdownEditor({
       ]),
     [],
   );
-  const imageAssetHandler = useMemo(
+  const assetHandler = useMemo(
     () =>
       EditorView.domEventHandlers({
         drop: (event, view) => {
-          const imageFiles = getImageFiles(event.dataTransfer?.files);
+          const files = getDroppedFiles(event.dataTransfer?.files);
 
-          if (imageFiles.length === 0) {
+          if (files.length === 0) {
             return false;
           }
 
@@ -76,19 +84,19 @@ export function NotesMarkdownEditor({
             });
           }
 
-          void insertImageAssets(view, imageFiles, onSaveImageAsset);
+          void insertFileAssets(view, files, onSaveImageAsset);
 
           return true;
         },
         paste: (event, view) => {
-          const imageFiles = getImageFiles(event.clipboardData?.files);
+          const files = getDroppedFiles(event.clipboardData?.files);
 
-          if (imageFiles.length === 0) {
+          if (files.length === 0) {
             return false;
           }
 
           event.preventDefault();
-          void insertImageAssets(view, imageFiles, onSaveImageAsset);
+          void insertFileAssets(view, files, onSaveImageAsset);
 
           return true;
         },
@@ -172,6 +180,8 @@ export function NotesMarkdownEditor({
     });
   }, [editorRef, navigationTarget, viewMode]);
 
+  const previewSource = useMemo(() => createWikiLinkPreviewSource(content), [content]);
+
   return (
     <div
       className={cn(
@@ -180,49 +190,207 @@ export function NotesMarkdownEditor({
       )}
     >
       {viewMode !== 'preview' && (
-        <CodeMirror
-          ref={editorRef}
-          basicSetup={{
-            lineNumbers: showLineNumbers,
-            drawSelection: false,
-            foldGutter: false,
-            highlightActiveLine: true,
-            highlightActiveLineGutter: true,
-          }}
-          className="notes-codemirror app-scrollbar"
-          extensions={[
-            markdown(),
-            markdownHighlightExtension,
-            codeMirrorTheme,
-            EditorView.lineWrapping,
-            editorKeymap,
-            imageAssetHandler,
-          ]}
-          height="100%"
-          indentWithTab
-          placeholder="Write Markdown notes..."
-          theme="none"
-          value={content}
-          onBlur={onBlur}
-          onChange={onChange}
-        />
+        <div className="group/editor-scroll relative min-h-0 overflow-hidden">
+          <CodeMirror
+            ref={editorRef}
+            basicSetup={{
+              lineNumbers: showLineNumbers,
+              drawSelection: false,
+              foldGutter: false,
+              highlightActiveLine: true,
+              highlightActiveLineGutter: true,
+            }}
+            className="notes-codemirror"
+            extensions={[
+              markdown(),
+              markdownHighlightExtension,
+              codeMirrorTheme,
+              EditorView.lineWrapping,
+              wikiLinkCompletion,
+              editorKeymap,
+            assetHandler,
+            ]}
+            height="100%"
+            indentWithTab
+            placeholder="Write Markdown notes..."
+            theme="none"
+            value={content}
+            onBlur={onBlur}
+            onChange={onChange}
+          />
+          <NotesCodeMirrorScrollbar editorRef={editorRef} />
+        </div>
       )}
 
       {viewMode !== 'edit' && (
-        <div ref={previewScrollRef} className="notes-markdown-preview app-scrollbar">
+        <OverlayScrollArea
+          ref={previewScrollRef}
+          className="notes-markdown-preview"
+          onClick={(event) => {
+            const link = (event.target as HTMLElement).closest('a');
+            const href = link?.getAttribute('href');
+            const target = href ? readWikiLinkPreviewTarget(href) : undefined;
+
+            if (!target) {
+              return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenWikiLink(target);
+          }}
+        >
           <MarkdownPreview
             className="notes-markdown-preview-body"
-            source={content}
+            source={previewSource}
             urlTransform={(url) => resolveNotePreviewUrl(url, assetBaseDir)}
             wrapperElement={{ 'data-color-mode': 'dark' }}
           />
-        </div>
+        </OverlayScrollArea>
       )}
     </div>
   );
 }
 
-async function insertImageAssets(
+const notesScrollbarInset = 12;
+const notesScrollbarMinThumbSize = 32;
+
+function NotesCodeMirrorScrollbar({ editorRef }: { editorRef: React.RefObject<ReactCodeMirrorRef> }) {
+  const dragRef = useRef<
+    | {
+        pointerStart: number;
+        scrollStart: number;
+      }
+    | undefined
+  >();
+  const [thumb, setThumb] = useState({
+    height: 0,
+    top: 0,
+    visible: false,
+  });
+
+  const getScrollElement = useCallback(() => editorRef.current?.view?.scrollDOM, [editorRef]);
+
+  const syncThumb = useCallback(() => {
+    const element = getScrollElement();
+
+    if (!element) {
+      setThumb({ height: 0, top: 0, visible: false });
+      return;
+    }
+
+    const maxScrollTop = element.scrollHeight - element.clientHeight;
+
+    if (maxScrollTop <= 0) {
+      setThumb({ height: 0, top: 0, visible: false });
+      return;
+    }
+
+    const trackHeight = Math.max(notesScrollbarMinThumbSize, element.clientHeight - notesScrollbarInset * 2);
+    const height = Math.max(
+      notesScrollbarMinThumbSize,
+      Math.round((element.clientHeight / element.scrollHeight) * trackHeight),
+    );
+    const top = Math.round((element.scrollTop / maxScrollTop) * (trackHeight - height));
+
+    setThumb({ height, top, visible: true });
+  }, [getScrollElement]);
+
+  useEffect(() => {
+    let resizeObserver: ResizeObserver | undefined;
+    let animationFrame = 0;
+
+    const attach = () => {
+      const element = getScrollElement();
+
+      if (!element) {
+        animationFrame = window.requestAnimationFrame(attach);
+        return;
+      }
+
+      element.addEventListener('scroll', syncThumb, { passive: true });
+      resizeObserver = new ResizeObserver(syncThumb);
+      resizeObserver.observe(element);
+      if (element.firstElementChild) {
+        resizeObserver.observe(element.firstElementChild);
+      }
+      syncThumb();
+    };
+
+    animationFrame = window.requestAnimationFrame(attach);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver?.disconnect();
+      getScrollElement()?.removeEventListener('scroll', syncThumb);
+    };
+  }, [getScrollElement, syncThumb]);
+
+  const startThumbDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const element = getScrollElement();
+
+    if (!element) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerStart: event.clientY,
+      scrollStart: element.scrollTop,
+    };
+  };
+
+  const handleThumbDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const element = getScrollElement();
+
+    if (!drag || !element) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const maxScrollTop = element.scrollHeight - element.clientHeight;
+    const trackHeight = Math.max(notesScrollbarMinThumbSize, element.clientHeight - notesScrollbarInset * 2);
+    const travel = Math.max(1, trackHeight - thumb.height);
+    const delta = event.clientY - drag.pointerStart;
+
+    element.scrollTop = drag.scrollStart + (delta / travel) * maxScrollTop;
+    syncThumb();
+  };
+
+  const stopThumbDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    dragRef.current = undefined;
+  };
+
+  if (!thumb.visible) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none absolute bottom-3 right-0.5 top-3 z-10 w-1.5 opacity-0 transition-opacity duration-200 group-hover/editor-scroll:opacity-100">
+      <div
+        className="pointer-events-auto absolute right-0 w-1 cursor-grab touch-none rounded-full bg-[hsl(var(--scrollbar-thumb)_/_0.78)] transition-colors duration-200 hover:bg-[hsl(var(--scrollbar-thumb-hover)_/_0.9)] active:cursor-grabbing"
+        style={{ height: thumb.height, top: thumb.top }}
+        onPointerDown={startThumbDrag}
+        onPointerMove={handleThumbDrag}
+        onPointerUp={stopThumbDrag}
+        onPointerCancel={stopThumbDrag}
+      />
+    </div>
+  );
+}
+
+async function insertFileAssets(
   view: EditorView,
   files: File[],
   onSaveImageAsset: (file: File, data: number[]) => Promise<NoteAsset>,
@@ -232,9 +400,7 @@ async function insertImageAssets(
   for (const file of files) {
     const data = await readFileBytes(file);
     const asset = await onSaveImageAsset(file, data);
-    const label = normalizeImageAltText(file.name || asset.fileName);
-
-    inserted.push(`![${label}](${asset.markdownPath})`);
+    inserted.push(asset.markdownPath);
   }
 
   insertMarkdownBlock(view, inserted.join('\n'));
@@ -256,24 +422,16 @@ function insertMarkdownBlock(view: EditorView, markdown: string) {
   view.focus();
 }
 
-function getImageFiles(fileList?: FileList | null) {
+function getDroppedFiles(fileList?: FileList | null) {
   if (!fileList) {
     return [];
   }
 
-  return Array.from(fileList).filter((file) => file.type.startsWith('image/'));
+  return Array.from(fileList).filter((file) => file.size > 0);
 }
 
 async function readFileBytes(file: File) {
   return Array.from(new Uint8Array(await file.arrayBuffer()));
-}
-
-function normalizeImageAltText(fileName: string) {
-  return fileName
-    .replace(/\.[^.]+$/, '')
-    .replace(/[-_]+/g, ' ')
-    .trim()
-    .slice(0, 80) || 'image';
 }
 
 function resolveNotePreviewUrl(url: string, assetBaseDir: string) {

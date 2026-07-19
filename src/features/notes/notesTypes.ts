@@ -26,8 +26,34 @@ export interface NoteAsset {
   mimeType: string;
 }
 
+export interface NoteLink {
+  heading?: string;
+  lineNumber: number;
+  raw: string;
+  sourceId: string;
+  target: string;
+}
+
+export interface NoteHeading {
+  level: number;
+  lineNumber: number;
+  slug: string;
+  sourceId: string;
+  title: string;
+}
+
+export interface NoteMention {
+  lineNumber: number;
+  snippet: string;
+  sourceId: string;
+  targetId: string;
+}
+
 export interface NotesListResult {
   folders: NoteFolderMeta[];
+  headings: NoteHeading[];
+  links: NoteLink[];
+  mentions: NoteMention[];
   notes: NoteMeta[];
 }
 

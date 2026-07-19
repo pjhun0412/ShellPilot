@@ -13,6 +13,7 @@ import {
 import { appConfirm } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import type { WorkspacePanel, WorkspaceTabItem } from '@/types/workspace';
 
 import {
@@ -131,6 +132,7 @@ export function NotesSidebar({
     () => buildNoteTree(filtered.folders, filtered.notes, searchResultByNoteId),
     [filtered, searchResultByNoteId],
   );
+  const tagCounts = useMemo(() => buildTagCounts(notes), [notes]);
   const isFiltering = query.trim().length > 0;
 
   const clearError = () => {
@@ -584,11 +586,39 @@ export function NotesSidebar({
             </div>
           )}
 
-          <div
+          {tagCounts.length > 0 && (
+            <section className="rounded-md border border-border/70 bg-background/35 px-2 py-2">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Tags
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {tagCounts.slice(0, 24).map((tag) => (
+                  <button
+                    className={cn(
+                      'rounded border px-1.5 py-0.5 text-[11px] transition',
+                      query.trim() === `#${tag.name}`
+                        ? 'border-primary/70 bg-primary/20 text-primary'
+                        : 'border-border/70 bg-card/60 text-muted-foreground hover:border-primary/50 hover:text-foreground',
+                    )}
+                    key={tag.name}
+                    type="button"
+                    title={`${tag.count} notes`}
+                    onClick={() => setQuery(`#${tag.name}`)}
+                  >
+                    #{tag.name}
+                    <span className="ml-1 text-muted-foreground">{tag.count}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <OverlayScrollArea
             className={cn(
-              'app-scrollbar min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-md border border-transparent',
+              'overflow-x-hidden rounded-md border border-transparent',
               dragOverFolderPath === '' && 'border-primary/40 bg-primary/5',
             )}
+            containerClassName="min-h-0 flex-1"
             onDragLeave={(event) => {
               if (event.currentTarget === event.target) {
                 setDragOverFolderPath(undefined);
@@ -693,7 +723,7 @@ export function NotesSidebar({
                 )}
               </div>
             )}
-          </div>
+          </OverlayScrollArea>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent onCloseAutoFocus={(event) => event.preventDefault()}>
@@ -1383,6 +1413,33 @@ function getSearchPreviewLines(result: NoteSearchResultItem) {
   }
 
   return [];
+}
+
+function buildTagCounts(notes: NoteMeta[]) {
+  const counts = new Map<string, { count: number; name: string }>();
+
+  for (const note of notes) {
+    for (const tag of note.tags) {
+      const normalized = tag.trim();
+
+      if (!normalized) {
+        continue;
+      }
+
+      const key = normalized.toLowerCase();
+      const current = counts.get(key);
+
+      if (current) {
+        current.count += 1;
+      } else {
+        counts.set(key, { count: 1, name: normalized });
+      }
+    }
+  }
+
+  return Array.from(counts.values()).sort(
+    (left, right) => right.count - left.count || left.name.localeCompare(right.name),
+  );
 }
 
 function HighlightedSearchText({ query, text }: { query: string; text: string }) {

@@ -7,9 +7,18 @@ export interface NoteNavigationRequest {
   requestId: number;
 }
 
+export interface NoteOpenRequest {
+  lineNumber?: number;
+  noteId: string;
+  query?: string;
+  requestId: number;
+  title?: string;
+}
+
 export const notesNavigationEventName = 'shellpilot.notes.navigate';
 export const notesChangedEventName = 'shellpilot.notes.changed';
 export const notesMetaChangedEventName = 'shellpilot.notes.meta.changed';
+export const notesOpenEventName = 'shellpilot.notes.open';
 
 export function dispatchNoteNavigation(request: Omit<NoteNavigationRequest, 'requestId'>) {
   const detail: NoteNavigationRequest = {
@@ -30,6 +39,27 @@ export function subscribeNoteNavigation(handler: (request: NoteNavigationRequest
   window.addEventListener(notesNavigationEventName, listener);
 
   return () => window.removeEventListener(notesNavigationEventName, listener);
+}
+
+export function dispatchNoteOpen(request: Omit<NoteOpenRequest, 'requestId'>) {
+  const detail: NoteOpenRequest = {
+    ...request,
+    requestId: Date.now(),
+  };
+
+  window.setTimeout(() => {
+    window.dispatchEvent(new CustomEvent<NoteOpenRequest>(notesOpenEventName, { detail }));
+  }, 0);
+}
+
+export function subscribeNoteOpen(handler: (request: NoteOpenRequest) => void) {
+  const listener = (event: Event) => {
+    handler((event as CustomEvent<NoteOpenRequest>).detail);
+  };
+
+  window.addEventListener(notesOpenEventName, listener);
+
+  return () => window.removeEventListener(notesOpenEventName, listener);
 }
 
 export function dispatchNotesChanged() {

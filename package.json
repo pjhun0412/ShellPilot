@@ -17,6 +17,7 @@
     "release:mac": "bash scripts/release-macos.sh"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-markdown": "^6.5.1",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

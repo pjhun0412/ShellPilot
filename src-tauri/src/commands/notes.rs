@@ -6,13 +6,19 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
-const NOTE_SEARCH_INDEX_VERSION: u32 = 3;
+const NOTE_SEARCH_INDEX_VERSION: u32 = 5;
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NotesIndex {
     #[serde(default)]
     folders: Vec<NoteFolderMeta>,
+    #[serde(default)]
+    headings: Vec<NoteHeadingEntry>,
+    #[serde(default)]
+    links: Vec<NoteLinkEntry>,
+    #[serde(default)]
+    mentions: Vec<NoteMentionEntry>,
     #[serde(default)]
     notes: Vec<NoteMeta>,
     #[serde(default)]
@@ -42,7 +48,69 @@ pub struct NoteFolderMeta {
 #[serde(rename_all = "camelCase")]
 pub struct NotesListResult {
     pub folders: Vec<NoteFolderMeta>,
+    pub headings: Vec<NoteHeading>,
+    pub links: Vec<NoteLink>,
+    pub mentions: Vec<NoteMention>,
     pub notes: Vec<NoteMeta>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteLinkEntry {
+    #[serde(default)]
+    heading: Option<String>,
+    source_id: String,
+    target: String,
+    raw: String,
+    line_number: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteLink {
+    pub heading: Option<String>,
+    pub source_id: String,
+    pub target: String,
+    pub raw: String,
+    pub line_number: usize,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteHeadingEntry {
+    source_id: String,
+    title: String,
+    slug: String,
+    line_number: usize,
+    level: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteHeading {
+    pub source_id: String,
+    pub title: String,
+    pub slug: String,
+    pub line_number: usize,
+    pub level: usize,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NoteMentionEntry {
+    source_id: String,
+    target_id: String,
+    line_number: usize,
+    snippet: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteMention {
+    pub source_id: String,
+    pub target_id: String,
+    pub line_number: usize,
+    pub snippet: String,
 }
 
 #[derive(Serialize)]
@@ -111,6 +179,14 @@ pub fn notes_list(app: AppHandle) -> Result<NotesListResult, String> {
     let mut index = read_notes_index(&paths.index)?;
 
     normalize_index(&mut index);
+    let mut index_changed = ensure_search_index(&mut index, &paths.pages)?;
+    if rebuild_unlinked_mentions(&mut index) {
+        index_changed = true;
+    }
+
+    if index_changed {
+        write_notes_index(&paths.index, &index)?;
+    }
 
     index
         .folders
@@ -125,6 +201,38 @@ pub fn notes_list(app: AppHandle) -> Result<NotesListResult, String> {
 
     Ok(NotesListResult {
         folders: index.folders,
+        headings: index
+            .headings
+            .into_iter()
+            .map(|heading| NoteHeading {
+                source_id: heading.source_id,
+                title: heading.title,
+                slug: heading.slug,
+                line_number: heading.line_number,
+                level: heading.level,
+            })
+            .collect(),
+        links: index
+            .links
+            .into_iter()
+            .map(|link| NoteLink {
+                heading: link.heading,
+                source_id: link.source_id,
+                target: link.target,
+                raw: link.raw,
+                line_number: link.line_number,
+            })
+            .collect(),
+        mentions: index
+            .mentions
+            .into_iter()
+            .map(|mention| NoteMention {
+                source_id: mention.source_id,
+                target_id: mention.target_id,
+                line_number: mention.line_number,
+                snippet: mention.snippet,
+            })
+            .collect(),
         notes: index.notes,
     })
 }
@@ -137,20 +245,21 @@ pub fn notes_create(app: AppHandle, title: String) -> Result<NoteDocument, Strin
     let mut index = read_notes_index(&paths.index)?;
     let now = current_timestamp_ms();
     let id = create_note_id(&paths.pages, now)?;
+    let content = format!("# {}\n", title);
     let meta = NoteMeta {
         id: id.clone(),
         path,
-        tags: Vec::new(),
+        tags: extract_note_tags(&content),
         title: title.clone(),
         created_at: now,
         updated_at: now,
     };
-    let content = format!("# {}\n", title);
 
     write_note_content(&paths.pages, &meta, &content)?;
 
     index.notes.push(meta.clone());
     update_search_entry(&mut index, &id, &content, now);
+    rebuild_unlinked_mentions(&mut index);
     add_parent_folders(&mut index, &meta.path, now);
     write_notes_index(&paths.index, &index)?;
 
@@ -219,8 +328,11 @@ pub fn notes_rename_folder(
 
     add_folder(&mut index, &new_path, now);
     normalize_index(&mut index);
-    for (previous, current) in moved_notes {
+    for (previous, current) in &moved_notes {
         move_note_content(&paths.pages, &previous, &current)?;
+    }
+    for (previous, current) in &moved_notes {
+        update_wiki_links_after_note_rename(&paths.pages, &mut index, previous, current, now)?;
     }
     ensure_note_folder_tree(&paths.pages, &index.folders)?;
     remove_empty_directory_tree(&note_folder_path(&paths.pages, &old_path)?);
@@ -228,6 +340,7 @@ pub fn notes_rename_folder(
         &paths.pages,
         note_folder_path(&paths.pages, &old_path)?.parent(),
     );
+    rebuild_unlinked_mentions(&mut index);
     write_notes_index(&paths.index, &index)?;
 
     notes_list(app)
@@ -258,7 +371,23 @@ pub fn notes_delete_folder(app: AppHandle, path: String) -> Result<NotesListResu
     index
         .search
         .retain(|entry| !removed_note_ids.iter().any(|note_id| note_id == &entry.id));
+    index.headings.retain(|entry| {
+        !removed_note_ids
+            .iter()
+            .any(|note_id| note_id == &entry.source_id)
+    });
+    index.links.retain(|entry| {
+        !removed_note_ids
+            .iter()
+            .any(|note_id| note_id == &entry.source_id)
+    });
+    index.mentions.retain(|entry| {
+        !removed_note_ids
+            .iter()
+            .any(|note_id| note_id == &entry.source_id || note_id == &entry.target_id)
+    });
     normalize_index(&mut index);
+    rebuild_unlinked_mentions(&mut index);
     write_notes_index(&paths.index, &index)?;
 
     for note in removed_notes {
@@ -306,14 +435,14 @@ pub fn notes_save_asset(
 
     find_note_meta(&index, &id)?;
 
-    let mime_type = normalize_image_mime_type(&mime_type)?;
+    let mime_type = normalize_asset_mime_type(&mime_type);
 
     if data.is_empty() {
-        return Err("note image is empty".to_string());
+        return Err("note attachment is empty".to_string());
     }
 
-    if data.len() > 15 * 1024 * 1024 {
-        return Err("note image is too large. Maximum size is 15 MB.".to_string());
+    if data.len() > 50 * 1024 * 1024 {
+        return Err("note attachment is too large. Maximum size is 50 MB.".to_string());
     }
 
     let asset_directory = note_asset_dir(&paths.assets, &id)?;
@@ -328,15 +457,19 @@ pub fn notes_save_asset(
     let absolute_path = asset_directory.join(&file_name);
 
     fs::write(&absolute_path, data)
-        .map_err(|error| format!("failed to write note image asset: {error}"))?;
+        .map_err(|error| format!("failed to write note attachment: {error}"))?;
 
+    let encoded_file_name = encode_markdown_path_segment(&file_name);
+    let markdown_path = format!("../assets/{id}/{encoded_file_name}");
+    let markdown_label = markdown_link_label(&file_name);
     Ok(NoteAsset {
         absolute_path: absolute_path.to_string_lossy().to_string(),
         file_name: file_name.clone(),
-        markdown_path: format!(
-            "../assets/{id}/{}",
-            encode_markdown_path_segment(&file_name)
-        ),
+        markdown_path: if mime_type.starts_with("image/") {
+            format!("![{markdown_label}]({markdown_path})")
+        } else {
+            format!("[{markdown_label}]({markdown_path})")
+        },
         mime_type,
     })
 }
@@ -392,10 +525,15 @@ pub fn notes_search(app: AppHandle, query: String) -> Result<NotesSearchResult, 
         .iter()
         .filter_map(|note| {
             let metadata = normalize_search_text(&format!(
-                "{} {} {}",
+                "{} {} {} {}",
                 note.title,
                 note.path,
-                note.tags.join(" ")
+                note.tags.join(" "),
+                note.tags
+                    .iter()
+                    .map(|tag| format!("#{tag}"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
             ));
             let content_entry = index.search.iter().find(|entry| entry.id == note.id);
 
@@ -456,10 +594,15 @@ pub fn notes_update(app: AppHandle, id: String, content: String) -> Result<NoteM
     let paths = notes_paths(&app)?;
     let mut index = read_notes_index(&paths.index)?;
     let updated_at = current_timestamp_ms();
-    let meta = update_note_meta(&mut index, &id, updated_at)?;
+    let tags = extract_note_tags(&content);
+    let meta = update_note_meta_fields(&mut index, &id, |note| {
+        note.tags = tags;
+        note.updated_at = updated_at;
+    })?;
 
     write_note_content(&paths.pages, &meta, &content)?;
     update_search_entry(&mut index, &id, &content, updated_at);
+    rebuild_unlinked_mentions(&mut index);
     write_notes_index(&paths.index, &index)?;
 
     Ok(meta)
@@ -481,6 +624,8 @@ pub fn notes_rename(app: AppHandle, id: String, title: String) -> Result<NoteMet
     })?;
 
     move_note_content(&paths.pages, &previous, &meta)?;
+    update_wiki_links_after_note_rename(&paths.pages, &mut index, &previous, &meta, updated_at)?;
+    rebuild_unlinked_mentions(&mut index);
     write_notes_index(&paths.index, &index)?;
 
     Ok(meta)
@@ -496,11 +641,17 @@ pub fn notes_delete(app: AppHandle, id: String) -> Result<bool, String> {
 
     index.notes.retain(|note| note.id != id);
     index.search.retain(|entry| entry.id != id);
+    index.headings.retain(|entry| entry.source_id != id);
+    index.links.retain(|entry| entry.source_id != id);
+    index
+        .mentions
+        .retain(|entry| entry.source_id != id && entry.target_id != id);
 
     if index.notes.len() == original_len {
         return Ok(false);
     }
 
+    rebuild_unlinked_mentions(&mut index);
     write_notes_index(&paths.index, &index)?;
 
     remove_note_content(&paths.pages, &removed_note)?;
@@ -611,6 +762,16 @@ fn normalize_index(index: &mut NotesIndex) {
     index
         .search
         .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.id));
+    index
+        .headings
+        .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.source_id));
+    index
+        .links
+        .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.source_id));
+    index.mentions.retain(|entry| {
+        note_ids.iter().any(|note_id| *note_id == entry.source_id)
+            && note_ids.iter().any(|note_id| *note_id == entry.target_id)
+    });
 }
 
 fn add_parent_folder_paths(folders: &mut Vec<NoteFolderMeta>, note_path: &str, timestamp: u64) {
@@ -938,14 +1099,13 @@ fn create_note_id(pages: &Path, timestamp: u64) -> Result<String, String> {
     Err("failed to allocate note id".to_string())
 }
 
-fn normalize_image_mime_type(mime_type: &str) -> Result<String, String> {
+fn normalize_asset_mime_type(mime_type: &str) -> String {
     let normalized = mime_type.trim().to_ascii_lowercase();
 
-    match normalized.as_str() {
-        "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/bmp" | "image/svg+xml" => {
-            Ok(normalized)
-        }
-        _ => Err("only image attachments are supported for notes".to_string()),
+    if normalized.is_empty() {
+        "application/octet-stream".to_string()
+    } else {
+        normalized.chars().take(120).collect()
     }
 }
 
@@ -954,8 +1114,8 @@ fn sanitize_asset_file_name(file_name: &str, mime_type: &str, timestamp: u64) ->
         .extension()
         .and_then(|extension| extension.to_str())
         .map(|extension| extension.to_ascii_lowercase())
-        .filter(|extension| is_allowed_image_extension(extension))
-        .unwrap_or_else(|| image_extension_from_mime_type(mime_type).to_string());
+        .filter(|extension| is_safe_asset_extension(extension))
+        .unwrap_or_else(|| asset_extension_from_mime_type(mime_type).to_string());
     let stem = Path::new(file_name)
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -975,7 +1135,7 @@ fn sanitize_asset_file_name(file_name: &str, mime_type: &str, timestamp: u64) ->
                 .collect::<String>()
         })
         .filter(|stem| !stem.is_empty())
-        .unwrap_or_else(|| "image".to_string());
+        .unwrap_or_else(|| "attachment".to_string());
 
     format!("{stem}-{timestamp}.{extension}")
 }
@@ -989,11 +1149,11 @@ fn allocate_asset_file_name(directory: &Path, preferred_file_name: &str) -> Stri
     let stem = path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .unwrap_or("image");
+        .unwrap_or("attachment");
     let extension = path
         .extension()
         .and_then(|extension| extension.to_str())
-        .unwrap_or("png");
+        .unwrap_or("bin");
 
     for offset in 1..100_u16 {
         let candidate = format!("{stem}-{offset}.{extension}");
@@ -1006,22 +1166,47 @@ fn allocate_asset_file_name(directory: &Path, preferred_file_name: &str) -> Stri
     preferred_file_name.to_string()
 }
 
-fn is_allowed_image_extension(extension: &str) -> bool {
-    matches!(
-        extension,
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg"
-    )
+fn is_safe_asset_extension(extension: &str) -> bool {
+    let blocked = [
+        "bat", "cmd", "com", "cpl", "exe", "hta", "js", "jse", "lnk", "msi", "msp", "pif", "ps1",
+        "scr", "vbs", "vbe", "wsf",
+    ];
+
+    !extension.is_empty()
+        && extension.len() <= 16
+        && extension
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+        && !blocked.iter().any(|blocked| blocked == &extension)
 }
 
-fn image_extension_from_mime_type(mime_type: &str) -> &'static str {
+fn asset_extension_from_mime_type(mime_type: &str) -> &'static str {
     match mime_type {
         "image/jpeg" => "jpg",
+        "image/png" => "png",
         "image/gif" => "gif",
         "image/webp" => "webp",
         "image/bmp" => "bmp",
         "image/svg+xml" => "svg",
-        _ => "png",
+        "application/pdf" => "pdf",
+        "text/plain" => "txt",
+        "text/csv" => "csv",
+        "application/json" => "json",
+        "application/zip" => "zip",
+        _ => "bin",
     }
+}
+
+fn markdown_link_label(file_name: &str) -> String {
+    Path::new(file_name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .unwrap_or(file_name)
+        .chars()
+        .take(80)
+        .collect()
 }
 
 fn encode_markdown_path_segment(segment: &str) -> String {
@@ -1042,12 +1227,6 @@ fn find_note_meta(index: &NotesIndex, id: &str) -> Result<NoteMeta, String> {
         .find(|note| note.id == id)
         .cloned()
         .ok_or_else(|| "note not found".to_string())
-}
-
-fn update_note_meta(index: &mut NotesIndex, id: &str, updated_at: u64) -> Result<NoteMeta, String> {
-    update_note_meta_fields(index, id, |note| {
-        note.updated_at = updated_at;
-    })
 }
 
 fn update_note_meta_fields(
@@ -1081,6 +1260,314 @@ fn update_search_entry(index: &mut NotesIndex, id: &str, content: &str, updated_
     } else {
         index.search.push(entry);
     }
+
+    update_link_entries(index, id, content);
+    update_heading_entries(index, id, content);
+}
+
+fn update_link_entries(index: &mut NotesIndex, id: &str, content: &str) {
+    index.links.retain(|entry| entry.source_id != id);
+    index.links.extend(extract_wiki_links(id, content));
+}
+
+fn update_heading_entries(index: &mut NotesIndex, id: &str, content: &str) {
+    index.headings.retain(|entry| entry.source_id != id);
+    index
+        .headings
+        .extend(extract_markdown_headings(id, content));
+}
+
+fn extract_wiki_links(source_id: &str, content: &str) -> Vec<NoteLinkEntry> {
+    let mut links = Vec::new();
+
+    for (line_index, line) in content.lines().enumerate() {
+        let mut remaining = line;
+
+        while let Some(start) = remaining.find("[[") {
+            let after_start = &remaining[start + 2..];
+            let Some(end) = after_start.find("]]") else {
+                break;
+            };
+            let raw = after_start[..end].trim();
+
+            if let Some((target, heading)) = parse_wiki_link_target(raw) {
+                links.push(NoteLinkEntry {
+                    heading,
+                    source_id: source_id.to_string(),
+                    target,
+                    raw: raw.chars().take(240).collect(),
+                    line_number: line_index + 1,
+                });
+            }
+
+            remaining = &after_start[end + 2..];
+        }
+    }
+
+    links
+}
+
+fn parse_wiki_link_target(raw: &str) -> Option<(String, Option<String>)> {
+    let target_part = raw.split('|').next().unwrap_or_default().trim();
+    let (target, heading) = target_part
+        .split_once('#')
+        .map(|(target, heading)| (target.trim(), Some(heading.trim())))
+        .unwrap_or((target_part, None));
+
+    if target.is_empty() {
+        return None;
+    }
+
+    Some((
+        normalize_note_path(target),
+        heading
+            .filter(|heading| !heading.is_empty())
+            .map(|heading| heading.chars().take(160).collect()),
+    ))
+}
+
+fn extract_markdown_headings(source_id: &str, content: &str) -> Vec<NoteHeadingEntry> {
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(line_index, line)| {
+            let trimmed = line.trim_start();
+            let level = trimmed
+                .chars()
+                .take_while(|character| *character == '#')
+                .count();
+
+            if level == 0
+                || level > 6
+                || !trimmed.chars().nth(level).is_some_and(char::is_whitespace)
+            {
+                return None;
+            }
+
+            let title = trimmed[level..].trim().trim_matches('#').trim();
+            if title.is_empty() {
+                return None;
+            }
+
+            Some(NoteHeadingEntry {
+                source_id: source_id.to_string(),
+                title: title.chars().take(160).collect(),
+                slug: markdown_heading_slug(title),
+                line_number: line_index + 1,
+                level,
+            })
+        })
+        .take(200)
+        .collect()
+}
+
+fn markdown_heading_slug(title: &str) -> String {
+    title
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn extract_note_tags(content: &str) -> Vec<String> {
+    let mut tags = Vec::<String>::new();
+
+    for token in content.split_whitespace() {
+        let Some(tag) = token.strip_prefix('#') else {
+            continue;
+        };
+        let tag = tag
+            .trim_matches(|character: char| {
+                !(character.is_alphanumeric()
+                    || character == '-'
+                    || character == '_'
+                    || character == '/')
+            })
+            .trim();
+
+        if tag.is_empty() || tag.chars().all(|character| character.is_ascii_digit()) {
+            continue;
+        }
+
+        let tag = tag.chars().take(80).collect::<String>();
+        if !tags
+            .iter()
+            .any(|current| current.eq_ignore_ascii_case(&tag))
+        {
+            tags.push(tag);
+        }
+    }
+
+    tags.sort_by_key(|tag| tag.to_lowercase());
+    tags.truncate(50);
+    tags
+}
+
+fn update_wiki_links_after_note_rename(
+    pages: &Path,
+    index: &mut NotesIndex,
+    previous: &NoteMeta,
+    current: &NoteMeta,
+    updated_at: u64,
+) -> Result<(), String> {
+    let notes = index.notes.clone();
+
+    for note in notes {
+        let content_path = existing_note_content_path(pages, &note)?;
+        let content = fs::read_to_string(&content_path)
+            .map_err(|error| format!("failed to read note content for link update: {error}"))?;
+        let updated_content = rewrite_wiki_links_for_rename(&content, previous, current);
+
+        if updated_content == content {
+            continue;
+        }
+
+        fs::write(&content_path, &updated_content)
+            .map_err(|error| format!("failed to update wiki links: {error}"))?;
+        let tags = extract_note_tags(&updated_content);
+        let _ = update_note_meta_fields(index, &note.id, |meta| {
+            meta.tags = tags;
+            meta.updated_at = updated_at;
+        })?;
+        update_search_entry(index, &note.id, &updated_content, updated_at);
+    }
+
+    Ok(())
+}
+
+fn rewrite_wiki_links_for_rename(content: &str, previous: &NoteMeta, current: &NoteMeta) -> String {
+    let mut output = String::with_capacity(content.len());
+    let mut remaining = content;
+    let previous_path = normalize_note_path(&previous.path).to_lowercase();
+    let previous_title = normalize_note_path(&previous.title).to_lowercase();
+    let current_path = normalize_note_path(&current.path);
+
+    while let Some(start) = remaining.find("[[") {
+        output.push_str(&remaining[..start + 2]);
+        let after_start = &remaining[start + 2..];
+        let Some(end) = after_start.find("]]") else {
+            output.push_str(after_start);
+            return output;
+        };
+
+        let raw = &after_start[..end];
+        output.push_str(&rewrite_wiki_link_raw(
+            raw,
+            &previous_path,
+            &previous_title,
+            &current_path,
+        ));
+        output.push_str("]]");
+        remaining = &after_start[end + 2..];
+    }
+
+    output.push_str(remaining);
+    output
+}
+
+fn rewrite_wiki_link_raw(
+    raw: &str,
+    previous_path: &str,
+    previous_title: &str,
+    current_path: &str,
+) -> String {
+    let (target_part, alias_part) = raw.split_once('|').unwrap_or((raw, ""));
+    let (target_path, heading_part) = target_part
+        .split_once('#')
+        .map(|(target, heading)| (target.trim(), Some(heading.trim())))
+        .unwrap_or((target_part.trim(), None));
+    let normalized_target = normalize_note_path(target_path).to_lowercase();
+
+    if normalized_target != previous_path && normalized_target != previous_title {
+        return raw.to_string();
+    }
+
+    let mut rewritten = current_path.to_string();
+    if let Some(heading) = heading_part.filter(|heading| !heading.is_empty()) {
+        rewritten.push('#');
+        rewritten.push_str(heading);
+    }
+    if !alias_part.is_empty() {
+        rewritten.push('|');
+        rewritten.push_str(alias_part);
+    }
+
+    rewritten
+}
+
+fn rebuild_unlinked_mentions(index: &mut NotesIndex) -> bool {
+    let previous = index.mentions.clone();
+    let mut mentions = Vec::<NoteMentionEntry>::new();
+
+    for source in &index.notes {
+        let Some(search_entry) = index.search.iter().find(|entry| entry.id == source.id) else {
+            continue;
+        };
+
+        for target in &index.notes {
+            if source.id == target.id || target.title.trim().chars().count() < 2 {
+                continue;
+            }
+
+            if source_links_to_target(index, &source.id, target) {
+                continue;
+            }
+
+            let normalized_title = normalize_search_text(&target.title);
+            if normalized_title.is_empty() {
+                continue;
+            }
+
+            for line in &search_entry.lines {
+                if !line.text.contains(&normalized_title) {
+                    continue;
+                }
+
+                mentions.push(NoteMentionEntry {
+                    source_id: source.id.clone(),
+                    target_id: target.id.clone(),
+                    line_number: line.line_number,
+                    snippet: line.preview.clone(),
+                });
+            }
+        }
+    }
+
+    mentions.sort_by(|left, right| {
+        left.target_id
+            .cmp(&right.target_id)
+            .then_with(|| left.source_id.cmp(&right.source_id))
+            .then_with(|| left.line_number.cmp(&right.line_number))
+    });
+    mentions.truncate(5000);
+    let changed = mentions.len() != previous.len()
+        || mentions.iter().zip(previous.iter()).any(|(left, right)| {
+            left.source_id != right.source_id
+                || left.target_id != right.target_id
+                || left.line_number != right.line_number
+                || left.snippet != right.snippet
+        });
+    index.mentions = mentions;
+    changed
+}
+
+fn source_links_to_target(index: &NotesIndex, source_id: &str, target: &NoteMeta) -> bool {
+    index.links.iter().any(|link| {
+        link.source_id == source_id
+            && (normalize_note_path(&link.target).eq_ignore_ascii_case(&target.path)
+                || normalize_note_path(&link.target).eq_ignore_ascii_case(&target.title))
+    })
 }
 
 fn ensure_search_index(index: &mut NotesIndex, pages: &Path) -> Result<bool, String> {
@@ -1098,6 +1585,10 @@ fn ensure_search_index(index: &mut NotesIndex, pages: &Path) -> Result<bool, Str
 
         let content = fs::read_to_string(existing_note_content_path(pages, &note)?)
             .map_err(|error| format!("failed to read note content for search: {error}"))?;
+        let tags = extract_note_tags(&content);
+        let _ = update_note_meta_fields(index, &note.id, |current| {
+            current.tags = tags;
+        })?;
         update_search_entry(index, &note.id, &content, note.updated_at);
         changed = true;
     }
@@ -1111,8 +1602,25 @@ fn ensure_search_index(index: &mut NotesIndex, pages: &Path) -> Result<bool, Str
     index
         .search
         .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.id));
+    let original_headings_len = index.headings.len();
+    index
+        .headings
+        .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.source_id));
+    let original_links_len = index.links.len();
+    index
+        .links
+        .retain(|entry| note_ids.iter().any(|note_id| *note_id == entry.source_id));
+    let original_mentions_len = index.mentions.len();
+    index.mentions.retain(|entry| {
+        note_ids.iter().any(|note_id| *note_id == entry.source_id)
+            && note_ids.iter().any(|note_id| *note_id == entry.target_id)
+    });
 
-    Ok(changed || original_len != index.search.len())
+    Ok(changed
+        || original_len != index.search.len()
+        || original_headings_len != index.headings.len()
+        || original_links_len != index.links.len()
+        || original_mentions_len != index.mentions.len())
 }
 
 fn normalize_search_query(query: &str) -> String {
