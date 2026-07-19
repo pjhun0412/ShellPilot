@@ -9,8 +9,9 @@
 5. [AI Tool Layer 설계](ai-tool-layer-design.md)
 6. [Notes 설계 메모](notes-design.md)
 7. [릴리즈와 자동 업데이트](release-update.md)
-8. [ShellPilot 1.0.2 릴리스 노트](release-1.0.2.md)
-9. [ShellPilot 1.0.1 릴리스 노트](release-1.0.1.md)
+8. [ShellPilot 1.0.3 릴리스 노트](release-1.0.3.md)
+9. [ShellPilot 1.0.2 릴리스 노트](release-1.0.2.md)
+10. [ShellPilot 1.0.1 릴리스 노트](release-1.0.1.md)
 
 참고:
 

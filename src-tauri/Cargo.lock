@@ -4280,7 +4280,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shellpilot"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "keyring",
  "portable-pty",

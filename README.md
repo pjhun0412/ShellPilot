@@ -184,6 +184,7 @@ scripts/
 - [AI Tool Layer 설계](docs/ai-tool-layer-design.md)
 - [Notes 설계 메모](docs/notes-design.md)
 - [릴리즈와 자동 업데이트](docs/release-update.md)
+- [1.0.3 릴리스 노트](docs/release-1.0.3.md)
 - [1.0.2 릴리스 노트](docs/release-1.0.2.md)
 - [macOS 지원 메모](docs/macos-support.md)
 

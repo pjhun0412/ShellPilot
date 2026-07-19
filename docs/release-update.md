@@ -33,13 +33,13 @@ latest.json
 
 ```json
 {
-  "version": "1.0.2",
-  "notes": "ShellPilot v1.0.2 release",
-  "pub_date": "2026-07-16T00:00:00Z",
+  "version": "1.0.3",
+  "notes": "ShellPilot v1.0.3 release",
+  "pub_date": "2026-07-19T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
       "signature": "<setup.exe.sig content>",
-      "url": "https://github.com/pjhun0412/ShellPilot/releases/download/v1.0.2/ShellPilot-1.0.2-setup.exe"
+      "url": "https://github.com/pjhun0412/ShellPilot/releases/download/v1.0.3/ShellPilot-1.0.3-setup.exe"
     }
   }
 }
@@ -51,7 +51,7 @@ latest.json
 https://github.com/pjhun0412/ShellPilot/releases/latest/download/latest.json
 ```
 
-따라서 `v1.0.2` 릴리스가 GitHub의 최신 릴리스이고 `latest.json`이 정상 업로드되면, 1.0.1 설치형 앱은 실행 시 1.0.2 업데이트를 감지할 수 있습니다.
+따라서 `v1.0.3` 릴리스가 GitHub의 최신 릴리스이고 `latest.json`이 정상 업로드되면, 1.0.2 설치형 앱은 실행 시 1.0.3 업데이트를 감지할 수 있습니다.
 
 ## 설정
 
