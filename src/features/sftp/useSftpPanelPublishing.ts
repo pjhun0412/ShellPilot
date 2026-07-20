@@ -8,11 +8,13 @@ import {
 import { publishSftpSidebarPanelState, type SftpSidebarTransferSummary } from './sftpSidebarState';
 import type { SftpEntry } from './sftpBridge';
 import { mapSftpConnectionStateToStatus, type SftpConnectionState } from './sftpPanelUtils';
+import type { SftpViewMode } from './sftpPanelTypes';
 
 export function useSftpPanelPublishing({
   connectionState,
   entries,
   isLoading,
+  localPath,
   panelId,
   path,
   selectedEntries,
@@ -20,10 +22,12 @@ export function useSftpPanelPublishing({
   showHiddenEntries,
   transferSummary,
   visibleEntries,
+  viewMode,
 }: {
   connectionState: SftpConnectionState;
   entries: SftpEntry[];
   isLoading: boolean;
+  localPath?: string;
   panelId: string;
   path: string;
   selectedEntries: SftpEntry[];
@@ -31,18 +35,21 @@ export function useSftpPanelPublishing({
   showHiddenEntries: boolean;
   transferSummary: SftpSidebarTransferSummary;
   visibleEntries: SftpEntry[];
+  viewMode: SftpViewMode;
 }) {
   useLayoutEffect(() => {
     publishSftpSidebarPanelState(panelId, {
       host: session.host,
+      localPath,
       path,
       port: session.port,
       status: mapSftpConnectionStateToStatus(connectionState),
       title: session.name,
       transferSummary,
       username: session.username,
+      viewMode,
     });
-  }, [connectionState, panelId, path, session.host, session.name, session.port, session.username, transferSummary]);
+  }, [connectionState, localPath, panelId, path, session.host, session.name, session.port, session.username, transferSummary, viewMode]);
 
   useEffect(() => {
     publishSftpAiContextSnapshot(panelId, {

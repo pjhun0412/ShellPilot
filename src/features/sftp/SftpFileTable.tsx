@@ -1,6 +1,6 @@
 import type { Table } from '@tanstack/react-table';
 import { Trash2 } from 'lucide-react';
-import type { DragEvent, MouseEvent, Ref } from 'react';
+import { useState, type DragEvent, type MouseEvent, type Ref } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -41,6 +41,7 @@ export interface SftpFileTableProps {
   onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
   onEndMarqueeSelection: () => void;
+  onFavoritePath: (path: string) => void;
   onOpenEntry: (entry: SftpEntry) => void;
   onOpenParent: (path: string) => void;
   onRefresh: () => void;
@@ -92,6 +93,7 @@ export function SftpFileTable({
   onDragOver,
   onDrop,
   onEndMarqueeSelection,
+  onFavoritePath,
   onOpenEntry,
   onOpenParent,
   onRefresh,
@@ -123,6 +125,26 @@ export function SftpFileTable({
 }: SftpFileTableProps) {
   const visibleColumnIds = new Set(table.getVisibleLeafColumns().map((column) => column.id));
   const tableRows = table.getRowModel().rows;
+  const [favoriteContextPath, setFavoriteContextPath] = useState(path);
+
+  const updateFavoriteContextPath = (event: MouseEvent<HTMLDivElement>) => {
+    const rowElement = (event.target as HTMLElement | null)?.closest('[data-sftp-entry-path]');
+    const rowPath = rowElement?.getAttribute('data-sftp-entry-path');
+
+    if (!rowPath) {
+      setFavoriteContextPath(path);
+      return;
+    }
+
+    if (rowPath === parentEntryPathKey) {
+      setFavoriteContextPath(parentPath ?? path);
+      return;
+    }
+
+    const rowEntry = tableRows.find((row) => row.original.path === rowPath)?.original;
+    setFavoriteContextPath(rowEntry?.isDirectory ? rowPath : path);
+  };
+
   return (
     <>
       {residualUploadEntries.length > 0 && (
@@ -169,6 +191,7 @@ export function SftpFileTable({
               onMouseDown={onBeginMarqueeSelection}
               onMouseLeave={onEndMarqueeSelection}
               onMouseMove={onUpdateMarqueeSelection}
+              onContextMenu={updateFavoriteContextPath}
               onMouseUp={onEndMarqueeSelection}
             >
               <OverlayScrollArea data-sftp-scroll-viewport ref={scrollViewportRef}>
@@ -243,6 +266,7 @@ export function SftpFileTable({
             onCreateFolder={onCreateFolder}
             onDelete={onDelete}
             onDownload={onDownload}
+            onFavoritePath={() => onFavoritePath(favoriteContextPath)}
             onRefresh={onRefresh}
             onRename={onRename}
             onSetShowHiddenEntries={onSetShowHiddenEntries}

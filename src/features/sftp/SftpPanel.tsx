@@ -7,6 +7,11 @@ import { SftpPanelBody } from './SftpPanelBody';
 import { SftpPanelHeader } from './SftpPanelHeader';
 import { SftpPathBar } from './SftpPathBar';
 import {
+  requestSftpSidebarBookmark,
+  requestSftpSidebarLocalFavorite,
+  subscribeSftpSidebarLocalNavigation,
+} from './sftpSidebarState';
+import {
   isSftpResidualUploadEntry,
 } from './sftpPanelUtils';
 import { useSftpBrowserLifecycle } from './useSftpBrowserLifecycle';
@@ -197,6 +202,25 @@ export function SftpPanel({
     fallbackExplorerEntry: selectedEntry,
     viewMode,
   });
+  const favoriteRemotePath = useCallback((targetPath: string) => {
+    requestSftpSidebarBookmark(panelId, targetPath);
+  }, [panelId]);
+  const favoriteLocalPath = useCallback((targetPath: string) => {
+    requestSftpSidebarLocalFavorite(panelId, targetPath);
+  }, [panelId]);
+
+  useEffect(() => {
+    return subscribeSftpSidebarLocalNavigation(({ panelId: targetPanelId, path: targetPath }) => {
+      if (targetPanelId !== panelId) {
+        return;
+      }
+
+      setViewMode('commander');
+      setCommanderActivePane('local');
+      void localBrowser.loadDirectory(targetPath);
+    });
+  }, [localBrowser, panelId, setCommanderActivePane, setViewMode]);
+
   const {
     beginPathEdit,
     cancelPathEdit,
@@ -305,6 +329,7 @@ export function SftpPanel({
     connectionState,
     entries,
     isLoading,
+    localPath: localBrowser.path,
     panelId,
     path,
     selectedEntries,
@@ -312,6 +337,7 @@ export function SftpPanel({
     showHiddenEntries,
     transferSummary,
     visibleEntries,
+    viewMode,
   });
 
   const handlePanelKeyDown = useSftpKeyboardShortcuts({
@@ -429,6 +455,8 @@ export function SftpPanel({
             onLocalRefresh={() => void localBrowser.loadDirectory(localBrowser.path)}
             onCreateLocalFolder={() => void localBrowser.createFolder()}
             onDeleteLocal={() => void localBrowser.deleteSelected()}
+            onFavoriteLocalPath={favoriteLocalPath}
+            onFavoriteRemotePath={favoriteRemotePath}
             onRemoteGoBack={() => void goBackWithScrollSave()}
             onRemoteGoForward={() => void goForwardWithScrollSave()}
             onRemoteRefresh={() => void loadSftpDirectory()}
@@ -493,6 +521,7 @@ export function SftpPanel({
             onDragOver={handleUploadDragOver}
             onDrop={handleUploadDrop}
             onEndMarqueeSelection={endMarqueeSelection}
+            onFavoritePath={favoriteRemotePath}
             onOpenEntry={openEntry}
             onOpenParent={(nextPath) => void loadSftpDirectory(nextPath)}
             onRefresh={() => void loadSftpDirectory()}

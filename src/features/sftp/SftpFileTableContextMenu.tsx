@@ -19,6 +19,7 @@ export function SftpFileTableContextMenu({
   onCreateFolder,
   onDelete,
   onDownload,
+  onFavoritePath,
   onRefresh,
   onRename,
   onSetShowHiddenEntries,
@@ -38,6 +39,7 @@ export function SftpFileTableContextMenu({
   onCreateFolder: () => void;
   onDelete: () => void;
   onDownload: () => void;
+  onFavoritePath: () => void;
   onRefresh: () => void;
   onRename: () => void;
   onSetShowHiddenEntries: (value: boolean) => void;
@@ -76,6 +78,9 @@ export function SftpFileTableContextMenu({
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={onCopySelectedPath}>
         Copy Path
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={onFavoritePath} disabled={!isRemoteReady}>
+        Add to Bookmarks
       </ContextMenuItem>
       <ContextMenuItem onSelect={onRename} disabled={!isRemoteReady || isLoading || !canRename}>
         Rename

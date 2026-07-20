@@ -47,6 +47,8 @@ export function SftpCommanderView({
   onLocalSelectMany,
   onCreateLocalFolder,
   onDeleteLocal,
+  onFavoriteLocalPath,
+  onFavoriteRemotePath,
   onActivePaneChange,
   onDownloadRemotePathsToLocal,
   onCopyRemotePath,
@@ -104,6 +106,8 @@ export function SftpCommanderView({
   onLocalSelectMany: (paths: string[]) => void;
   onCreateLocalFolder: () => void;
   onDeleteLocal: () => void;
+  onFavoriteLocalPath: (path: string) => void;
+  onFavoriteRemotePath: (path: string) => void;
   onActivePaneChange: (variant: CommanderPaneVariant) => void;
   onDownloadRemotePathsToLocal: (paths: string[]) => void;
   onCopyRemotePath: () => void;
@@ -211,6 +215,7 @@ export function SftpCommanderView({
         onBrowseDirectory={browseLocalDirectory}
         onCreateFolder={onCreateLocalFolder}
         onDelete={onDeleteLocal}
+        onFavoritePath={onFavoriteLocalPath}
         onRefresh={onLocalRefresh}
         onSelect={onLocalSelect}
         onSelectMany={onLocalSelectMany}
@@ -254,6 +259,7 @@ export function SftpCommanderView({
         onCreateFolder={onCreateRemoteFolder}
         onDelete={onDeleteRemote}
         onDownload={onDownloadRemote}
+        onFavoritePath={onFavoriteRemotePath}
         onNavigate={onRemoteNavigate}
         onRefresh={onRemoteRefresh}
         onRename={onRenameRemote}
