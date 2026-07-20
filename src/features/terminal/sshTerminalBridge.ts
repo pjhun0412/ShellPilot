@@ -38,7 +38,15 @@ export type SshTerminalErrorCode =
 export { SshShellOpenError };
 export type SshShellOpenOptions = SshConnectionTargetOptions;
 
+interface SshPtySize {
+  cols: number;
+  key: string;
+  rows: number;
+}
+
 const lastSshPtySizeByPanel = new Map<string, string>();
+const inFlightSshPtySizeByPanel = new Map<string, string>();
+const queuedSshPtySizeByPanel = new Map<string, SshPtySize>();
 
 export async function openSshShell(
   panelId: string,
@@ -46,6 +54,8 @@ export async function openSshShell(
   options: SshShellOpenOptions = {},
 ) {
   lastSshPtySizeByPanel.delete(panelId);
+  inFlightSshPtySizeByPanel.delete(panelId);
+  queuedSshPtySizeByPanel.delete(panelId);
 
   await invoke('ssh_open_shell', {
     target: createSshConnectionTarget(panelId, session, options),
@@ -57,25 +67,60 @@ export async function writeSshData(panelId: string, data: string) {
 }
 
 export async function resizeSshPty(panelId: string, terminal: Terminal) {
+  const size = getTerminalPtySize(terminal);
+
+  if (!size) {
+    return;
+  }
+
+  await scheduleSshPtyResize(panelId, size);
+}
+
+function getTerminalPtySize(terminal: Terminal): SshPtySize | undefined {
   if (!terminal.cols || !terminal.rows) {
-    return;
+    return undefined;
   }
 
-  const sizeKey = `${terminal.cols}x${terminal.rows}`;
-
-  if (lastSshPtySizeByPanel.get(panelId) === sizeKey) {
-    return;
-  }
-
-  await invoke('ssh_resize', {
+  return {
     cols: terminal.cols,
-    panelId,
+    key: `${terminal.cols}x${terminal.rows}`,
     rows: terminal.rows,
-  })
-    .then(() => {
-      lastSshPtySizeByPanel.set(panelId, sizeKey);
-    })
-    .catch(() => undefined);
+  };
+}
+
+async function scheduleSshPtyResize(panelId: string, size: SshPtySize): Promise<void> {
+  if (lastSshPtySizeByPanel.get(panelId) === size.key) {
+    return;
+  }
+
+  if (inFlightSshPtySizeByPanel.has(panelId)) {
+    queuedSshPtySizeByPanel.set(panelId, size);
+    return;
+  }
+
+  inFlightSshPtySizeByPanel.set(panelId, size.key);
+
+  try {
+    await invoke('ssh_resize', {
+      cols: size.cols,
+      panelId,
+      rows: size.rows,
+    });
+    lastSshPtySizeByPanel.set(panelId, size.key);
+  } catch {
+    // Resize is best-effort; a later fit/resize pass will retry the current size.
+  } finally {
+    if (inFlightSshPtySizeByPanel.get(panelId) === size.key) {
+      inFlightSshPtySizeByPanel.delete(panelId);
+    }
+
+    const queuedSize = queuedSshPtySizeByPanel.get(panelId);
+
+    if (queuedSize) {
+      queuedSshPtySizeByPanel.delete(panelId);
+      await scheduleSshPtyResize(panelId, queuedSize);
+    }
+  }
 }
 
 export async function querySshCurrentDirectory(panelId: string): Promise<string | undefined> {
@@ -86,6 +131,8 @@ export async function querySshCurrentDirectory(panelId: string): Promise<string 
 
 export async function closeSshShell(panelId: string) {
   lastSshPtySizeByPanel.delete(panelId);
+  inFlightSshPtySizeByPanel.delete(panelId);
+  queuedSshPtySizeByPanel.delete(panelId);
   await invoke('ssh_close', { panelId });
 }
 

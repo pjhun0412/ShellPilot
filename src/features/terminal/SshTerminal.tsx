@@ -70,6 +70,8 @@ export function SshTerminal({
   const shouldRememberPasswordRef = useRef(true);
   const shouldRememberUsernameRef = useRef(true);
   const terminalRef = useRef<Terminal>();
+  const sessionRef = useRef(session);
+  const endpointLabelRef = useRef(getSshEndpointLabel(session));
   const sshMetadataRef = useRef<SshSessionMetadata>(readSshSessionMetadata(session));
   const [manualPassword, setManualPassword] = useState('');
   const [manualUsername, setManualUsername] = useState('');
@@ -84,6 +86,11 @@ export function SshTerminal({
   } = useSshTerminalStatus(panelId, autoConnect ? 'connecting' : 'restored');
   const endpointLabel = getSshEndpointLabel(session);
   const secretLabel = getSshSecretLabel(session);
+  useEffect(() => {
+    sessionRef.current = session;
+    endpointLabelRef.current = endpointLabel;
+  }, [endpointLabel, session]);
+
   const {
     closeSession,
     connectWithPassword,
@@ -112,7 +119,7 @@ export function SshTerminal({
     autoConnect,
     closeIntentRef,
     containerRef,
-    endpointLabel,
+    endpointLabelRef,
     failedAttemptRef,
     fitAddonRef,
     lastHostKeyWarningRef,
@@ -120,7 +127,7 @@ export function SshTerminal({
     pendingPasswordRef,
     pendingUsernameRef,
     publishClosedStatus,
-    session,
+    sessionRef,
     setTerminalStatus,
     shouldRememberPasswordRef,
     shouldRememberUsernameRef,
@@ -178,7 +185,6 @@ export function SshTerminal({
     };
 
     const didSave = await patchStoredSession({
-      notifyWorkspace: false,
       sessionId: session.id,
       patch: {
         metadata: writeSshSessionMetadata(session, nextMetadata),
@@ -231,7 +237,6 @@ export function SshTerminal({
     };
 
     const didSave = await patchStoredSession({
-      notifyWorkspace: false,
       sessionId: session.id,
       patch: {
         metadata: writeSshSessionMetadata(session, nextMetadata),

@@ -9,7 +9,7 @@ export interface TerminalWriteBuffer {
 
 export function createTerminalWriteBuffer(terminal: Terminal): TerminalWriteBuffer {
   let frame: number | undefined;
-  let pending = '';
+  let pendingChunks: string[] = [];
 
   const flush = () => {
     if (frame !== undefined) {
@@ -17,12 +17,12 @@ export function createTerminalWriteBuffer(terminal: Terminal): TerminalWriteBuff
       frame = undefined;
     }
 
-    if (!pending) {
+    if (pendingChunks.length === 0) {
       return;
     }
 
-    const data = pending;
-    pending = '';
+    const data = pendingChunks.length === 1 ? pendingChunks[0] : pendingChunks.join('');
+    pendingChunks = [];
     terminal.write(data);
   };
 
@@ -41,8 +41,47 @@ export function createTerminalWriteBuffer(terminal: Terminal): TerminalWriteBuff
     dispose: flush,
     flush,
     write(data: string) {
-      pending += data;
+      if (!data) {
+        return;
+      }
+
+      pendingChunks.push(data);
       scheduleFlush();
+    },
+  };
+}
+
+export interface TerminalAlternateScreenScrollGuard {
+  dispose: () => void;
+}
+
+export function attachTerminalAlternateScreenScrollGuard(
+  terminal: Terminal,
+): TerminalAlternateScreenScrollGuard {
+  const isAlternateScreenActive = () => terminal.buffer.active.type === 'alternate';
+
+  const keepAlternateScreenAtBottom = () => {
+    if (isAlternateScreenActive()) {
+      terminal.scrollToBottom();
+    }
+  };
+
+  const handleWheel = (event: WheelEvent) => {
+    if (!isAlternateScreenActive() || event.defaultPrevented) {
+      return;
+    }
+
+    event.preventDefault();
+    terminal.scrollToBottom();
+  };
+
+  const scrollDisposable = terminal.onScroll(keepAlternateScreenAtBottom);
+  terminal.element?.addEventListener('wheel', handleWheel, { passive: false });
+
+  return {
+    dispose() {
+      scrollDisposable.dispose();
+      terminal.element?.removeEventListener('wheel', handleWheel);
     },
   };
 }

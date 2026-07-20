@@ -56,7 +56,7 @@ export function CreateSessionDialog({
     if (open) {
       form.reset(getSessionFormValues({ initialGroupId, initialSession }));
     }
-  }, [form, initialGroupId, initialSession, open]);
+  }, [form, initialGroupId, initialSession?.id, open]);
 
   useEffect(() => {
     const currentPort = form.getValues('port');

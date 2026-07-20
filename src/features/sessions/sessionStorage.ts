@@ -23,22 +23,36 @@ interface StoredSessionUiState {
 
 export interface SessionPatchDetail {
   patch: Partial<
-    Pick<SessionItem, 'credentialRef' | 'favorite' | 'host' | 'kind' | 'metadata' | 'name' | 'port' | 'username'>
+    Pick<
+      SessionItem,
+      | 'authMethod'
+      | 'credentialRef'
+      | 'favorite'
+      | 'groupId'
+      | 'host'
+      | 'kind'
+      | 'metadata'
+      | 'name'
+      | 'port'
+      | 'tags'
+      | 'username'
+    >
   >;
   sessionId: string;
 }
 
-interface PatchStoredSessionOptions extends SessionPatchDetail {
-  notifyWorkspace?: boolean;
+interface SessionPatchEventDetail extends SessionPatchDetail {
+  onApplied?: (applied: boolean) => void;
 }
 
-export function requestSessionPatch(detail: SessionPatchDetail) {
-  window.dispatchEvent(new CustomEvent<SessionPatchDetail>(SESSION_PATCH_EVENT_NAME, { detail }));
+export function requestSessionPatch(detail: SessionPatchDetail, onApplied?: (applied: boolean) => void) {
+  const eventDetail: SessionPatchEventDetail = { ...detail, onApplied };
+  window.dispatchEvent(new CustomEvent<SessionPatchEventDetail>(SESSION_PATCH_EVENT_NAME, { detail: eventDetail }));
 }
 
-export function subscribeSessionPatch(listener: (detail: SessionPatchDetail) => void) {
+export function subscribeSessionPatch(listener: (detail: SessionPatchEventDetail) => void) {
   const handler = (event: Event) => {
-    listener((event as CustomEvent<SessionPatchDetail>).detail);
+    listener((event as CustomEvent<SessionPatchEventDetail>).detail);
   };
 
   window.addEventListener(SESSION_PATCH_EVENT_NAME, handler);
@@ -175,38 +189,13 @@ export async function persistSessionGroups(groups: SessionGroup[]) {
   saveSessionGroups(groups);
 }
 
-export async function patchStoredSession({
-  notifyWorkspace = true,
-  patch,
-  sessionId,
-}: PatchStoredSessionOptions) {
-  const groups = await loadSessionGroupsWithMigration(loadSessionGroups());
-  let didUpdate = false;
-  const nextGroups = groups.map((group) => ({
-    ...group,
-    sessions: group.sessions.map((session) => {
-      if (session.id !== sessionId) {
-        return session;
-      }
-
-      didUpdate = true;
-      return {
-        ...session,
-        ...patch,
-        updatedAt: Date.now(),
-      };
-    }),
-  }));
-
-  if (!didUpdate) {
-    return false;
-  }
-
-  await persistSessionGroups(nextGroups);
-  if (notifyWorkspace) {
-    requestSessionPatch({ patch, sessionId });
-  }
-  return true;
+// Route all patch writes through useSessionRegistry's in-memory groups state.
+// This keeps quick inline edits from writing a stale registry snapshot over
+// an Edit Session save that just landed.
+export async function patchStoredSession({ patch, sessionId }: SessionPatchDetail): Promise<boolean> {
+  return new Promise((resolve) => {
+    requestSessionPatch({ patch, sessionId }, resolve);
+  });
 }
 
 export function createSessionGroup(name: string): SessionGroup {
