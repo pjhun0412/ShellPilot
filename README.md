@@ -80,6 +80,18 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 - 새 버전이 있으면 확인 대화상자 표시, 사용자 동의 후에만 다운로드·설치
 - `Help → Check for Updates`로 수동 확인 가능 (현재 Windows 우선 지원)
 
+### 📝 Notes
+
+- 옵시디언 스타일의 폴더/노트 트리, CodeMirror 기반 Markdown 편집(Edit / Live / Preview), 라인 넘버 토글
+- Markdown 툴바(Bold/Italic/제목/링크/코드/인용/리스트/체크리스트/테이블)와 `Ctrl/Cmd+B`, `Ctrl/Cmd+I`, `Ctrl/Cmd+K` 단축키
+- `[[노트]]`, `[[폴더/노트]]`, `[[노트#heading]]`, `[[노트|alias]]` wiki link — 클릭 시 노트 열기/heading 이동, 없는 노트는 생성 제안
+- Backlink / Outgoing link / Unlinked mention 패널, 노트 rename·이동 시 wiki link 자동 갱신
+- 본문 `#tag` 추출 후 사이드바에 태그 목록·카운트 표시, 태그 클릭으로 검색 필터링
+- 제목/경로/태그/본문 라인 기반 검색, 결과 라인 클릭 시 해당 위치로 이동
+- 이미지/일반 파일 첨부(드래그 드롭·붙여넣기), 실행형 위험 확장자는 안전한 확장자로 자동 대체
+- 입력 중 자동 저장, 탭 닫기 시 pending 저장 flush로 마지막 입력 유실 방지
+- 노트 index는 app data directory에 atomic replace 방식으로 저장
+
 ## 보안 정책
 
 - 세션 데이터에는 host, port, username, tag, group, auth method, credential reference만 저장합니다.
@@ -173,7 +185,9 @@ scripts/
 - [RDP 인계 문서](docs/rdp-handoff.md)
 - [VNC 설계 메모](docs/vnc-design.md)
 - [AI Tool Layer 설계](docs/ai-tool-layer-design.md)
+- [Notes 설계 메모](docs/notes-design.md)
 - [릴리즈와 자동 업데이트](docs/release-update.md)
+- [1.0.3 릴리스 노트](docs/release-1.0.3.md)
 - [1.0.2 릴리스 노트](docs/release-1.0.2.md)
 - [macOS 지원 메모](docs/macos-support.md)
 
@@ -186,6 +200,8 @@ scripts/
 - SFTP Commander 모드(로컬/원격 2-pane), pinned/recent 경로
 - SFTP 전송 일시정지/이어받기, 로컬 파일 접근 dialog-grant 기반 제한
 - VNC TLS(VeNCrypt) 지원, RDP/VNC credential 바인딩을 SSH/SFTP 수준으로 확장
+- Notes 본문 전체 검색 인덱스 최적화 및 대용량 vault 대응, 백링크/태그 패널 별도 사이드 패널화
+- Notes Markdown 확장 문법(Mermaid, callout, task query) 검토
 - macOS 자동 업데이트, code signing, GitHub Release 업로드 자동화
 
 ## 라이선스

@@ -43,7 +43,7 @@ export interface WorkspaceLocalPtyTarget {
   cwd?: string;
 }
 
-export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'vnc' | 'settings';
+export type WorkspacePanelType = 'terminal' | 'sftp' | 'ai' | 'rdp' | 'vnc' | 'settings' | 'note';
 
 export interface AiPanelBinding {
   boundPanelId: string;
@@ -63,6 +63,7 @@ export interface WorkspacePanel {
   id: string;
   initialPath?: string;
   localPtyTarget?: WorkspaceLocalPtyTarget;
+  noteId?: string;
   session?: SessionItem;
   title: string;
   type: WorkspacePanelType;
@@ -73,6 +74,7 @@ export interface WorkspaceTabItem {
   id: string;
   initialPath?: string;
   localPtyTarget?: WorkspaceLocalPtyTarget;
+  noteId?: string;
   session?: SessionItem;
   title: string;
   type: WorkspacePanelType;
@@ -85,4 +87,4 @@ export interface OpenSftpOptions {
 
 export type OpenSftpHandler = (session: SessionItem, options?: OpenSftpOptions) => void;
 
-export type ActivityId = 'sessions' | 'ssh' | 'tabs' | 'files' | 'ai';
+export type ActivityId = 'sessions' | 'ssh' | 'tabs' | 'files' | 'notes' | 'ai';

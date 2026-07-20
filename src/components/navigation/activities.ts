@@ -1,4 +1,4 @@
-import { Bot, Folder, Layers, Server, Terminal } from 'lucide-react';
+import { Bot, FileText, Folder, Layers, Server, Terminal } from 'lucide-react';
 
 import type { ActivityId } from '@/types/workspace';
 
@@ -7,6 +7,7 @@ export const activities: Array<{ id: ActivityId; label: string; icon: typeof Ser
   { id: 'tabs', label: 'Open Tabs', icon: Layers },
   { id: 'ssh', label: 'SSH', icon: Terminal },
   { id: 'files', label: 'SFTP', icon: Folder },
+  { id: 'notes', label: 'Notes', icon: FileText },
   { id: 'ai', label: 'AI', icon: Bot },
 ];
 
@@ -29,6 +30,10 @@ export function getActivityDescription(activityId: ActivityId) {
 
   if (activityId === 'files') {
     return 'Remote files and transfers';
+  }
+
+  if (activityId === 'notes') {
+    return 'Markdown notes and runbooks';
   }
 
   if (activityId === 'ai') {

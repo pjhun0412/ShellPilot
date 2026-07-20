@@ -1,5 +1,6 @@
 import { AiAssistantPanel } from '@/features/ai/AiAssistantPanel';
 import { BoundAiPanel } from '@/features/ai/BoundAiPanel';
+import { NotesPanel } from '@/features/notes/NotesPanel';
 import { RdpPanel } from '@/features/rdp/RdpPanel';
 import { SettingsPanel } from '@/features/settings/SettingsPanel';
 import { SftpPanel } from '@/features/sftp/SftpPanel';
@@ -82,6 +83,14 @@ export function PanelBody({
     return (
       <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
         <SettingsPanel />
+      </PanelFocusFrame>
+    );
+  }
+
+  if (panel.type === 'note') {
+    return (
+      <PanelFocusFrame isActive={isActive} onActivate={onActivate}>
+        <NotesPanel noteId={panel.noteId} />
       </PanelFocusFrame>
     );
   }

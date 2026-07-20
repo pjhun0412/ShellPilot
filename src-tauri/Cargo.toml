@@ -1,6 +1,6 @@
 [package]
 name = "shellpilot"
-version = "1.0.2"
+version = "1.0.3"
 description = "Modern remote workspace for SSH, SFTP, RDP, and AI Agent"
 authors = ["ShellPilot"]
 edition = "2021"
@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 tauri-plugin-shell = "2"

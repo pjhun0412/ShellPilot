@@ -22,6 +22,7 @@ export function collectWorkspaceTabs(model: Model): WorkspaceTabItem[] {
     const config = tab.getConfig() as {
       aiBinding?: WorkspaceTabItem['aiBinding'];
       localPtyTarget?: WorkspaceTabItem['localPtyTarget'];
+      noteId?: WorkspaceTabItem['noteId'];
       panelType?: string;
       session?: unknown;
     };
@@ -36,6 +37,7 @@ export function collectWorkspaceTabs(model: Model): WorkspaceTabItem[] {
       aiBinding: config.aiBinding,
       id: tab.getId(),
       localPtyTarget: readLocalPtyTargetConfig(config.localPtyTarget),
+      noteId: typeof config.noteId === 'string' ? config.noteId : undefined,
       session,
       title: tab.getName(),
       type: config.panelType,
@@ -76,7 +78,7 @@ export function collectSftpExplorers(model: Model): SftpSidebarExplorer[] {
 }
 
 function isWorkspacePanelType(value: unknown): value is WorkspacePanelType {
-  return value === 'terminal' || value === 'sftp' || value === 'ai' || value === 'rdp' || value === 'vnc' || value === 'settings';
+  return value === 'terminal' || value === 'sftp' || value === 'ai' || value === 'rdp' || value === 'vnc' || value === 'settings' || value === 'note';
 }
 
 function readLocalPtyTargetConfig(value: unknown): WorkspaceTabItem['localPtyTarget'] {
