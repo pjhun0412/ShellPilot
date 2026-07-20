@@ -7,7 +7,7 @@ export function createXtermTerminal() {
   const { terminal: preferences } = loadPreferences();
   const terminal = new Terminal({
     allowProposedApi: preferences.diagnosticsHighlight,
-    convertEol: true,
+    convertEol: false,
     cursorBlink: preferences.cursorBlink,
     cursorStyle: 'block',
     fontFamily: preferences.fontFamily,

@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
+import { appConfirm } from '@/components/ui/app-dialog';
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,7 @@ export function CreateSessionDialog({
   const kind = form.watch('kind');
   const authMethod = form.watch('authMethod');
   const groupId = form.watch('groupId');
+  const isDirty = form.formState.isDirty;
 
   useEffect(() => {
     if (open) {
@@ -90,10 +92,42 @@ export function CreateSessionDialog({
     form.reset(defaultSessionFormValues);
     onOpenChange(false);
   };
+  const requestClose = async () => {
+    if (!isDirty) {
+      onOpenChange(false);
+      return;
+    }
+
+    const confirmed = await appConfirm({
+      cancelLabel: 'Keep Editing',
+      confirmLabel: 'Discard',
+      message: 'You have unsaved session changes. Close this dialog and discard them?',
+      title: 'Discard session changes?',
+      tone: 'danger',
+    });
+
+    if (confirmed) {
+      onOpenChange(false);
+    }
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          onOpenChange(true);
+          return;
+        }
+
+        void requestClose();
+      }}
+    >
+      <DialogContent
+        className="grid max-h-[calc(100vh-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0"
+        onInteractOutside={(event) => event.preventDefault()}
+        onPointerDownOutside={(event) => event.preventDefault()}
+      >
         <DialogHeader className="px-5 pb-0 pt-5">
           <DialogTitle>{initialSession ? 'Edit Session' : 'Create Session'}</DialogTitle>
           <DialogDescription>
@@ -126,7 +160,7 @@ export function CreateSessionDialog({
                 className="text-muted-foreground shadow-none hover:text-foreground"
                 type="button"
                 variant="ghost"
-                onClick={() => onOpenChange(false)}
+                onClick={() => void requestClose()}
               >
                 Cancel
               </Button>
