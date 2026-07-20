@@ -15,6 +15,7 @@ export function useSftpPanelRemoteOperations({
   downloadableEntries,
   entries,
   isRemoteReady,
+  onDownloadCompleted,
   panelId,
   panelRef,
   parentEntryPathKey,
@@ -31,6 +32,7 @@ export function useSftpPanelRemoteOperations({
   downloadableEntries: SftpEntry[];
   entries: SftpEntry[];
   isRemoteReady: boolean;
+  onDownloadCompleted?: (localPath: string) => void;
   panelId: string;
   panelRef: RefObject<HTMLDivElement>;
   parentEntryPathKey: string;
@@ -44,7 +46,6 @@ export function useSftpPanelRemoteOperations({
 }) {
   const [operationNotice, setOperationNotice] = useState<SftpOperationNotice>();
   const {
-    addPendingTransfer,
     deleteTransferWaiter,
     markTransferFailed,
     transferSummary,
@@ -52,7 +53,8 @@ export function useSftpPanelRemoteOperations({
     waitForTransferCompletion,
   } = useSftpTransfers({
     onError: setError,
-    onUploadCompleted: refreshCurrentDirectory,
+    onDownloadCompleted: (event) => onDownloadCompleted?.(event.localPath),
+    onUploadCompleted: () => requestSftpRemoteRefresh(remoteIdentity),
     panelId,
   });
   const {
@@ -64,7 +66,6 @@ export function useSftpPanelRemoteOperations({
     startUploadFromPaths,
     startUploadFromDataTransfer,
   } = useSftpTransferActions({
-    addPendingTransfer,
     currentEntries: entries,
     currentPath: path,
     deleteTransferWaiter,

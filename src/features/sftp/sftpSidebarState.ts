@@ -1,5 +1,6 @@
 import type { ConnectionStatus } from '@/features/connections/connectionStatus';
 import type { SessionItem } from '@/types/workspace';
+import type { SftpViewMode } from './sftpPanelTypes';
 
 export interface SftpSidebarExplorer {
   host?: string;
@@ -14,22 +15,28 @@ export interface SftpSidebarTransferSummary {
   canceled: number;
   completed: number;
   failed: number;
+  queued: number;
   running: number;
   total: number;
 }
 
 export interface SftpSidebarPanelState {
   host?: string;
+  localPath?: string;
   path?: string;
   port?: number;
   status?: ConnectionStatus;
   title?: string;
   transferSummary?: SftpSidebarTransferSummary;
   username?: string;
+  viewMode?: SftpViewMode;
 }
 
 const stateEventName = 'shellpilot:sftp-sidebar-state';
 const navigateEventName = 'shellpilot:sftp-navigate';
+const localNavigateEventName = 'shellpilot:sftp-local-navigate';
+const addBookmarkEventName = 'shellpilot:sftp-add-bookmark';
+const addLocalFavoriteEventName = 'shellpilot:sftp-add-local-favorite';
 const reconnectEventName = 'shellpilot:sftp-reconnect';
 const disconnectEventName = 'shellpilot:sftp-disconnect';
 const panelStates = new Map<string, SftpSidebarPanelState>();
@@ -78,6 +85,61 @@ export function subscribeSftpSidebarNavigation(listener: (detail: SftpNavigateDe
 
   window.addEventListener(navigateEventName, handler);
   return () => window.removeEventListener(navigateEventName, handler);
+}
+
+export function requestSftpSidebarLocalNavigation(panelId: string, path: string) {
+  window.dispatchEvent(
+    new CustomEvent<SftpNavigateDetail>(localNavigateEventName, {
+      detail: { panelId, path },
+    }),
+  );
+}
+
+export function subscribeSftpSidebarLocalNavigation(listener: (detail: SftpNavigateDetail) => void) {
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<SftpNavigateDetail>).detail);
+  };
+
+  window.addEventListener(localNavigateEventName, handler);
+  return () => window.removeEventListener(localNavigateEventName, handler);
+}
+
+export function requestSftpSidebarBookmark(panelId: string, path?: string) {
+  window.dispatchEvent(
+    new CustomEvent<SftpFavoriteRequestDetail>(addBookmarkEventName, {
+      detail: { panelId, path },
+    }),
+  );
+}
+
+export function subscribeSftpSidebarBookmark(
+  listener: (detail: SftpFavoriteRequestDetail) => void,
+) {
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<SftpFavoriteRequestDetail>).detail);
+  };
+
+  window.addEventListener(addBookmarkEventName, handler);
+  return () => window.removeEventListener(addBookmarkEventName, handler);
+}
+
+export function requestSftpSidebarLocalFavorite(panelId: string, path?: string) {
+  window.dispatchEvent(
+    new CustomEvent<SftpFavoriteRequestDetail>(addLocalFavoriteEventName, {
+      detail: { panelId, path },
+    }),
+  );
+}
+
+export function subscribeSftpSidebarLocalFavorite(
+  listener: (detail: SftpFavoriteRequestDetail) => void,
+) {
+  const handler = (event: Event) => {
+    listener((event as CustomEvent<SftpFavoriteRequestDetail>).detail);
+  };
+
+  window.addEventListener(addLocalFavoriteEventName, handler);
+  return () => window.removeEventListener(addLocalFavoriteEventName, handler);
 }
 
 export function requestSftpSidebarReconnect(panelId: string) {
@@ -136,6 +198,11 @@ function emitSftpSidebarState() {
 interface SftpNavigateDetail {
   panelId: string;
   path: string;
+}
+
+interface SftpFavoriteRequestDetail {
+  panelId: string;
+  path?: string;
 }
 
 interface SftpReconnectDetail {

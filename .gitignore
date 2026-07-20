@@ -21,6 +21,8 @@ pnpm-debug.log*
 .env
 .env.*
 .tmp/
+.agents/
+.codebase-memory/
 
 # editors
 .idea/

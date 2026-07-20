@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, FolderOpen, Plus, Star, UploadCloud, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, FolderOpen, Plus, UploadCloud, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -14,13 +14,18 @@ import {
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import {
   getSftpSidebarPanelStates,
+  requestSftpSidebarLocalNavigation,
   requestSftpSidebarNavigation,
   requestSftpSidebarReconnect,
+  subscribeSftpSidebarBookmark,
+  subscribeSftpSidebarLocalFavorite,
   subscribeSftpSidebarPanelStates,
   type SftpSidebarExplorer,
   type SftpSidebarPanelState,
 } from '@/features/sftp/sftpSidebarState';
+import { formatLocalDisplayPath } from '@/features/sftp/sftpCommanderUtils';
 import { useTransientStatus } from '@/hooks/useTransientStatus';
+import { matchesSearchText } from '@/lib/searchText';
 import type { WorkspaceTabItem } from '@/types/workspace';
 import {
   ConnectionStatusDot,
@@ -35,9 +40,16 @@ import {
 } from './SidebarPanelUtils';
 
 const SFTP_ACTIVITY_UI_STORAGE_KEY = 'shellpilot.sftp.activity.ui.v1';
+const SFTP_LOCAL_FAVORITES_STORAGE_KEY = 'shellpilot:sftp-local-favorites';
 const MIN_TABS_PANEL_HEIGHT = 96;
 const MAX_TABS_PANEL_HEIGHT = 260;
 const COLLAPSED_TABS_PANEL_HEIGHT = 34;
+
+interface SftpLocalFavorite {
+  id: string;
+  label: string;
+  path: string;
+}
 
 export function SftpSidebar({
   activePanelId,
@@ -58,13 +70,20 @@ export function SftpSidebar({
     () => getSftpSidebarPanelStates(),
   );
   const [bookmarks, setBookmarks] = useState<SftpBookmark[]>(() => loadSftpBookmarks());
-  const [bookmarkLabelInput, setBookmarkLabelInput] = useState('');
-  const [bookmarkPathInput, setBookmarkPathInput] = useState('');
+  const [localFavorites, setLocalFavorites] = useState<SftpLocalFavorite[]>(() => loadSftpLocalFavorites());
+  const [bookmarkSearchInput, setBookmarkSearchInput] = useState('');
+  const [localFavoriteSearchInput, setLocalFavoriteSearchInput] = useState('');
   const [editingBookmark, setEditingBookmark] = useState<SftpBookmark>();
+  const [editingLocalFavorite, setEditingLocalFavorite] = useState<SftpLocalFavorite>();
   const {
     clearStatus: clearBookmarkStatus,
     showTransientStatus: showTransientBookmarkStatus,
     statusText: bookmarkStatusText,
+  } = useTransientStatus();
+  const {
+    clearStatus: clearLocalFavoriteStatus,
+    showTransientStatus: showTransientLocalFavoriteStatus,
+    statusText: localFavoriteStatusText,
   } = useTransientStatus();
   const [tabsPanelState, setTabsPanelState] = useState(() => loadSftpActivityUiState());
   const groupedExplorers = useMemo(
@@ -110,6 +129,22 @@ export function SftpSidebar({
         : [],
     [bookmarks, connectedExplorer],
   );
+  const filteredServerBookmarks = useMemo(
+    () =>
+      serverBookmarks.filter((bookmark) =>
+        matchesSearchText(bookmarkSearchInput, bookmark.title, bookmark.path),
+      ),
+    [bookmarkSearchInput, serverBookmarks],
+  );
+  const filteredLocalFavorites = useMemo(
+    () =>
+      localFavorites.filter((favorite) =>
+        matchesSearchText(localFavoriteSearchInput, favorite.label, favorite.path),
+      ),
+    [localFavoriteSearchInput, localFavorites],
+  );
+  const connectedPanelState = connectedExplorer ? panelStates[connectedExplorer.panelId] : undefined;
+  const showLocalFavorites = connectedPanelState?.viewMode === 'commander';
   const showEmptyState = useDelayedEmptyState(!connectedExplorer);
 
   useEffect(() => subscribeSftpSidebarPanelStates(setPanelStates), []);
@@ -117,15 +152,21 @@ export function SftpSidebar({
     saveSftpActivityUiState(tabsPanelState);
   }, [tabsPanelState]);
   useEffect(() => {
-    setBookmarkLabelInput('');
-    setBookmarkPathInput('');
+    setBookmarkSearchInput('');
+    setLocalFavoriteSearchInput('');
     setEditingBookmark(undefined);
+    setEditingLocalFavorite(undefined);
     clearBookmarkStatus();
-  }, [clearBookmarkStatus, connectedExplorer?.panelId]);
+    clearLocalFavoriteStatus();
+  }, [clearBookmarkStatus, clearLocalFavoriteStatus, connectedExplorer?.panelId]);
 
   const saveBookmarks = (nextBookmarks: SftpBookmark[]) => {
     setBookmarks(nextBookmarks);
     window.localStorage.setItem(sftpBookmarksStorageKey, JSON.stringify(nextBookmarks));
+  };
+  const saveLocalFavorites = (nextFavorites: SftpLocalFavorite[]) => {
+    setLocalFavorites(nextFavorites);
+    window.localStorage.setItem(SFTP_LOCAL_FAVORITES_STORAGE_KEY, JSON.stringify(nextFavorites));
   };
 
   const addExplorerBookmark = (
@@ -174,16 +215,12 @@ export function SftpSidebar({
     }
 
     const didAdd = addExplorerBookmark(connectedExplorer, {
-      label: bookmarkLabelInput,
-      path: options.path ?? bookmarkPathInput,
+      path: options.path,
     });
 
     if (!didAdd) {
       return;
     }
-
-    setBookmarkLabelInput('');
-    setBookmarkPathInput('');
   };
   const cloneExplorer = (explorer: SftpSidebarExplorer) => {
     if (!explorer.session) {
@@ -205,6 +242,11 @@ export function SftpSidebar({
       void navigator.clipboard?.writeText(path);
     }
   };
+  const copyLocalPath = (path?: string) => {
+    if (path) {
+      void navigator.clipboard?.writeText(path);
+    }
+  };
 
   const openBookmark = (bookmark: SftpBookmark) => {
     if (!connectedExplorer) {
@@ -213,6 +255,14 @@ export function SftpSidebar({
 
     onSelectPanel(connectedExplorer.panelId);
     requestSftpSidebarNavigation(connectedExplorer.panelId, bookmark.path);
+  };
+  const openLocalFavorite = (favorite: SftpLocalFavorite) => {
+    if (!connectedExplorer) {
+      return;
+    }
+
+    onSelectPanel(connectedExplorer.panelId);
+    requestSftpSidebarLocalNavigation(connectedExplorer.panelId, favorite.path);
   };
 
   const removeBookmark = (bookmarkId: string) => {
@@ -240,6 +290,72 @@ export function SftpSidebar({
     );
     setEditingBookmark(undefined);
   };
+  const addLocalFavorite = (options: { path?: string } = {}) => {
+    const path = normalizeLocalFavoritePath(options.path) ||
+      normalizeLocalFavoritePath(connectedPanelState?.localPath);
+
+    if (!path) {
+      showTransientLocalFavoriteStatus('Local path unavailable');
+      return;
+    }
+
+    if (localFavorites.some((favorite) => favorite.path === path)) {
+      showTransientLocalFavoriteStatus('Local favorite already exists');
+      return;
+    }
+
+    clearLocalFavoriteStatus();
+    saveLocalFavorites([
+      {
+        id: `local:${path}:${Date.now()}`,
+        label: getLocalPathTitle(path),
+        path,
+      },
+      ...localFavorites,
+    ].slice(0, 24));
+  };
+  const removeLocalFavorite = (favoriteId: string) => {
+    saveLocalFavorites(localFavorites.filter((favorite) => favorite.id !== favoriteId));
+  };
+  const updateLocalFavorite = (favorite: SftpLocalFavorite) => {
+    const path = normalizeLocalFavoritePath(favorite.path);
+
+    if (!path) {
+      showTransientLocalFavoriteStatus('Path is required');
+      return;
+    }
+
+    clearLocalFavoriteStatus();
+    saveLocalFavorites(
+      localFavorites.map((item) =>
+        item.id === favorite.id
+          ? {
+              ...item,
+              label: favorite.label.trim() || getLocalPathTitle(path),
+              path,
+            }
+          : item,
+      ),
+    );
+    setEditingLocalFavorite(undefined);
+  };
+  useEffect(() => subscribeSftpSidebarBookmark(({ panelId, path }) => {
+    const explorer = explorers.find((item) => item.panelId === panelId);
+
+    if (!explorer) {
+      return;
+    }
+
+    addExplorerBookmark(explorer, { path });
+  }), [addExplorerBookmark, explorers]);
+  useEffect(() => subscribeSftpSidebarLocalFavorite(({ panelId, path }) => {
+    if (!explorers.some((item) => item.panelId === panelId)) {
+      return;
+    }
+
+    addLocalFavorite({ path });
+  }), [addLocalFavorite, explorers]);
+
   return (
     <section className="flex h-full min-h-0 flex-col gap-3">
       {connectedExplorer ? (
@@ -279,7 +395,9 @@ export function SftpSidebar({
               Remote Bookmarks
             </span>
             <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-              {serverBookmarks.length}
+              {bookmarkSearchInput.trim()
+                ? `${filteredServerBookmarks.length}/${serverBookmarks.length}`
+                : serverBookmarks.length}
             </span>
             {tabsPanelState.isRemoteBookmarksCollapsed ? (
               <ChevronDown className="size-3.5 text-muted-foreground" />
@@ -290,30 +408,19 @@ export function SftpSidebar({
           {!tabsPanelState.isRemoteBookmarksCollapsed && (
             <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-3 pb-3">
               <div className="grid gap-2">
-                <input
-                  className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                  placeholder="Label (optional)"
-                  value={bookmarkLabelInput}
-                  onChange={(event) => setBookmarkLabelInput(event.target.value)}
-                />
                 <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
                   <input
-                    className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                    placeholder="Path or blank for current"
-                    value={bookmarkPathInput}
-                    onChange={(event) => setBookmarkPathInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        addConnectedBookmark();
-                      }
-                    }}
+                    className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                    placeholder="Search bookmarks"
+                    value={bookmarkSearchInput}
+                    onChange={(event) => setBookmarkSearchInput(event.target.value)}
                   />
                   <Button
                     className="h-8 w-7 px-0"
                     disabled={!panelStates[connectedExplorer.panelId]?.path}
                     size="icon"
                     type="button"
-                    onClick={() => addConnectedBookmark({ path: '' })}
+                    onClick={() => addConnectedBookmark()}
                     aria-label="Save current SFTP path"
                     title="Save current path"
                   >
@@ -328,8 +435,12 @@ export function SftpSidebar({
                     <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
                       Save frequently used remote paths for this server here.
                     </div>
+                  ) : filteredServerBookmarks.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                      No remote bookmarks match this search.
+                    </div>
                   ) : (
-                    serverBookmarks.map((bookmark) =>
+                    filteredServerBookmarks.map((bookmark) =>
                       editingBookmark?.id === bookmark.id ? (
                         <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2" key={bookmark.id}>
                           <input
@@ -363,12 +474,12 @@ export function SftpSidebar({
                         <ContextMenu key={bookmark.id}>
                           <ContextMenuTrigger asChild>
                             <div
-                              className="group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2"
+                              className="group grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1 rounded border border-border/60 bg-background/35 px-1.5 py-1 shadow-[inset_2px_0_0_hsl(var(--primary)_/_0.35)] transition-colors hover:border-primary/35 hover:bg-accent/35"
                             >
                               <button
-                                className="grid min-w-0 gap-0.5 text-left text-xs"
+                                className="flex h-6 min-w-0 items-center text-left"
                                 type="button"
-                                title="Double-click to edit this remote path"
+                                title={formatRemotePath(bookmark.path)}
                                 onDoubleClick={() => setEditingBookmark(bookmark)}
                                 onKeyDown={(event) => {
                                   if (event.key === 'Enter') {
@@ -376,27 +487,18 @@ export function SftpSidebar({
                                   }
                                 }}
                               >
-                                <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
-                                  <Star className="size-3.5 shrink-0 text-primary" />
-                                  <span className="truncate" title={bookmark.title}>
-                                    {bookmark.title}
-                                  </span>
-                                </span>
-                                <span
-                                  className="truncate font-mono text-[10px] text-muted-foreground"
-                                  title={formatRemotePath(bookmark.path)}
-                                >
-                                  {formatRemotePath(bookmark.path)}
+                                <span className="block truncate text-[11px] font-semibold text-foreground" title={bookmark.title}>
+                                  {bookmark.title}
                                 </span>
                               </button>
                               <button
-                                className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                                 type="button"
                                 title="Open bookmark"
                                 aria-label="Open bookmark"
                                 onClick={() => openBookmark(bookmark)}
                               >
-                                <FolderOpen className="size-3.5" />
+                                <FolderOpen className="size-3" />
                               </button>
                             </div>
                           </ContextMenuTrigger>
@@ -428,6 +530,158 @@ export function SftpSidebar({
         <EmptySftpState />
       ) : (
         <div className="min-h-0 flex-1" />
+      )}
+
+      {connectedExplorer && showLocalFavorites && (
+        <section
+          className={[
+            'min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card/50',
+            tabsPanelState.isLocalFavoritesCollapsed ? 'shrink-0' : 'flex flex-1 flex-col',
+          ].join(' ')}
+        >
+          <button
+            className="flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-accent/60"
+            type="button"
+            onClick={() =>
+              setTabsPanelState((current) => ({
+                ...current,
+                isLocalFavoritesCollapsed: !current.isLocalFavoritesCollapsed,
+              }))
+            }
+          >
+            <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Local Favorites
+            </span>
+            <span className="rounded border border-border/70 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+              {localFavoriteSearchInput.trim()
+                ? `${filteredLocalFavorites.length}/${localFavorites.length}`
+                : localFavorites.length}
+            </span>
+            {tabsPanelState.isLocalFavoritesCollapsed ? (
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronUp className="size-3.5 text-muted-foreground" />
+            )}
+          </button>
+          {!tabsPanelState.isLocalFavoritesCollapsed && (
+            <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2 px-3 pb-3">
+              <div className="grid gap-2">
+                <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+                  <input
+                    className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                    placeholder="Search local favorites"
+                    value={localFavoriteSearchInput}
+                    onChange={(event) => setLocalFavoriteSearchInput(event.target.value)}
+                  />
+                  <Button
+                    className="h-8 w-7 px-0"
+                    disabled={!connectedPanelState?.localPath}
+                    size="icon"
+                    type="button"
+                    onClick={() => addLocalFavorite()}
+                    aria-label="Save current local path"
+                    title="Save current local path"
+                  >
+                    <Plus className="size-3.5" />
+                  </Button>
+                </div>
+                <InlineSectionStatus message={localFavoriteStatusText} />
+              </div>
+              <OverlayScrollArea containerClassName="min-h-0">
+                <div className="grid gap-2">
+                  {localFavorites.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                      Save frequently used local directories for Commander mode here.
+                    </div>
+                  ) : filteredLocalFavorites.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                      No local favorites match this search.
+                    </div>
+                  ) : (
+                    filteredLocalFavorites.map((favorite) =>
+                      editingLocalFavorite?.id === favorite.id ? (
+                        <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2" key={favorite.id}>
+                          <input
+                            className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                            value={editingLocalFavorite.label}
+                            onChange={(event) => setEditingLocalFavorite({ ...editingLocalFavorite, label: event.target.value })}
+                          />
+                          <input
+                            className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                            value={editingLocalFavorite.path}
+                            onChange={(event) => setEditingLocalFavorite({ ...editingLocalFavorite, path: event.target.value })}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                updateLocalFavorite(editingLocalFavorite);
+                              }
+                              if (event.key === 'Escape') {
+                                setEditingLocalFavorite(undefined);
+                              }
+                            }}
+                          />
+                          <div className="flex justify-end gap-1.5">
+                            <Button className="h-7 px-2 text-xs" size="sm" variant="ghost" type="button" onClick={() => setEditingLocalFavorite(undefined)}>
+                              Cancel
+                            </Button>
+                            <Button className="h-7 px-2 text-xs" size="sm" type="button" onClick={() => updateLocalFavorite(editingLocalFavorite)}>
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <ContextMenu key={favorite.id}>
+                          <ContextMenuTrigger asChild>
+                            <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1 rounded border border-border/60 bg-background/35 px-1.5 py-1 shadow-[inset_2px_0_0_hsl(var(--primary)_/_0.35)] transition-colors hover:border-primary/35 hover:bg-accent/35">
+                              <button
+                                className="flex h-6 min-w-0 items-center text-left"
+                                type="button"
+                                title={formatLocalDisplayPath(favorite.path)}
+                                onDoubleClick={() => setEditingLocalFavorite(favorite)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    openLocalFavorite(favorite);
+                                  }
+                                }}
+                              >
+                                <span className="block truncate text-[11px] font-semibold text-foreground" title={favorite.label}>
+                                  {favorite.label}
+                                </span>
+                              </button>
+                              <button
+                                className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                                type="button"
+                                title="Open local favorite"
+                                aria-label="Open local favorite"
+                                onClick={() => openLocalFavorite(favorite)}
+                              >
+                                <FolderOpen className="size-3" />
+                              </button>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent className="max-w-64">
+                            <ContextMenuLabel className="truncate" title={favorite.label}>
+                              {favorite.label}
+                            </ContextMenuLabel>
+                            <ContextMenuItem onSelect={() => openLocalFavorite(favorite)}>Open</ContextMenuItem>
+                            <ContextMenuItem onSelect={() => setEditingLocalFavorite(favorite)}>Edit</ContextMenuItem>
+                            <ContextMenuItem onSelect={() => copyLocalPath(favorite.path)}>Copy Path</ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => removeLocalFavorite(favorite.id)}
+                            >
+                              Remove Favorite
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      ),
+                    )
+                  )}
+                </div>
+              </OverlayScrollArea>
+            </div>
+          )}
+        </section>
       )}
 
       <TransferQueueButton
@@ -471,6 +725,48 @@ function getSftpEndpointPort(port?: number) {
 
 function normalizeRemoteBookmarkPath(path?: string) {
   return path?.trim() ?? '';
+}
+
+function loadSftpLocalFavorites(): SftpLocalFavorite[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SFTP_LOCAL_FAVORITES_STORAGE_KEY) ?? '[]');
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter(isSftpLocalFavorite);
+  } catch {
+    return [];
+  }
+}
+
+function isSftpLocalFavorite(value: unknown): value is SftpLocalFavorite {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'id' in value &&
+      'label' in value &&
+      'path' in value &&
+      typeof (value as SftpLocalFavorite).id === 'string' &&
+      typeof (value as SftpLocalFavorite).label === 'string' &&
+      typeof (value as SftpLocalFavorite).path === 'string',
+  );
+}
+
+function normalizeLocalFavoritePath(path?: string) {
+  return path ? formatLocalDisplayPath(path.trim()) : '';
+}
+
+function getLocalPathTitle(path: string) {
+  const normalizedPath = path.replace(/[\\/]+$/, '');
+  const parts = normalizedPath.split(/[\\/]+/).filter(Boolean);
+
+  return parts[parts.length - 1] || normalizedPath || path;
 }
 
 function EmptySftpState() {
@@ -752,6 +1048,7 @@ function SftpExplorerButton({
 function loadSftpActivityUiState() {
   if (typeof window === 'undefined') {
     return {
+      isLocalFavoritesCollapsed: false,
       isRemoteBookmarksCollapsed: false,
       isTabsPanelCollapsed: false,
       tabsPanelHeight: 140,
@@ -763,6 +1060,7 @@ function loadSftpActivityUiState() {
 
     if (!raw) {
       return {
+        isLocalFavoritesCollapsed: false,
         isRemoteBookmarksCollapsed: false,
         isTabsPanelCollapsed: false,
         tabsPanelHeight: 140,
@@ -770,6 +1068,7 @@ function loadSftpActivityUiState() {
     }
 
     const parsed = JSON.parse(raw) as Partial<{
+      isLocalFavoritesCollapsed: boolean;
       isRemoteBookmarksCollapsed: boolean;
       isTabsPanelCollapsed: boolean;
       tabsPanelHeight: number;
@@ -778,6 +1077,7 @@ function loadSftpActivityUiState() {
 
     if (parsed.version !== 1) {
       return {
+        isLocalFavoritesCollapsed: false,
         isRemoteBookmarksCollapsed: false,
         isTabsPanelCollapsed: false,
         tabsPanelHeight: 140,
@@ -785,12 +1085,14 @@ function loadSftpActivityUiState() {
     }
 
     return {
+      isLocalFavoritesCollapsed: Boolean(parsed.isLocalFavoritesCollapsed),
       isRemoteBookmarksCollapsed: Boolean(parsed.isRemoteBookmarksCollapsed),
       isTabsPanelCollapsed: Boolean(parsed.isTabsPanelCollapsed),
       tabsPanelHeight: clampTabsPanelHeight(parsed.tabsPanelHeight ?? 140),
     };
   } catch {
     return {
+      isLocalFavoritesCollapsed: false,
       isRemoteBookmarksCollapsed: false,
       isTabsPanelCollapsed: false,
       tabsPanelHeight: 140,
@@ -799,6 +1101,7 @@ function loadSftpActivityUiState() {
 }
 
 function saveSftpActivityUiState(state: {
+  isLocalFavoritesCollapsed: boolean;
   isRemoteBookmarksCollapsed: boolean;
   isTabsPanelCollapsed: boolean;
   tabsPanelHeight: number;

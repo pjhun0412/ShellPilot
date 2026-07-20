@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Clipboard, Play, Plus, ScrollText, Star, Terminal, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clipboard, Play, Plus, Terminal, X } from 'lucide-react';
 import {
   useEffect,
   useLayoutEffect,
@@ -28,6 +28,7 @@ import { patchStoredSession } from '@/features/sessions/sessionStorage';
 import { querySshCurrentDirectory, writeSshData } from '@/features/terminal/sshTerminalBridge';
 import { focusRegisteredTerminal } from '@/features/terminal/terminalRegistry';
 import { useTransientStatus } from '@/hooks/useTransientStatus';
+import { matchesSearchText } from '@/lib/searchText';
 import type { OpenSftpHandler, WorkspaceTabItem } from '@/types/workspace';
 
 import {
@@ -77,11 +78,11 @@ export function SshActivityPanel({
     [activePanelId, connectionStatuses, sshTabs],
   );
   const activeSession = activeSshTab?.session;
-  const [favoritePathInput, setFavoritePathInput] = useState('');
-  const [favoriteLabelInput, setFavoriteLabelInput] = useState('');
+  const [favoritePathSearchInput, setFavoritePathSearchInput] = useState('');
   const [favoritePaths, setFavoritePaths] = useState<SshFavoritePath[]>(
     () => readSshSessionMetadata(activeSession).favoritePaths,
   );
+  const [commandSnippetSearchInput, setCommandSnippetSearchInput] = useState('');
   const [snippetLabelInput, setSnippetLabelInput] = useState('');
   const [snippetCommandInput, setSnippetCommandInput] = useState('');
   const [commandSnippets, setCommandSnippets] = useState<SshCommandSnippet[]>(
@@ -89,6 +90,7 @@ export function SshActivityPanel({
   );
   const [editingFavoritePath, setEditingFavoritePath] = useState<SshFavoritePath>();
   const [editingCommandSnippet, setEditingCommandSnippet] = useState<SshCommandSnippet>();
+  const [isAddingCommandSnippet, setIsAddingCommandSnippet] = useState(false);
   const {
     clearStatus: clearFavoriteStatus,
     setPersistentStatus: setPersistentFavoriteStatus,
@@ -105,16 +107,31 @@ export function SshActivityPanel({
   const showEmptyState = useDelayedEmptyState(!activeSshTab || !activeSession);
   const activeSshStatus = activeSshTab ? connectionStatuses[activeSshTab.id] : undefined;
   const canWriteToActiveSsh = activeSshStatus === 'connected';
+  const filteredFavoritePaths = useMemo(
+    () =>
+      favoritePaths.filter((favoritePath) =>
+        matchesSearchText(favoritePathSearchInput, favoritePath.label, favoritePath.path),
+      ),
+    [favoritePathSearchInput, favoritePaths],
+  );
+  const filteredCommandSnippets = useMemo(
+    () =>
+      commandSnippets.filter((snippet) =>
+        matchesSearchText(commandSnippetSearchInput, snippet.label, snippet.command),
+      ),
+    [commandSnippetSearchInput, commandSnippets],
+  );
 
   useLayoutEffect(() => {
     const metadata = readSshSessionMetadata(activeSession);
 
     setFavoritePaths(metadata.favoritePaths);
     setCommandSnippets(metadata.commandSnippets);
-    setFavoritePathInput('');
-    setFavoriteLabelInput('');
+    setFavoritePathSearchInput('');
+    setCommandSnippetSearchInput('');
     setSnippetCommandInput('');
     setSnippetLabelInput('');
+    setIsAddingCommandSnippet(false);
     setEditingCommandSnippet(undefined);
     setEditingFavoritePath(undefined);
     clearFavoriteStatus();
@@ -216,12 +233,6 @@ export function SshActivityPanel({
     }
   };
   const resolveFavoritePathInput = async () => {
-    const typedPath = normalizeSshPath(favoritePathInput);
-
-    if (typedPath) {
-      return typedPath;
-    }
-
     if (!activeSshTab) {
       return undefined;
     }
@@ -243,11 +254,9 @@ export function SshActivityPanel({
 
     const nextFavoritePaths = [
       ...favoritePaths,
-      createSshFavoritePath(path, favoriteLabelInput),
+      createSshFavoritePath(path),
     ];
 
-    setFavoritePathInput('');
-    setFavoriteLabelInput('');
     await saveFavoritePaths(nextFavoritePaths);
   };
   const removeFavoritePath = (favoritePathId: string) => {
@@ -314,6 +323,7 @@ export function SshActivityPanel({
 
     setSnippetCommandInput('');
     setSnippetLabelInput('');
+    setIsAddingCommandSnippet(false);
     await saveCommandSnippets(nextCommandSnippets);
   };
   const removeCommandSnippet = (snippetId: string) => {
@@ -422,7 +432,11 @@ export function SshActivityPanel({
 
       <div className="flex min-h-0 flex-col gap-3">
         <CollapsibleToolSection
-          count={favoritePaths.length}
+          count={
+            favoritePathSearchInput.trim()
+              ? `${filteredFavoritePaths.length}/${favoritePaths.length}`
+              : favoritePaths.length
+          }
           isCollapsed={tabsPanelState.isFavoritePathsCollapsed}
           onToggleCollapsed={() =>
             setTabsPanelState((current) => ({
@@ -433,23 +447,12 @@ export function SshActivityPanel({
           title="Favorite Paths"
         >
           <div className="grid gap-2">
-            <input
-              className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-              placeholder="Label (optional)"
-              value={favoriteLabelInput}
-              onChange={(event) => setFavoriteLabelInput(event.target.value)}
-            />
             <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
               <input
-                className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                placeholder="Path or blank for current"
-                value={favoritePathInput}
-                onChange={(event) => setFavoritePathInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    void addFavoritePath();
-                  }
-                }}
+                className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                placeholder="Search favorite paths"
+                value={favoritePathSearchInput}
+                onChange={(event) => setFavoritePathSearchInput(event.target.value)}
               />
               <Button
                 className="h-8 w-7 px-0"
@@ -457,7 +460,7 @@ export function SshActivityPanel({
                 type="button"
                 onClick={() => void addFavoritePath()}
                 aria-label="Add SSH favorite path"
-                title="Add typed path or current SSH directory"
+                title="Add current SSH directory"
               >
                 <Plus className="size-3.5" />
               </Button>
@@ -471,8 +474,12 @@ export function SshActivityPanel({
                   <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
                     Save frequently used remote paths here. Use the terminal button to send a cd command.
                   </div>
+                ) : filteredFavoritePaths.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                    No favorite paths match this search.
+                  </div>
                 ) : (
-                  favoritePaths.map((favoritePath) => (
+                  filteredFavoritePaths.map((favoritePath) => (
                     <FavoritePathCard
                       editingValue={editingFavoritePath?.id === favoritePath.id ? editingFavoritePath : undefined}
                       favoritePath={favoritePath}
@@ -493,7 +500,11 @@ export function SshActivityPanel({
         </CollapsibleToolSection>
 
         <CollapsibleToolSection
-          count={commandSnippets.length}
+          count={
+            commandSnippetSearchInput.trim()
+              ? `${filteredCommandSnippets.length}/${commandSnippets.length}`
+              : commandSnippets.length
+          }
           isCollapsed={tabsPanelState.isCommandSnippetsCollapsed}
           onToggleCollapsed={() =>
             setTabsPanelState((current) => ({
@@ -504,34 +515,56 @@ export function SshActivityPanel({
           title="Command Snippets"
         >
           <div className="grid gap-2">
-            <input
-              className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-              placeholder="Label (optional)"
-              value={snippetLabelInput}
-              onChange={(event) => setSnippetLabelInput(event.target.value)}
-            />
             <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
               <input
-                className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                placeholder="Command, e.g. tail -f ~/app/logs/app.log"
-                value={snippetCommandInput}
-                onChange={(event) => setSnippetCommandInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    void addCommandSnippet();
-                  }
-                }}
+                className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                placeholder="Search command snippets"
+                value={commandSnippetSearchInput}
+                onChange={(event) => setCommandSnippetSearchInput(event.target.value)}
               />
-              <SidebarActionMenu
-                ariaLabel="Choose SSH command snippet save mode"
-                icon={<Plus className="size-3.5" />}
-                items={[
-                  { label: 'Save as typed', onSelect: () => void addCommandSnippet() },
-                  { label: 'Save with current path', onSelect: () => void addCommandSnippet({ useCurrentDirectory: true }) },
-                ]}
-                title="Choose snippet save mode"
-              />
+              <Button
+                className="h-8 w-7 px-0"
+                size="icon"
+                type="button"
+                onClick={() => setIsAddingCommandSnippet((current) => !current)}
+                aria-label="Add SSH command snippet"
+                title="Add command snippet"
+              >
+                {isAddingCommandSnippet ? <X className="size-3.5" /> : <Plus className="size-3.5" />}
+              </Button>
             </div>
+            {isAddingCommandSnippet && (
+              <div className="grid gap-2 rounded-md border border-primary/25 bg-background/40 p-2">
+                <input
+                  className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                  placeholder="Label (optional)"
+                  value={snippetLabelInput}
+                  onChange={(event) => setSnippetLabelInput(event.target.value)}
+                />
+                <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
+                  <input
+                    className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
+                    placeholder="Command, e.g. tail -f ~/app/logs/app.log"
+                    value={snippetCommandInput}
+                    onChange={(event) => setSnippetCommandInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        void addCommandSnippet();
+                      }
+                    }}
+                  />
+                  <SidebarActionMenu
+                    ariaLabel="Choose SSH command snippet save mode"
+                    icon={<Plus className="size-3.5" />}
+                    items={[
+                      { label: 'Save as typed', onSelect: () => void addCommandSnippet() },
+                      { label: 'Save with current path', onSelect: () => void addCommandSnippet({ useCurrentDirectory: true }) },
+                    ]}
+                    title="Choose snippet save mode"
+                  />
+                </div>
+              </div>
+            )}
             <InlineSectionStatus message={snippetStatusText} />
           </div>
           <div className="min-h-0">
@@ -541,8 +574,12 @@ export function SshActivityPanel({
                   <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
                     Save commands for this SSH session. Paste inserts text; Run sends Enter.
                   </div>
+                ) : filteredCommandSnippets.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-border/80 px-3 py-4 text-xs text-muted-foreground">
+                    No command snippets match this search.
+                  </div>
                 ) : (
-                  commandSnippets.map((snippet) => (
+                  filteredCommandSnippets.map((snippet) => (
                     <CommandSnippetCard
                       canWrite={canWriteToActiveSsh}
                       editingValue={editingCommandSnippet?.id === snippet.id ? editingCommandSnippet : undefined}
@@ -592,7 +629,7 @@ function CollapsibleToolSection({
   title,
 }: {
   children: ReactNode;
-  count: number;
+  count: ReactNode;
   isCollapsed: boolean;
   onToggleCollapsed: () => void;
   title: string;
@@ -649,7 +686,7 @@ function FavoritePathCard({
 }) {
   if (editingValue) {
     return (
-      <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2">
+      <div className="grid gap-2 rounded-md border border-border/70 bg-background/50 p-2">
         <input
           className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
           value={editingValue.label}
@@ -683,24 +720,20 @@ function FavoritePathCard({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2">
-          <button className="grid min-w-0 gap-0.5 text-left" type="button" onDoubleClick={onEdit}>
-            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
-              <Star className="size-3.5 shrink-0 text-primary" />
-              <span className="truncate" title={favoritePath.label}>{favoritePath.label}</span>
-            </span>
-            <span className="truncate font-mono text-[10px] text-muted-foreground" title={favoritePath.path}>
-              {favoritePath.path}
+        <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem] items-center gap-1 rounded border border-border/60 bg-background/35 px-1.5 py-1 shadow-[inset_2px_0_0_hsl(var(--primary)_/_0.35)] transition-colors hover:border-primary/35 hover:bg-accent/35">
+          <button className="flex h-6 min-w-0 items-center text-left" type="button" title={favoritePath.path} onDoubleClick={onEdit}>
+            <span className="block truncate text-[11px] font-semibold text-foreground" title={favoritePath.label}>
+              {favoritePath.label}
             </span>
           </button>
           <button
-            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             type="button"
             title="Go to path in SSH"
             aria-label="Go to path in SSH"
             onClick={onSendCd}
           >
-            <Terminal className="size-3.5" />
+            <Terminal className="size-3" />
           </button>
         </div>
       </ContextMenuTrigger>
@@ -751,7 +784,7 @@ function CommandSnippetCard({
 
   if (editingValue) {
     return (
-      <div className="grid gap-2 rounded-md border border-primary/40 bg-background/50 p-2">
+      <div className="grid gap-2 rounded-md border border-border/70 bg-background/50 p-2">
         <input
           className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
           value={editingValue.label}
@@ -785,35 +818,31 @@ function CommandSnippetCard({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md border border-border/70 bg-background/40 p-2">
-          <button className="grid min-w-0 gap-0.5 text-left" type="button" onDoubleClick={onEdit}>
-            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-foreground">
-              <ScrollText className="size-3.5 shrink-0 text-primary" />
-              <span className="truncate" title={snippet.label}>{snippet.label}</span>
-            </span>
-            <span className="truncate font-mono text-[10px] text-muted-foreground" title={commandTitle}>
-              {displayCommand}
+        <div className="group grid min-w-0 grid-cols-[minmax(0,1fr)_1.5rem_1.5rem] items-center gap-1 rounded border border-border/60 bg-background/35 px-1.5 py-1 shadow-[inset_2px_0_0_hsl(var(--primary)_/_0.35)] transition-colors hover:border-primary/35 hover:bg-accent/35">
+          <button className="flex h-6 min-w-0 items-center text-left" type="button" title={commandTitle} onDoubleClick={onEdit}>
+            <span className="block truncate text-[11px] font-semibold text-foreground" title={snippet.label}>
+              {snippet.label}
             </span>
           </button>
           <button
-            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             type="button"
             title={canWrite ? 'Paste command' : 'Reconnect SSH before pasting'}
             aria-label="Paste command"
             disabled={!canWrite}
             onClick={onPaste}
           >
-            <Clipboard className="size-3.5" />
+            <Clipboard className="size-3" />
           </button>
           <button
-            className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             type="button"
             title={canWrite ? 'Run command' : 'Reconnect SSH before running'}
             aria-label="Run command"
             disabled={!canWrite}
             onClick={onRun}
           >
-            <Play className="size-3.5" />
+            <Play className="size-3" />
           </button>
         </div>
       </ContextMenuTrigger>

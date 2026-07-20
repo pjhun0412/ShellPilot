@@ -43,6 +43,7 @@ export function CommanderPane({
   onCreateFolder,
   onDelete,
   onDownload,
+  onFavoritePath,
   onNavigate,
   onBrowseDirectory,
   onRefresh,
@@ -87,6 +88,7 @@ export function CommanderPane({
   onCreateFolder?: () => void;
   onDelete?: () => void;
   onDownload?: () => void;
+  onFavoritePath?: (path: string) => void;
   onNavigate: (path: string) => void;
   onBrowseDirectory?: () => void;
   onRefresh: () => void;
@@ -226,6 +228,7 @@ export function CommanderPane({
         canDelete={canDelete}
         canDownload={canDownload}
         canRename={canRename}
+        currentPath={path}
         displayPath={displayPath}
         entriesCount={entries.length}
         error={error}
@@ -241,6 +244,7 @@ export function CommanderPane({
         onDownload={onDownload}
         onDragSourceChange={onDragSourceChange}
         onEndMarqueeSelection={endMarqueeSelection}
+        onFavoritePath={onFavoritePath}
         onNavigate={onNavigate}
         onRefresh={onRefresh}
         onRemoteMoveDragEnd={onRemoteMoveDragEnd}

@@ -28,7 +28,7 @@ export function subscribeSftpTransferStore(listener: SftpTransferStoreListener) 
 export function addSftpPendingTransfer(transfer: SftpTransferItem, replaceTransferId?: string) {
   const pendingTransfer = {
     ...transfer,
-    startedAt: transfer.startedAt ?? Date.now(),
+    startedAt: transfer.status === 'queued' ? undefined : transfer.startedAt ?? Date.now(),
   };
 
   transfers = [
@@ -49,13 +49,51 @@ export function markSftpTransferFailed(transferId: string, message: string) {
   notifySftpTransferStore();
 }
 
+export function markSftpTransferStarted(transferId: string) {
+  transfers = transfers.map((item) =>
+    item.transferId === transferId
+      ? { ...item, message: undefined, startedAt: Date.now(), status: 'started', transferredBytes: 0 }
+      : item,
+  );
+  notifySftpTransferStore();
+}
+
+export function markSftpTransferPaused(transferId: string) {
+  transfers = transfers.map((item) =>
+    item.transferId === transferId
+      ? { ...item, status: 'paused' }
+      : item,
+  );
+  notifySftpTransferStore();
+}
+
+export function markSftpTransferResumed(transferId: string) {
+  transfers = transfers.map((item) =>
+    item.transferId === transferId
+      ? { ...item, status: 'progress' }
+      : item,
+  );
+  notifySftpTransferStore();
+}
+
+export function markSftpTransferCanceled(transferId: string, message?: string) {
+  transfers = transfers.map((item) =>
+    item.transferId === transferId
+      ? { ...item, message, status: 'canceled' }
+      : item,
+  );
+  notifySftpTransferStore();
+}
+
 export function removeSftpTransfer(transferId: string) {
   transfers = transfers.filter((item) => item.transferId !== transferId);
   notifySftpTransferStore();
 }
 
 export function clearFinishedSftpTransfers() {
-  transfers = transfers.filter((item) => item.status === 'progress' || item.status === 'started');
+  transfers = transfers.filter((item) =>
+    item.status === 'paused' || item.status === 'progress' || item.status === 'queued' || item.status === 'started'
+  );
   notifySftpTransferStore();
 }
 

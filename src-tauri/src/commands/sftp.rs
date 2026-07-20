@@ -11,13 +11,16 @@ use std::{
 };
 
 use russh::{client, ChannelMsg, Disconnect};
-use russh_sftp::client::{fs::File as SftpRemoteFile, SftpSession};
+use russh_sftp::{
+    client::{fs::File as SftpRemoteFile, SftpSession},
+    protocol::OpenFlags,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::{
     fs,
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::{mpsc, Mutex},
+    sync::{mpsc, Mutex, Notify},
     task::JoinSet,
 };
 
@@ -29,7 +32,7 @@ use crate::commands::ssh::{
 pub struct SftpSessionStore {
     sessions: Mutex<HashMap<String, Arc<Mutex<SftpConnection>>>>,
     stream_uploads: Mutex<HashMap<String, SftpUploadStream>>,
-    transfers: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    transfers: Arc<Mutex<HashMap<String, Arc<SftpTransferControl>>>>,
 }
 
 struct SftpConnection {
@@ -90,6 +93,13 @@ pub struct LocalRootsResult {
     roots: Vec<LocalRootEntry>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalPathMetadata {
+    modified_at: Option<u64>,
+    size: u64,
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SftpTransferEvent {
@@ -122,15 +132,17 @@ pub enum SftpTransferStatus {
 }
 
 struct SftpTransferRequest {
+    download_id: String,
     direction: SftpTransferDirection,
     local_path: String,
     panel_id: String,
     remote_path: String,
     transfer_id: String,
+    upload_id: String,
 }
 
 struct SftpUploadStream {
-    cancel_flag: Arc<AtomicBool>,
+    control: Arc<SftpTransferControl>,
     file: SftpRemoteFile,
     request: SftpTransferRequest,
     temp_remote_path: String,
@@ -138,8 +150,23 @@ struct SftpUploadStream {
     transferred_bytes: u64,
 }
 
+#[derive(Default)]
+struct SftpTransferControl {
+    canceled: AtomicBool,
+    paused: AtomicBool,
+    notify: Notify,
+}
+
 const DOWNLOAD_CHUNK_SIZE: u64 = 256 * 1024;
 const DOWNLOAD_READ_WORKERS: usize = 8;
+// russh-sftp's default per-request timeout (10s) is too tight for the final
+// close-ack on large files, whose server-side fsync time scales with file
+// size. This gives normal requests more headroom; the real fix for the close
+// step specifically is verify_remote_file_size, since no fixed number scales
+// to arbitrarily large files.
+const SFTP_REQUEST_TIMEOUT_SECS: u64 = 30;
+const SFTP_UPLOAD_FINALIZE_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const SFTP_UPLOAD_FINALIZE_RETRY_DELAY: Duration = Duration::from_secs(2);
 
 #[tauri::command]
 pub async fn sftp_open(
@@ -370,6 +397,29 @@ pub async fn local_path_exists(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+pub async fn local_path_metadata(path: String) -> Result<LocalPathMetadata, String> {
+    let path = resolve_existing_local_path(PathBuf::from(path)).await?;
+    let metadata = fs::metadata(path)
+        .await
+        .map_err(|error| format!("failed to read local path metadata: {error}"))?;
+
+    if !metadata.is_file() {
+        return Err("local path is not a file".to_string());
+    }
+
+    let modified_at = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs());
+
+    Ok(LocalPathMetadata {
+        modified_at,
+        size: metadata.len(),
+    })
+}
+
+#[tauri::command]
 pub async fn sftp_mkdir(
     store: State<'_, SftpSessionStore>,
     panel_id: String,
@@ -570,9 +620,10 @@ pub async fn sftp_upload(
     local_path: String,
     remote_path: String,
     transfer_id: String,
+    upload_id: Option<String>,
 ) -> Result<(), String> {
     let connection = get_sftp_connection(&store, &panel_id).await?;
-    let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let control = register_transfer(&store, &transfer_id).await?;
     let local_path = resolve_existing_local_path(PathBuf::from(local_path))
         .await?
         .to_string_lossy()
@@ -583,13 +634,15 @@ pub async fn sftp_upload(
         store.inner().transfers.clone(),
         connection,
         SftpTransferRequest {
+            download_id: transfer_id.clone(),
             direction: SftpTransferDirection::Upload,
             local_path,
             panel_id,
             remote_path,
-            transfer_id,
+            transfer_id: transfer_id.clone(),
+            upload_id: upload_id.unwrap_or(transfer_id),
         },
-        cancel_flag,
+        control,
     ));
 
     Ok(())
@@ -604,27 +657,31 @@ pub async fn sftp_upload_stream_open(
     remote_path: String,
     transfer_id: String,
     total_bytes: u64,
-) -> Result<(), String> {
+    upload_id: Option<String>,
+) -> Result<u64, String> {
     let connection = get_sftp_connection(&store, &panel_id).await?;
-    let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let control = register_transfer(&store, &transfer_id).await?;
+    let upload_id = upload_id.unwrap_or_else(|| transfer_id.clone());
     let local_path = validate_display_local_path(local_path)?;
     let request = SftpTransferRequest {
+        download_id: transfer_id.clone(),
         direction: SftpTransferDirection::Upload,
         local_path,
         panel_id,
         remote_path,
         transfer_id: transfer_id.clone(),
+        upload_id,
     };
-    let temp_remote_path = format!("{}.tmp-shellpilot-{}", request.remote_path, transfer_id);
+    let temp_remote_path = make_remote_upload_temp_path(&request.remote_path, &request.upload_id);
     let file_result = {
         let connection = connection.lock().await;
-        connection.session.create(temp_remote_path.clone()).await
+        open_remote_upload_file(&connection.session, &temp_remote_path, total_bytes, true).await
     };
-    let file = match file_result {
-        Ok(file) => file,
+    let (file, resume_offset) = match file_result {
+        Ok(result) => result,
         Err(error) => {
             store.transfers.lock().await.remove(&transfer_id);
-            return Err(format!("failed to create remote file: {error}"));
+            return Err(error);
         }
     };
 
@@ -632,24 +689,24 @@ pub async fn sftp_upload_stream_open(
         &app,
         &request,
         SftpTransferStatus::Started,
-        None,
+        get_upload_resume_message(resume_offset),
         total_bytes,
-        0,
+        resume_offset,
     );
 
     store.stream_uploads.lock().await.insert(
         transfer_id,
         SftpUploadStream {
-            cancel_flag,
+            control,
             file,
             request,
             temp_remote_path,
             total_bytes,
-            transferred_bytes: 0,
+            transferred_bytes: resume_offset,
         },
     );
 
-    Ok(())
+    Ok(resume_offset)
 }
 
 #[tauri::command]
@@ -667,14 +724,22 @@ pub async fn sftp_upload_stream_chunk(
         return Err("expected raw binary chunk body".to_string());
     };
 
+    let control = {
+        let transfers = store.transfers.lock().await;
+        transfers
+            .get(transfer_id)
+            .cloned()
+            .ok_or_else(|| "stream upload is not running".to_string())?
+    };
+
+    wait_for_transfer_resume(&control).await?;
+
     let mut uploads = store.stream_uploads.lock().await;
     let upload = uploads
         .get_mut(transfer_id)
         .ok_or_else(|| "stream upload is not running".to_string())?;
 
-    if upload.cancel_flag.load(Ordering::Relaxed) {
-        return Err("transfer canceled".to_string());
-    }
+    wait_for_transfer_resume(&upload.control).await?;
 
     upload
         .file
@@ -719,9 +784,10 @@ pub async fn sftp_download(
     remote_path: String,
     local_path: String,
     transfer_id: String,
+    download_id: Option<String>,
 ) -> Result<(), String> {
     let connection = get_sftp_connection(&store, &panel_id).await?;
-    let cancel_flag = register_transfer(&store, &transfer_id).await?;
+    let control = register_transfer(&store, &transfer_id).await?;
     let local_path = resolve_local_download_target(PathBuf::from(local_path))
         .await?
         .to_string_lossy()
@@ -732,13 +798,15 @@ pub async fn sftp_download(
         store.inner().transfers.clone(),
         connection,
         SftpTransferRequest {
+            download_id: download_id.unwrap_or_else(|| transfer_id.clone()),
             direction: SftpTransferDirection::Download,
             local_path,
             panel_id,
             remote_path,
-            transfer_id,
+            transfer_id: transfer_id.clone(),
+            upload_id: transfer_id,
         },
-        cancel_flag,
+        control,
     ));
 
     Ok(())
@@ -750,7 +818,7 @@ pub async fn sftp_cancel_transfer(
     store: State<'_, SftpSessionStore>,
     transfer_id: String,
 ) -> Result<(), String> {
-    let cancel_flag = {
+    let control = {
         let transfers = store.transfers.lock().await;
         transfers
             .get(&transfer_id)
@@ -758,7 +826,8 @@ pub async fn sftp_cancel_transfer(
             .ok_or_else(|| "transfer is not running".to_string())?
     };
 
-    cancel_flag.store(true, Ordering::Relaxed);
+    control.canceled.store(true, Ordering::Relaxed);
+    control.notify.notify_waiters();
 
     let stream_upload = { store.stream_uploads.lock().await.remove(&transfer_id) };
 
@@ -777,6 +846,41 @@ pub async fn sftp_cancel_transfer(
 }
 
 #[tauri::command]
+pub async fn sftp_pause_transfer(
+    store: State<'_, SftpSessionStore>,
+    transfer_id: String,
+) -> Result<(), String> {
+    let control = {
+        let transfers = store.transfers.lock().await;
+        transfers
+            .get(&transfer_id)
+            .cloned()
+            .ok_or_else(|| "transfer is not running".to_string())?
+    };
+
+    control.paused.store(true, Ordering::Relaxed);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sftp_resume_transfer(
+    store: State<'_, SftpSessionStore>,
+    transfer_id: String,
+) -> Result<(), String> {
+    let control = {
+        let transfers = store.transfers.lock().await;
+        transfers
+            .get(&transfer_id)
+            .cloned()
+            .ok_or_else(|| "transfer is not running".to_string())?
+    };
+
+    control.paused.store(false, Ordering::Relaxed);
+    control.notify.notify_waiters();
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn reveal_local_path(path: String) -> Result<(), String> {
     let path = resolve_existing_local_path(PathBuf::from(path)).await?;
 
@@ -786,16 +890,16 @@ pub async fn reveal_local_path(path: String) -> Result<(), String> {
 async fn register_transfer(
     store: &State<'_, SftpSessionStore>,
     transfer_id: &str,
-) -> Result<Arc<AtomicBool>, String> {
-    let cancel_flag = Arc::new(AtomicBool::new(false));
+) -> Result<Arc<SftpTransferControl>, String> {
+    let control = Arc::new(SftpTransferControl::default());
     let mut transfers = store.transfers.lock().await;
 
     if transfers.contains_key(transfer_id) {
         return Err("transfer id is already running".to_string());
     }
 
-    transfers.insert(transfer_id.to_string(), cancel_flag.clone());
-    Ok(cancel_flag)
+    transfers.insert(transfer_id.to_string(), control.clone());
+    Ok(control)
 }
 
 async fn finish_stream_upload(
@@ -817,18 +921,37 @@ async fn finish_stream_upload(
 
     if matches!(status, SftpTransferStatus::Completed) {
         if let Some(result) = flush_result {
-            result.map_err(|error| format!("failed to flush remote file: {error}"))?;
+            if let Err(error) = result {
+                if !is_timeout_error(&error) {
+                    return Err(format!("failed to flush remote file: {error}"));
+                }
+            }
         }
-
-        shutdown_result.map_err(|error| format!("failed to close remote file: {error}"))?;
 
         let connection = get_sftp_connection(&store, &upload.request.panel_id).await?;
         let connection = connection.lock().await;
+
+        if let Err(error) = shutdown_result {
+            let closed_on_server = is_timeout_error(&error)
+                && confirm_remote_file_size_with_retry(
+                    &connection.session,
+                    &upload.temp_remote_path,
+                    upload.transferred_bytes,
+                    SFTP_UPLOAD_FINALIZE_CONFIRM_TIMEOUT,
+                )
+                .await;
+
+            if !closed_on_server {
+                return Err(format!("failed to close remote file: {error}"));
+            }
+        }
+
         finalize_stream_upload_file(
             &connection.session,
             &upload.temp_remote_path,
             &upload.request.remote_path,
             &upload.request.transfer_id,
+            upload.transferred_bytes,
         )
         .await?;
     } else if let Ok(connection) = get_sftp_connection(&store, &upload.request.panel_id).await {
@@ -856,26 +979,105 @@ async fn finalize_stream_upload_file(
     temp_remote_path: &str,
     remote_path: &str,
     transfer_id: &str,
+    expected_bytes: u64,
 ) -> Result<(), String> {
-    if session
-        .rename(temp_remote_path.to_string(), remote_path.to_string())
+    let deadline = Instant::now() + SFTP_UPLOAD_FINALIZE_CONFIRM_TIMEOUT;
+    let backup_remote_path = format!("{remote_path}.bak-shellpilot-{transfer_id}");
+    let mut last_error = None;
+
+    while Instant::now() < deadline {
+        match finalize_stream_upload_file_once(
+            session,
+            temp_remote_path,
+            remote_path,
+            &backup_remote_path,
+        )
         .await
-        .is_ok()
+        {
+            Ok(()) => {
+                if confirm_remote_file_size_with_retry(
+                    session,
+                    remote_path,
+                    expected_bytes,
+                    SFTP_UPLOAD_FINALIZE_CONFIRM_TIMEOUT,
+                )
+                .await
+                {
+                    let _ = session.remove_file(backup_remote_path.clone()).await;
+                    return Ok(());
+                }
+
+                last_error = Some("uploaded file finalized but final size could not be confirmed".to_string());
+            }
+            Err(error) => {
+                if confirm_finalized_upload_with_retry(
+                    session,
+                    temp_remote_path,
+                    remote_path,
+                    expected_bytes,
+                    SFTP_UPLOAD_FINALIZE_RETRY_DELAY,
+                )
+                .await
+                {
+                    let _ = session.remove_file(backup_remote_path.clone()).await;
+                    return Ok(());
+                }
+
+                last_error = Some(error);
+            }
+        }
+
+        tokio::time::sleep(SFTP_UPLOAD_FINALIZE_RETRY_DELAY).await;
+    }
+
+    if confirm_finalized_upload_with_retry(
+        session,
+        temp_remote_path,
+        remote_path,
+        expected_bytes,
+        SFTP_UPLOAD_FINALIZE_RETRY_DELAY,
+    )
+    .await
     {
+        let _ = session.remove_file(backup_remote_path).await;
         return Ok(());
     }
 
-    let backup_remote_path = format!("{remote_path}.bak-shellpilot-{transfer_id}");
-    let backup_result = session
-        .rename(remote_path.to_string(), backup_remote_path.clone())
-        .await;
+    Err(last_error.unwrap_or_else(|| "failed to finalize uploaded file".to_string()))
+}
 
-    if backup_result.is_err() {
-        session
-            .rename(temp_remote_path.to_string(), remote_path.to_string())
-            .await
-            .map_err(|error| format!("failed to finalize uploaded file: {error}"))?;
-        return Ok(());
+async fn finalize_stream_upload_file_once(
+    session: &SftpSession,
+    temp_remote_path: &str,
+    remote_path: &str,
+    backup_remote_path: &str,
+) -> Result<(), String> {
+    match session
+        .rename(temp_remote_path.to_string(), remote_path.to_string())
+        .await
+    {
+        Ok(()) => return Ok(()),
+        Err(error) if is_timeout_error(&error) => {
+            return Err(format!("failed to finalize uploaded file: {error}"));
+        }
+        Err(_) => {}
+    }
+
+    match session
+        .rename(remote_path.to_string(), backup_remote_path.to_string())
+        .await
+    {
+        Ok(()) => {}
+        Err(error) if is_timeout_error(&error) => {
+            return Err(format!("failed to prepare remote overwrite: {error}"));
+        }
+        Err(_) => {
+            session
+                .rename(temp_remote_path.to_string(), remote_path.to_string())
+                .await
+                .map_err(|error| format!("failed to finalize uploaded file: {error}"))?;
+            return Ok(());
+        }
     }
 
     match session
@@ -883,12 +1085,15 @@ async fn finalize_stream_upload_file(
         .await
     {
         Ok(()) => {
-            let _ = session.remove_file(backup_remote_path).await;
+            let _ = session.remove_file(backup_remote_path.to_string()).await;
             Ok(())
+        }
+        Err(error) if is_timeout_error(&error) => {
+            Err(format!("failed to finalize uploaded file: {error}"))
         }
         Err(error) => {
             let restore_result = session
-                .rename(backup_remote_path.clone(), remote_path.to_string())
+                .rename(backup_remote_path.to_string(), remote_path.to_string())
                 .await;
 
             if let Err(restore_error) = restore_result {
@@ -953,17 +1158,17 @@ async fn remove_remote_directory_recursive(
 
 async fn run_sftp_transfer(
     app: AppHandle,
-    transfers: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    transfers: Arc<Mutex<HashMap<String, Arc<SftpTransferControl>>>>,
     connection: Arc<Mutex<SftpConnection>>,
     request: SftpTransferRequest,
-    cancel_flag: Arc<AtomicBool>,
+    control: Arc<SftpTransferControl>,
 ) {
     let result = match request.direction {
         SftpTransferDirection::Upload => {
-            upload_file(&app, &connection, &request, &cancel_flag).await
+            upload_file(&app, &connection, &request, &control).await
         }
         SftpTransferDirection::Download => {
-            download_file(&app, &connection, &request, &cancel_flag).await
+            download_file(&app, &connection, &request, &control).await
         }
     };
 
@@ -994,14 +1199,14 @@ async fn upload_file(
     app: &AppHandle,
     connection: &Arc<Mutex<SftpConnection>>,
     request: &SftpTransferRequest,
-    cancel_flag: &AtomicBool,
+    control: &SftpTransferControl,
 ) -> Result<(), String> {
     let metadata = fs::metadata(&request.local_path)
         .await
         .map_err(|error| format!("failed to read local path metadata: {error}"))?;
 
     if metadata.is_dir() {
-        upload_directory(app, connection, request, cancel_flag).await
+        upload_directory(app, connection, request, control).await
     } else {
         upload_single_file(
             app,
@@ -1011,7 +1216,7 @@ async fn upload_file(
             &request.remote_path,
             metadata.len(),
             0,
-            cancel_flag,
+            control,
         )
         .await
         .map(|_| ())
@@ -1026,18 +1231,27 @@ async fn upload_single_file(
     remote_path: &str,
     total_bytes: u64,
     initial_transferred_bytes: u64,
-    cancel_flag: &AtomicBool,
+    control: &SftpTransferControl,
 ) -> Result<u64, String> {
     let mut local_file = fs::File::open(local_path)
         .await
         .map_err(|error| format!("failed to open local file: {error}"))?;
     let connection = connection.lock().await;
-    let temp_remote_path = format!("{}.tmp-shellpilot-{}", remote_path, request.transfer_id);
-    let mut remote_file = connection
-        .session
-        .create(temp_remote_path.clone())
-        .await
-        .map_err(|error| format!("failed to create remote file: {error}"))?;
+    let temp_remote_path = make_remote_upload_temp_path(remote_path, &request.upload_id);
+    let (mut remote_file, resume_offset) = open_remote_upload_file(
+        &connection.session,
+        &temp_remote_path,
+        total_bytes - initial_transferred_bytes,
+        true,
+    )
+    .await?;
+
+    if resume_offset > 0 {
+        local_file
+            .seek(SeekFrom::Start(resume_offset))
+            .await
+            .map_err(|error| format!("failed to seek local file for resume: {error}"))?;
+    }
 
     let transfer_result = write_local_file_to_remote(
         app,
@@ -1045,28 +1259,43 @@ async fn upload_single_file(
         &mut local_file,
         &mut remote_file,
         total_bytes,
-        initial_transferred_bytes,
-        cancel_flag,
+        initial_transferred_bytes + resume_offset,
+        control,
     )
     .await;
 
     if let Err(message) = transfer_result {
         let _ = remote_file.shutdown().await;
-        let _ = connection.session.remove_file(temp_remote_path).await;
+        if message == "transfer canceled" {
+            let _ = connection.session.remove_file(temp_remote_path).await;
+        }
         return Err(message);
     }
 
     let transferred_bytes = transfer_result?;
 
-    if let Err(error) = remote_file.flush().await {
-        let _ = remote_file.shutdown().await;
-        let _ = connection.session.remove_file(temp_remote_path).await;
-        return Err(format!("failed to flush remote file: {error}"));
-    }
+    let flush_result = remote_file.flush().await;
 
     if let Err(error) = remote_file.shutdown().await {
-        let _ = connection.session.remove_file(temp_remote_path).await;
-        return Err(format!("failed to close remote file: {error}"));
+        let this_file_bytes = transferred_bytes - initial_transferred_bytes;
+        let closed_on_server = is_timeout_error(&error)
+            && confirm_remote_file_size_with_retry(
+                &connection.session,
+                &temp_remote_path,
+                this_file_bytes,
+                SFTP_UPLOAD_FINALIZE_CONFIRM_TIMEOUT,
+            )
+            .await;
+
+        if !closed_on_server {
+            return Err(format!("failed to close remote file: {error}"));
+        }
+    }
+
+    if let Err(error) = flush_result {
+        if !is_timeout_error(&error) {
+            return Err(format!("failed to flush remote file: {error}"));
+        }
     }
 
     if let Err(message) = finalize_stream_upload_file(
@@ -1074,6 +1303,7 @@ async fn upload_single_file(
         &temp_remote_path,
         remote_path,
         &request.transfer_id,
+        transferred_bytes - initial_transferred_bytes,
     )
     .await
     {
@@ -1091,6 +1321,75 @@ async fn upload_single_file(
     Ok(transferred_bytes)
 }
 
+async fn open_remote_upload_file(
+    session: &SftpSession,
+    temp_remote_path: &str,
+    expected_bytes: u64,
+    resume: bool,
+) -> Result<(SftpRemoteFile, u64), String> {
+    if resume {
+        if let Ok(metadata) = session.metadata(temp_remote_path.to_string()).await {
+            let remote_size = metadata.size.unwrap_or(0);
+
+            if remote_size <= expected_bytes {
+                let file_result = session
+                    .open_with_flags(temp_remote_path.to_string(), OpenFlags::WRITE)
+                    .await;
+
+                match file_result {
+                    Ok(mut file) => {
+                        if file.seek(SeekFrom::Start(remote_size)).await.is_ok() {
+                            return Ok((file, remote_size));
+                        }
+                    }
+                    Err(_) => {}
+                }
+
+                let _ = session.remove_file(temp_remote_path.to_string()).await;
+            } else {
+                let _ = session.remove_file(temp_remote_path.to_string()).await;
+            }
+        }
+    }
+
+    let file = session
+        .create(temp_remote_path.to_string())
+        .await
+        .map_err(|error| format!("failed to create remote file: {error}"))?;
+
+    Ok((file, 0))
+}
+
+fn make_remote_upload_temp_path(remote_path: &str, upload_id: &str) -> String {
+    format!("{remote_path}.tmp-shellpilot-{upload_id}")
+}
+
+fn get_upload_resume_message(resume_offset: u64) -> Option<String> {
+    (resume_offset > 0).then(|| format!("Resuming from {}", format_bytes_for_message(resume_offset)))
+}
+
+fn format_bytes_for_message(size: u64) -> String {
+    const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
+
+    if size < 1024 {
+        return format!("{size} B");
+    }
+
+    let mut value = size as f64 / 1024.0;
+    let mut unit_index = 0;
+
+    while value >= 1024.0 && unit_index < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit_index += 1;
+    }
+
+    if value >= 10.0 {
+        format!("{value:.0} {}", UNITS[unit_index])
+    } else {
+        format!("{value:.1} {}", UNITS[unit_index])
+    }
+}
+
 async fn write_local_file_to_remote(
     app: &AppHandle,
     request: &SftpTransferRequest,
@@ -1098,7 +1397,7 @@ async fn write_local_file_to_remote(
     remote_file: &mut SftpRemoteFile,
     total_bytes: u64,
     initial_transferred_bytes: u64,
-    cancel_flag: &AtomicBool,
+    control: &SftpTransferControl,
 ) -> Result<u64, String> {
     let mut buffer = vec![0_u8; 256 * 1024];
     let mut transferred_bytes = initial_transferred_bytes;
@@ -1114,7 +1413,7 @@ async fn write_local_file_to_remote(
     );
 
     loop {
-        ensure_transfer_active(cancel_flag)?;
+        wait_for_transfer_resume(control).await?;
 
         let read_size = local_file
             .read(&mut buffer)
@@ -1152,7 +1451,7 @@ async fn upload_directory(
     app: &AppHandle,
     connection: &Arc<Mutex<SftpConnection>>,
     request: &SftpTransferRequest,
-    cancel_flag: &AtomicBool,
+    control: &SftpTransferControl,
 ) -> Result<(), String> {
     let local_root = PathBuf::from(&request.local_path);
     let root_name = local_root
@@ -1178,12 +1477,12 @@ async fn upload_directory(
     );
 
     for remote_dir in upload_plan.directories {
-        ensure_transfer_active(cancel_flag)?;
+        wait_for_transfer_resume(control).await?;
         create_remote_dir_if_missing(connection, &remote_dir).await?;
     }
 
     for file in upload_plan.files {
-        ensure_transfer_active(cancel_flag)?;
+        wait_for_transfer_resume(control).await?;
         transferred_bytes = upload_single_file(
             app,
             connection,
@@ -1192,7 +1491,7 @@ async fn upload_directory(
             &file.remote_path,
             total_bytes,
             transferred_bytes,
-            cancel_flag,
+            control,
         )
         .await?;
     }
@@ -1291,7 +1590,7 @@ async fn download_file(
     app: &AppHandle,
     connection: &Arc<Mutex<SftpConnection>>,
     request: &SftpTransferRequest,
-    cancel_flag: &Arc<AtomicBool>,
+    control: &Arc<SftpTransferControl>,
 ) -> Result<(), String> {
     let (session, metadata) = {
         let connection = connection.lock().await;
@@ -1304,7 +1603,7 @@ async fn download_file(
     };
 
     if metadata.is_dir() {
-        download_directory(app, &session, request, cancel_flag).await
+        download_directory(app, &session, request, control).await
     } else {
         let file_size = metadata.size.unwrap_or(0);
         download_single_file(
@@ -1316,7 +1615,7 @@ async fn download_file(
             metadata.size.unwrap_or(0),
             file_size,
             0,
-            cancel_flag,
+            control,
         )
         .await
         .map(|_| ())
@@ -1332,30 +1631,28 @@ async fn download_single_file(
     total_bytes: u64,
     file_size: u64,
     initial_transferred_bytes: u64,
-    cancel_flag: &Arc<AtomicBool>,
+    control: &Arc<SftpTransferControl>,
 ) -> Result<u64, String> {
-    let temp_local_path =
-        make_local_sidecar_path(&local_path, "tmp-shellpilot", &request.transfer_id);
-    let mut local_file = fs::File::create(&temp_local_path)
-        .await
-        .map_err(|error| format!("failed to create local file: {error}"))?;
-    let mut transferred_bytes = initial_transferred_bytes;
+    let temp_local_path = make_local_sidecar_path(&local_path, "tmp-shellpilot", &request.download_id);
+    let resume_offset = get_local_download_resume_offset(&temp_local_path, file_size).await;
+    let (mut local_file, resume_offset) = open_local_download_temp_file(&temp_local_path, resume_offset).await?;
+    let mut transferred_bytes = initial_transferred_bytes + resume_offset;
     let mut last_emit = Instant::now();
 
     emit_transfer_event(
         app,
         request,
         SftpTransferStatus::Started,
-        None,
+        get_download_resume_message(resume_offset),
         total_bytes,
-        initial_transferred_bytes,
+        transferred_bytes,
     );
 
     let transfer_result: Result<(), String> = async {
         if file_size > 0 {
-            let next_offset = Arc::new(AtomicU64::new(0));
-            let chunk_count =
-                file_size.saturating_add(DOWNLOAD_CHUNK_SIZE - 1) / DOWNLOAD_CHUNK_SIZE;
+            let remaining_bytes = file_size.saturating_sub(resume_offset);
+            let next_offset = Arc::new(AtomicU64::new(resume_offset));
+            let chunk_count = remaining_bytes.saturating_add(DOWNLOAD_CHUNK_SIZE - 1) / DOWNLOAD_CHUNK_SIZE;
             let worker_count = usize::min(DOWNLOAD_READ_WORKERS, chunk_count as usize).max(1);
             let (chunk_tx, mut chunk_rx) =
                 mpsc::channel::<Result<(u64, Vec<u8>), String>>(worker_count * 2);
@@ -1365,7 +1662,7 @@ async fn download_single_file(
                 let worker_session = session.clone();
                 let worker_remote_path = remote_path.to_string();
                 let worker_next_offset = next_offset.clone();
-                let worker_cancel_flag = cancel_flag.clone();
+                let worker_control = control.clone();
                 let worker_chunk_tx = chunk_tx.clone();
 
                 workers.spawn(async move {
@@ -1376,7 +1673,7 @@ async fn download_single_file(
                     let mut buffer = vec![0_u8; DOWNLOAD_CHUNK_SIZE as usize];
 
                     loop {
-                        ensure_transfer_active(&worker_cancel_flag)?;
+                        wait_for_transfer_resume(&worker_control).await?;
 
                         let chunk_offset =
                             worker_next_offset.fetch_add(DOWNLOAD_CHUNK_SIZE, Ordering::Relaxed);
@@ -1395,7 +1692,7 @@ async fn download_single_file(
                         let mut offset = chunk_offset;
 
                         while bytes_remaining > 0 {
-                            ensure_transfer_active(&worker_cancel_flag)?;
+                            wait_for_transfer_resume(&worker_control).await?;
 
                             let read_size = remote_file
                                 .read(&mut buffer[..bytes_remaining])
@@ -1432,7 +1729,7 @@ async fn download_single_file(
                     }
                 };
 
-                ensure_transfer_active(cancel_flag)?;
+                wait_for_transfer_resume(control).await?;
 
                 local_file
                     .seek(SeekFrom::Start(offset))
@@ -1485,7 +1782,9 @@ async fn download_single_file(
     drop(local_file);
 
     if let Err(message) = transfer_result {
-        let _ = fs::remove_file(&temp_local_path).await;
+        if message == "transfer canceled" {
+            let _ = fs::remove_file(&temp_local_path).await;
+        }
         return Err(message);
     }
 
@@ -1502,11 +1801,64 @@ async fn download_single_file(
     Ok(transferred_bytes)
 }
 
+async fn get_local_download_resume_offset(temp_local_path: &Path, file_size: u64) -> u64 {
+    let Ok(metadata) = fs::metadata(temp_local_path).await else {
+        return 0;
+    };
+
+    let temp_size = metadata.len();
+
+    if temp_size <= file_size {
+        return temp_size;
+    }
+
+    let _ = fs::remove_file(temp_local_path).await;
+    0
+}
+
+async fn open_local_download_temp_file(
+    temp_local_path: &Path,
+    resume_offset: u64,
+) -> Result<(fs::File, u64), String> {
+    if let Some(parent) = temp_local_path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|error| format!("failed to create local directory: {error}"))?;
+    }
+
+    if resume_offset > 0 {
+        let mut resume_options = fs::OpenOptions::new();
+        resume_options.create(true).write(true);
+
+        if let Ok(mut file) = resume_options.open(temp_local_path).await {
+            if file.seek(SeekFrom::Start(resume_offset)).await.is_ok() {
+                return Ok((file, resume_offset));
+            }
+        }
+
+        let _ = fs::remove_file(temp_local_path).await;
+    }
+
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(temp_local_path)
+        .await
+        .map_err(|error| format!("failed to create local file: {error}"))?;
+
+    Ok((file, 0))
+}
+
+fn get_download_resume_message(resume_offset: u64) -> Option<String> {
+    (resume_offset > 0).then(|| format!("Resuming from {}", format_bytes_for_message(resume_offset)))
+}
+
 async fn download_directory(
     app: &AppHandle,
     session: &Arc<SftpSession>,
     request: &SftpTransferRequest,
-    cancel_flag: &Arc<AtomicBool>,
+    control: &Arc<SftpTransferControl>,
 ) -> Result<(), String> {
     let local_root = PathBuf::from(&request.local_path);
     let download_plan =
@@ -1524,14 +1876,14 @@ async fn download_directory(
     );
 
     for local_dir in download_plan.directories {
-        ensure_transfer_active(cancel_flag)?;
+        wait_for_transfer_resume(control).await?;
         fs::create_dir_all(&local_dir)
             .await
             .map_err(|error| format!("failed to create local directory: {error}"))?;
     }
 
     for file in download_plan.files {
-        ensure_transfer_active(cancel_flag)?;
+        wait_for_transfer_resume(control).await?;
 
         if let Some(parent) = file.local_path.parent() {
             fs::create_dir_all(parent)
@@ -1548,7 +1900,7 @@ async fn download_directory(
             total_bytes,
             file.size,
             transferred_bytes,
-            cancel_flag,
+            control,
         )
         .await?;
     }
@@ -1705,9 +2057,17 @@ fn reveal_path_in_file_manager(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_transfer_active(cancel_flag: &AtomicBool) -> Result<(), String> {
-    if cancel_flag.load(Ordering::Relaxed) {
+async fn wait_for_transfer_resume(control: &SftpTransferControl) -> Result<(), String> {
+    if control.canceled.load(Ordering::Relaxed) {
         return Err("transfer canceled".to_string());
+    }
+
+    while control.paused.load(Ordering::Relaxed) {
+        control.notify.notified().await;
+
+        if control.canceled.load(Ordering::Relaxed) {
+            return Err("transfer canceled".to_string());
+        }
     }
 
     Ok(())
@@ -1852,6 +2212,7 @@ async fn open_sftp_connection(
     let session = SftpSession::new(channel.into_stream())
         .await
         .map_err(|error| format!("failed to initialize sftp session: {error}"))?;
+    session.set_timeout(SFTP_REQUEST_TIMEOUT_SECS);
     let users = load_remote_users(&ssh).await.unwrap_or_default();
     let groups = load_remote_groups(&ssh).await.unwrap_or_default();
 
@@ -1986,6 +2347,70 @@ fn format_owner(
         )),
         (None, None) => None,
     }
+}
+
+fn is_timeout_error(error: &impl std::fmt::Display) -> bool {
+    error.to_string().to_ascii_lowercase().contains("timeout")
+}
+
+// A close/shutdown timeout only means the server's SSH_FXP_STATUS ack for
+// SSH_FXP_CLOSE didn't arrive in time (the fixed request timeout in
+// russh-sftp isn't scaled to file size, so a large file's close-time fsync
+// can outrun it). It does not mean the write failed - every byte was already
+// acked before we reached close. Confirm the truth via a fresh stat instead
+// of guessing: if the remote file's size matches what we sent, the transfer
+// genuinely succeeded regardless of the missing close ack.
+async fn verify_remote_file_size(session: &SftpSession, path: &str, expected_bytes: u64) -> bool {
+    matches!(session.metadata(path).await, Ok(metadata) if metadata.size == Some(expected_bytes))
+}
+
+async fn confirm_remote_file_size_with_retry(
+    session: &SftpSession,
+    path: &str,
+    expected_bytes: u64,
+    timeout: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if verify_remote_file_size(session, path, expected_bytes).await {
+            return true;
+        }
+
+        if Instant::now() >= deadline {
+            return false;
+        }
+
+        tokio::time::sleep(SFTP_UPLOAD_FINALIZE_RETRY_DELAY).await;
+    }
+}
+
+async fn confirm_finalized_upload_with_retry(
+    session: &SftpSession,
+    temp_remote_path: &str,
+    remote_path: &str,
+    expected_bytes: u64,
+    timeout: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+
+    loop {
+        if verify_remote_file_size(session, remote_path, expected_bytes).await
+            && !remote_path_exists(session, temp_remote_path).await
+        {
+            return true;
+        }
+
+        if Instant::now() >= deadline {
+            return false;
+        }
+
+        tokio::time::sleep(SFTP_UPLOAD_FINALIZE_RETRY_DELAY).await;
+    }
+}
+
+async fn remote_path_exists(session: &SftpSession, path: &str) -> bool {
+    session.metadata(path).await.is_ok()
 }
 
 fn format_symbolic_permissions(permissions: u32) -> String {

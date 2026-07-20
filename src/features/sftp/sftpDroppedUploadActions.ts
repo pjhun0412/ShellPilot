@@ -6,10 +6,7 @@ import {
   joinSftpPath,
   type SftpDroppedUploadPlan,
 } from './sftpPathUtils';
-import { runLimitedSftpTasks } from './sftpPanelUtils';
 import { chooseFileConflictDecision } from './sftpTransferActionHelpers';
-
-const sftpTransferConcurrency = 2;
 
 export async function startDroppedUploadPlan({
   dataTransfer,
@@ -110,7 +107,7 @@ export async function startDroppedUploadPlan({
     existingNames.add(topLevelName);
   }
 
-  await runLimitedSftpTasks(uploadTasks, sftpTransferConcurrency);
+  await Promise.all(uploadTasks.map((task) => task()));
 }
 
 async function ensureDroppedUploadDirectories({

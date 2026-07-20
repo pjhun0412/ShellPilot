@@ -7,6 +7,11 @@ import { SftpPanelBody } from './SftpPanelBody';
 import { SftpPanelHeader } from './SftpPanelHeader';
 import { SftpPathBar } from './SftpPathBar';
 import {
+  requestSftpSidebarBookmark,
+  requestSftpSidebarLocalFavorite,
+  subscribeSftpSidebarLocalNavigation,
+} from './sftpSidebarState';
+import {
   isSftpResidualUploadEntry,
 } from './sftpPanelUtils';
 import { useSftpBrowserLifecycle } from './useSftpBrowserLifecycle';
@@ -46,6 +51,7 @@ export function SftpPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const resetSelectionRef = useRef<() => void>(() => undefined);
   const resetPathUiRef = useRef<() => void>(() => undefined);
+  const localDownloadRefreshTimerRef = useRef<number>();
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const {
     setShowHiddenEntries,
@@ -197,6 +203,50 @@ export function SftpPanel({
     fallbackExplorerEntry: selectedEntry,
     viewMode,
   });
+  const favoriteRemotePath = useCallback((targetPath: string) => {
+    requestSftpSidebarBookmark(panelId, targetPath);
+  }, [panelId]);
+  const favoriteLocalPath = useCallback((targetPath: string) => {
+    requestSftpSidebarLocalFavorite(panelId, targetPath);
+  }, [panelId]);
+
+  useEffect(() => {
+    return subscribeSftpSidebarLocalNavigation(({ panelId: targetPanelId, path: targetPath }) => {
+      if (targetPanelId !== panelId) {
+        return;
+      }
+
+      setViewMode('commander');
+      setCommanderActivePane('local');
+      void localBrowser.loadDirectory(targetPath);
+    });
+  }, [localBrowser, panelId, setCommanderActivePane, setViewMode]);
+  useEffect(() => {
+    return () => {
+      if (localDownloadRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(localDownloadRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleLocalRefreshAfterDownload = useCallback((downloadedLocalPath: string) => {
+    if (!isLocalFileInDirectory(downloadedLocalPath, localBrowser.path)) {
+      return;
+    }
+
+    if (localDownloadRefreshTimerRef.current !== undefined) {
+      window.clearTimeout(localDownloadRefreshTimerRef.current);
+    }
+
+    localDownloadRefreshTimerRef.current = window.setTimeout(() => {
+      localDownloadRefreshTimerRef.current = undefined;
+
+      if (isLocalFileInDirectory(downloadedLocalPath, localBrowser.path)) {
+        void localBrowser.loadDirectory(localBrowser.path, { recordHistory: false });
+      }
+    }, 150);
+  }, [localBrowser]);
+
   const {
     beginPathEdit,
     cancelPathEdit,
@@ -252,6 +302,7 @@ export function SftpPanel({
     downloadableEntries,
     entries,
     isRemoteReady,
+    onDownloadCompleted: scheduleLocalRefreshAfterDownload,
     panelId,
     panelRef,
     parentEntryPathKey: sftpParentEntryPath,
@@ -305,6 +356,7 @@ export function SftpPanel({
     connectionState,
     entries,
     isLoading,
+    localPath: localBrowser.path,
     panelId,
     path,
     selectedEntries,
@@ -312,6 +364,7 @@ export function SftpPanel({
     showHiddenEntries,
     transferSummary,
     visibleEntries,
+    viewMode,
   });
 
   const handlePanelKeyDown = useSftpKeyboardShortcuts({
@@ -429,6 +482,8 @@ export function SftpPanel({
             onLocalRefresh={() => void localBrowser.loadDirectory(localBrowser.path)}
             onCreateLocalFolder={() => void localBrowser.createFolder()}
             onDeleteLocal={() => void localBrowser.deleteSelected()}
+            onFavoriteLocalPath={favoriteLocalPath}
+            onFavoriteRemotePath={favoriteRemotePath}
             onRemoteGoBack={() => void goBackWithScrollSave()}
             onRemoteGoForward={() => void goForwardWithScrollSave()}
             onRemoteRefresh={() => void loadSftpDirectory()}
@@ -493,6 +548,7 @@ export function SftpPanel({
             onDragOver={handleUploadDragOver}
             onDrop={handleUploadDrop}
             onEndMarqueeSelection={endMarqueeSelection}
+            onFavoritePath={favoriteRemotePath}
             onOpenEntry={openEntry}
             onOpenParent={(nextPath) => void loadSftpDirectory(nextPath)}
             onRefresh={() => void loadSftpDirectory()}
@@ -527,4 +583,27 @@ export function SftpPanel({
       </SftpPanelBody>
     </div>
   );
+}
+
+function isLocalFileInDirectory(filePath: string | undefined, directoryPath: string | undefined) {
+  if (!filePath || !directoryPath) {
+    return false;
+  }
+
+  return normalizeLocalPathForCompare(getLocalParentPath(filePath)) === normalizeLocalPathForCompare(directoryPath);
+}
+
+function getLocalParentPath(filePath: string) {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const lastSeparatorIndex = normalizedPath.lastIndexOf('/');
+
+  if (lastSeparatorIndex <= 0) {
+    return normalizedPath;
+  }
+
+  return normalizedPath.slice(0, lastSeparatorIndex);
+}
+
+function normalizeLocalPathForCompare(path: string) {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 }

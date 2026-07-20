@@ -65,15 +65,22 @@ export async function chooseFileConflictDecision({
 }
 
 export function createPathUploadTransferItem({
+  localModifiedAt,
   localPath,
+  localSize,
   panelId,
   remotePath,
+  uploadId,
 }: {
+  localModifiedAt?: number;
   localPath: string;
+  localSize?: number;
   panelId: string;
   remotePath: string;
+  uploadId?: string;
 }) {
   const transferId = createTransferId();
+  const stableUploadId = uploadId ?? transferId;
 
   return {
     transfer: {
@@ -82,7 +89,7 @@ export function createPathUploadTransferItem({
       message: undefined,
       panelId,
       remotePath,
-      retryPayload: { kind: 'path-upload', localPath, remotePath },
+      retryPayload: { kind: 'path-upload', localModifiedAt, localPath, localSize: localSize ?? 0, remotePath, uploadId: stableUploadId },
       status: 'started',
       totalBytes: 0,
       transferredBytes: 0,
@@ -97,13 +104,16 @@ export function createDroppedUploadTransferItem({
   filename,
   panelId,
   remotePath,
+  uploadId,
 }: {
   file: File;
   filename: string;
   panelId: string;
   remotePath: string;
+  uploadId?: string;
 }) {
   const transferId = createTransferId();
+  const stableUploadId = uploadId ?? transferId;
 
   return {
     transfer: {
@@ -112,7 +122,7 @@ export function createDroppedUploadTransferItem({
       message: undefined,
       panelId,
       remotePath,
-      retryPayload: { file, kind: 'drop-upload', relativePath: filename, remotePath },
+      retryPayload: { file, kind: 'drop-upload', relativePath: filename, remotePath, uploadId: stableUploadId },
       status: 'started',
       totalBytes: file.size,
       transferredBytes: 0,
@@ -123,15 +133,18 @@ export function createDroppedUploadTransferItem({
 }
 
 export function createDownloadTransferItem({
+  downloadId,
   entry,
   localPath,
   panelId,
 }: {
+  downloadId?: string;
   entry: SftpEntry;
   localPath: string;
   panelId: string;
 }) {
   const transferId = createTransferId();
+  const stableDownloadId = downloadId ?? transferId;
   const totalBytes = entry.size ?? 0;
 
   return {
@@ -142,6 +155,7 @@ export function createDownloadTransferItem({
       panelId,
       remotePath: entry.path,
       retryPayload: {
+        downloadId: stableDownloadId,
         kind: 'download',
         localPath,
         remotePath: entry.path,

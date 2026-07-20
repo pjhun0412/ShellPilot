@@ -46,8 +46,13 @@ export interface LocalRootsResult {
   roots: LocalRootEntry[];
 }
 
+export interface LocalPathMetadata {
+  modifiedAt?: number;
+  size: number;
+}
+
 export type SftpTransferDirection = 'download' | 'upload';
-export type SftpTransferStatus = 'canceled' | 'completed' | 'failed' | 'progress' | 'started';
+export type SftpTransferStatus = 'canceled' | 'completed' | 'failed' | 'paused' | 'progress' | 'queued' | 'started';
 
 export interface SftpTransferEvent {
   direction: SftpTransferDirection;
@@ -95,6 +100,10 @@ export async function localPathExists(path: string) {
   return invoke<boolean>('local_path_exists', { path });
 }
 
+export async function getLocalPathMetadata(path: string) {
+  return invoke<LocalPathMetadata>('local_path_metadata', { path });
+}
+
 export async function keepaliveSftpSession(panelId: string) {
   await invoke('sftp_keepalive', { panelId });
 }
@@ -128,8 +137,9 @@ export async function uploadSftpFile(
   localPath: string,
   remotePath: string,
   transferId: string,
+  uploadId?: string,
 ) {
-  await invoke('sftp_upload', { localPath, panelId, remotePath, transferId });
+  await invoke('sftp_upload', { localPath, panelId, remotePath, transferId, uploadId });
 }
 
 export async function openSftpUploadStream(
@@ -138,8 +148,9 @@ export async function openSftpUploadStream(
   remotePath: string,
   transferId: string,
   totalBytes: number,
+  uploadId?: string,
 ) {
-  await invoke('sftp_upload_stream_open', { localPath, panelId, remotePath, totalBytes, transferId });
+  return invoke<number>('sftp_upload_stream_open', { localPath, panelId, remotePath, totalBytes, transferId, uploadId });
 }
 
 export async function writeSftpUploadStreamChunk(transferId: string, chunk: Uint8Array) {
@@ -157,12 +168,21 @@ export async function downloadSftpFile(
   remotePath: string,
   localPath: string,
   transferId: string,
+  downloadId?: string,
 ) {
-  await invoke('sftp_download', { localPath, panelId, remotePath, transferId });
+  await invoke('sftp_download', { downloadId, localPath, panelId, remotePath, transferId });
 }
 
 export async function cancelSftpTransfer(transferId: string) {
   await invoke('sftp_cancel_transfer', { transferId });
+}
+
+export async function pauseSftpTransfer(transferId: string) {
+  await invoke('sftp_pause_transfer', { transferId });
+}
+
+export async function resumeSftpTransfer(transferId: string) {
+  await invoke('sftp_resume_transfer', { transferId });
 }
 
 export async function revealLocalPath(path: string) {

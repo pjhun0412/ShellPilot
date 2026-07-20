@@ -1,4 +1,4 @@
-import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react';
+import { useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
 import {
@@ -25,6 +25,7 @@ export function CommanderPaneBody({
   canDelete,
   canDownload,
   canRename,
+  currentPath,
   displayPath,
   entriesCount,
   error,
@@ -40,6 +41,7 @@ export function CommanderPaneBody({
   onDownload,
   onDragSourceChange,
   onEndMarqueeSelection,
+  onFavoritePath,
   onNavigate,
   onRefresh,
   onRemoteMoveDragEnd,
@@ -67,6 +69,7 @@ export function CommanderPaneBody({
   canDelete: boolean;
   canDownload: boolean;
   canRename: boolean;
+  currentPath: string;
   displayPath: string;
   entriesCount: number;
   error?: string;
@@ -82,6 +85,7 @@ export function CommanderPaneBody({
   onDownload?: () => void;
   onDragSourceChange: (variant: CommanderPaneVariant | undefined) => void;
   onEndMarqueeSelection: () => void;
+  onFavoritePath?: (path: string) => void;
   onNavigate: (path: string) => void;
   onRefresh: () => void;
   onRemoteMoveDragEnd?: () => void;
@@ -106,6 +110,23 @@ export function CommanderPaneBody({
   sortedEntries: CommanderEntry[];
   variant: CommanderPaneVariant;
 }) {
+  const [favoriteContextPath, setFavoriteContextPath] = useState(currentPath);
+
+  const updateFavoriteContextPath = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const rowElement = (event.target as HTMLElement | null)?.closest('[data-commander-entry-path]');
+    const rowPath = rowElement?.getAttribute('data-commander-entry-path');
+    const rowEntry = rowPath
+      ? sortedEntries.find((entry) => entry.path === rowPath)
+      : undefined;
+
+    if (!rowPath) {
+      setFavoriteContextPath(currentPath);
+      return;
+    }
+
+    setFavoriteContextPath(rowEntry?.isDirectory || rowPath === parentPath ? rowPath : currentPath);
+  };
+
   if (error) {
     return <div className="p-3 text-xs text-destructive">{error}</div>;
   }
@@ -118,6 +139,7 @@ export function CommanderPaneBody({
           onMouseDown={onBeginMarqueeSelection}
           onMouseLeave={onEndMarqueeSelection}
           onMouseMove={onUpdateMarqueeSelection}
+          onContextMenu={updateFavoriteContextPath}
           onMouseUp={onEndMarqueeSelection}
         >
           <OverlayScrollArea>
@@ -212,6 +234,7 @@ export function CommanderPaneBody({
         onCreateFolder={onCreateFolder}
         onDelete={onDelete}
         onDownload={onDownload}
+        onFavoritePath={onFavoritePath ? () => onFavoritePath(favoriteContextPath) : undefined}
         onRefresh={onRefresh}
         onRename={onRename}
         onSetShowHiddenEntries={onSetShowHiddenEntries}

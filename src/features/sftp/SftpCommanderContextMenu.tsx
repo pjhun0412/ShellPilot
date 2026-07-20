@@ -34,6 +34,7 @@ export function CommanderContextMenu({
   onCreateFolder,
   onDelete,
   onDownload,
+  onFavoritePath,
   onRefresh,
   onRename,
   onSetShowHiddenEntries,
@@ -57,6 +58,7 @@ export function CommanderContextMenu({
   onCreateFolder?: () => void;
   onDelete?: () => void;
   onDownload?: () => void;
+  onFavoritePath?: () => void;
   onRefresh: () => void;
   onRename?: () => void;
   onSetShowHiddenEntries?: (value: boolean) => void;
@@ -93,6 +95,10 @@ export function CommanderContextMenu({
         <ContextMenuItem onSelect={() => void copyLocalPath()}>
           <Copy className="size-3.5" />
           Copy Path
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onFavoritePath}>
+          <FolderOpen className="size-3.5" />
+          Add to Favorites
         </ContextMenuItem>
         <ContextMenuItem
           className="text-destructive focus:text-destructive"
@@ -137,6 +143,10 @@ export function CommanderContextMenu({
       <ContextMenuItem onSelect={onCopyPath}>
         <Copy className="size-3.5" />
         Copy Path
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={onFavoritePath} disabled={!isRemoteReady}>
+        <FolderOpen className="size-3.5" />
+        Add to Bookmarks
       </ContextMenuItem>
       <ContextMenuItem onSelect={onRename} disabled={!isRemoteReady || isLoading || !canRename}>
         <Pencil className="size-3.5" />
