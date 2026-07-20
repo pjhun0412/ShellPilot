@@ -14,6 +14,7 @@ export function SftpPanelTransferSummary({
     canceled: number;
     completed: number;
     failed: number;
+    queued: number;
     running: number;
     total: number;
   };
@@ -35,6 +36,7 @@ export function SftpPanelTransferSummary({
           <span className="shrink-0 font-semibold text-foreground">Transfers</span>
           <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
             {summary.running} running
+            {summary.queued > 0 && ` / ${summary.queued} queued`}
             {summary.failed > 0 && ` / ${summary.failed} failed`}
             {summary.canceled > 0 && ` / ${summary.canceled} stopped`}
             {summary.completed > 0 && ` / ${summary.completed} done`}
@@ -83,7 +85,7 @@ export function SftpPanelTransferSummary({
                       'block h-full rounded transition-[width]',
                       transfer.status === 'failed'
                         ? 'bg-destructive'
-                        : transfer.status === 'canceled'
+                        : transfer.status === 'canceled' || transfer.status === 'queued'
                           ? 'bg-slate-600'
                           : 'bg-primary',
                     ].join(' ')}
@@ -165,6 +167,14 @@ function formatTransferStatus(transfer: SftpTransferItem) {
     return 'canceled';
   }
 
+  if (transfer.status === 'paused') {
+    return 'paused';
+  }
+
+  if (transfer.status === 'queued') {
+    return 'queued';
+  }
+
   if (!transfer.totalBytes) {
     return transfer.status === 'started' ? 'starting' : formatBytes(transfer.transferredBytes);
   }
@@ -218,7 +228,7 @@ function formatBytes(size: number | undefined) {
   }
 
   if (size < 1024) {
-    return `${size} B`;
+    return `${Math.max(0, Math.round(size))} B`;
   }
 
   const units = ['KB', 'MB', 'GB', 'TB'];

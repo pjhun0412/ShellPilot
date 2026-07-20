@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { revealLocalPath } from './sftpBridge';
+import { revealLocalPath, type SftpTransferEvent } from './sftpBridge';
 import { isSftpTerminalTransferStatus } from './sftpPanelUtils';
 import {
   addSftpPendingTransfer,
@@ -14,15 +14,19 @@ import type { SftpTransferItem } from './sftpTransferTypes';
 export function useSftpTransfers({
   maxItems = 8,
   onError,
+  onDownloadCompleted,
   onUploadCompleted,
   panelId,
 }: {
   maxItems?: number;
+  onDownloadCompleted?: (event: SftpTransferEvent) => void;
   onError: (message: string) => void;
   onUploadCompleted: () => void;
   panelId: string;
 }) {
   const transferWaitersRef = useRef(new Map<string, () => void>());
+  const uploadCompletedRefreshTimerRef = useRef<number>();
+  const onDownloadCompletedRef = useRef(onDownloadCompleted);
   const onUploadCompletedRef = useRef(onUploadCompleted);
   const onErrorRef = useRef(onError);
   const [transfers, setTransfers] = useState<SftpTransferItem[]>(() =>
@@ -33,11 +37,16 @@ export function useSftpTransfers({
       canceled: transfers.filter((item) => item.status === 'canceled').length,
       completed: transfers.filter((item) => item.status === 'completed').length,
       failed: transfers.filter((item) => item.status === 'failed').length,
-      running: transfers.filter((item) => item.status === 'progress' || item.status === 'started').length,
+      queued: transfers.filter((item) => item.status === 'queued').length,
+      running: transfers.filter((item) => item.status === 'paused' || item.status === 'progress' || item.status === 'started').length,
       total: transfers.length,
     }),
     [transfers],
   );
+
+  useEffect(() => {
+    onDownloadCompletedRef.current = onDownloadCompleted;
+  }, [onDownloadCompleted]);
 
   useEffect(() => {
     onUploadCompletedRef.current = onUploadCompleted;
@@ -46,6 +55,14 @@ export function useSftpTransfers({
   useEffect(() => {
     onErrorRef.current = onError;
   }, [onError]);
+
+  useEffect(() => {
+    return () => {
+      if (uploadCompletedRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(uploadCompletedRefreshTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return subscribeSftpTransferStore((items, event) => {
@@ -61,10 +78,25 @@ export function useSftpTransfers({
       }
 
       if (event.status === 'completed' && event.direction === 'upload') {
-        onUploadCompletedRef.current();
+        scheduleUploadCompletedRefresh();
+      }
+
+      if (event.status === 'completed' && event.direction === 'download') {
+        onDownloadCompletedRef.current?.(event);
       }
     });
   }, [maxItems, panelId]);
+
+  const scheduleUploadCompletedRefresh = () => {
+    if (uploadCompletedRefreshTimerRef.current !== undefined) {
+      window.clearTimeout(uploadCompletedRefreshTimerRef.current);
+    }
+
+    uploadCompletedRefreshTimerRef.current = window.setTimeout(() => {
+      uploadCompletedRefreshTimerRef.current = undefined;
+      onUploadCompletedRef.current();
+    }, 150);
+  };
 
   const addPendingTransfer = (transfer: SftpTransferItem, replaceTransferId?: string) => {
     addSftpPendingTransfer(transfer, replaceTransferId);

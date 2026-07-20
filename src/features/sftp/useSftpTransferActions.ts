@@ -2,6 +2,7 @@ import {
   cancelSftpTransfer,
   closeSftpUploadStream,
   downloadSftpFile,
+  getLocalPathMetadata,
   localPathExists,
   openSftpUploadStream,
   uploadSftpFile,
@@ -15,8 +16,8 @@ import {
   getLocalFileName,
   isSftpTransferCanceledError,
   joinLocalPath,
-  runLimitedSftpTasks,
 } from './sftpPanelUtils';
+import { enqueueSftpTransfer } from './sftpTransferScheduler';
 import {
   chooseFileConflictDecision,
   createDownloadTransferItem,
@@ -33,11 +34,9 @@ import {
   selectUploadFolderPath,
 } from './sftpTransferDialogs';
 
-const sftpTransferConcurrency = 2;
 const sftpUploadStreamChunkSize = 4 * 1024 * 1024;
 
 export function useSftpTransferActions({
-  addPendingTransfer,
   currentEntries,
   currentPath,
   deleteTransferWaiter,
@@ -48,7 +47,6 @@ export function useSftpTransferActions({
   setError,
   waitForTransferCompletion,
 }: {
-  addPendingTransfer: (transfer: SftpTransferItem, replaceTransferId?: string) => void;
   currentEntries: SftpEntry[];
   currentPath: string;
   deleteTransferWaiter: (transferId: string) => void;
@@ -193,10 +191,7 @@ export function useSftpTransferActions({
       downloadTasks.push(() => startDownloadTransfer(entry, localPath));
     }
 
-    await runLimitedSftpTasks(
-      downloadTasks,
-      sftpTransferConcurrency,
-    );
+    await Promise.all(downloadTasks.map((task) => task()));
   };
 
   const startUploadFromPaths = async (localPaths: string[], targetDirectory: string) => {
@@ -241,21 +236,23 @@ export function useSftpTransferActions({
       uploadTasks.push(() => startPathUploadTransfer(localPath, remotePath));
     }
 
-    await runLimitedSftpTasks(uploadTasks, sftpTransferConcurrency);
+    await Promise.all(uploadTasks.map((task) => task()));
   };
 
   const startPathUploadTransfer = async (localPath: string, remotePath: string) => {
+    const metadata = await getLocalPathMetadata(localPath);
     const { transfer, transferId } = createPathUploadTransferItem({
+      localModifiedAt: metadata.modifiedAt,
       localPath,
+      localSize: metadata.size,
       panelId,
       remotePath,
     });
 
-    addPendingTransfer(transfer);
-    await runTrackedTransfer(
+    await enqueueSftpTransfer(transfer, () => runTrackedTransfer(
       transferId,
-      () => uploadSftpFile(panelId, localPath, remotePath, transferId),
-    );
+      () => uploadSftpFile(panelId, localPath, remotePath, transferId, transfer.retryPayload?.kind === 'path-upload' ? transfer.retryPayload.uploadId : transferId),
+    ));
   };
 
   const startDroppedFileUpload = async (file: File, filename: string, remotePath: string) => {
@@ -266,34 +263,41 @@ export function useSftpTransferActions({
       remotePath,
     });
 
-    addPendingTransfer(transfer);
-
-    try {
-      await openSftpUploadStream(panelId, filename, remotePath, transferId, file.size);
-
-      for (let offset = 0; offset < file.size; offset += sftpUploadStreamChunkSize) {
-        const chunk = file.slice(offset, Math.min(offset + sftpUploadStreamChunkSize, file.size));
-        const buffer = await chunk.arrayBuffer();
-
-        await writeSftpUploadStreamChunk(transferId, new Uint8Array(buffer));
-      }
-
-      await closeSftpUploadStream(transferId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-
-      if (isSftpTransferCanceledError(message)) {
-        return;
-      }
-
+    await enqueueSftpTransfer(transfer, async () => {
       try {
-        await cancelSftpTransfer(transferId);
-      } catch {
-        // The backend may already have removed the stream after a write failure.
-      }
+        const resumeOffset = await openSftpUploadStream(
+          panelId,
+          filename,
+          remotePath,
+          transferId,
+          file.size,
+          transfer.retryPayload?.kind === 'drop-upload' ? transfer.retryPayload.uploadId : transferId,
+        );
 
-      markTransferFailed(transferId, message);
-    }
+        for (let offset = resumeOffset; offset < file.size; offset += sftpUploadStreamChunkSize) {
+          const chunk = file.slice(offset, Math.min(offset + sftpUploadStreamChunkSize, file.size));
+          const buffer = await chunk.arrayBuffer();
+
+          await writeSftpUploadStreamChunk(transferId, new Uint8Array(buffer));
+        }
+
+        await closeSftpUploadStream(transferId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (isSftpTransferCanceledError(message)) {
+          return;
+        }
+
+        try {
+          await cancelSftpTransfer(transferId);
+        } catch {
+          // The backend may already have removed the stream after a write failure.
+        }
+
+        markTransferFailed(transferId, message);
+      }
+    });
   };
 
   const startDownloadTransfer = async (entry: SftpEntry, localPath: string) => {
@@ -303,11 +307,16 @@ export function useSftpTransferActions({
       panelId,
     });
 
-    addPendingTransfer(transfer);
-    await runTrackedTransfer(
+    await enqueueSftpTransfer(transfer, () => runTrackedTransfer(
       transferId,
-      () => downloadSftpFile(panelId, entry.path, localPath, transferId),
-    );
+      () => downloadSftpFile(
+        panelId,
+        entry.path,
+        localPath,
+        transferId,
+        transfer.retryPayload?.kind === 'download' ? transfer.retryPayload.downloadId : transferId,
+      ),
+    ));
   };
 
   return {

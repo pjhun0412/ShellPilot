@@ -1,6 +1,6 @@
 [package]
 name = "shellpilot"
-version = "1.0.2"
+version = "1.0.4"
 description = "Modern remote workspace for SSH, SFTP, RDP, and AI Agent"
 authors = ["ShellPilot"]
 edition = "2021"

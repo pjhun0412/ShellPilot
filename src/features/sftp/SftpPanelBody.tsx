@@ -111,6 +111,7 @@ type SftpTransferSummary = {
   canceled: number;
   completed: number;
   failed: number;
+  queued: number;
   running: number;
   total: number;
 };

@@ -51,6 +51,7 @@ export function SftpPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const resetSelectionRef = useRef<() => void>(() => undefined);
   const resetPathUiRef = useRef<() => void>(() => undefined);
+  const localDownloadRefreshTimerRef = useRef<number>();
   const [isActionMenuOpen, setIsActionMenuOpen] = useState(false);
   const {
     setShowHiddenEntries,
@@ -220,6 +221,31 @@ export function SftpPanel({
       void localBrowser.loadDirectory(targetPath);
     });
   }, [localBrowser, panelId, setCommanderActivePane, setViewMode]);
+  useEffect(() => {
+    return () => {
+      if (localDownloadRefreshTimerRef.current !== undefined) {
+        window.clearTimeout(localDownloadRefreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  const scheduleLocalRefreshAfterDownload = useCallback((downloadedLocalPath: string) => {
+    if (!isLocalFileInDirectory(downloadedLocalPath, localBrowser.path)) {
+      return;
+    }
+
+    if (localDownloadRefreshTimerRef.current !== undefined) {
+      window.clearTimeout(localDownloadRefreshTimerRef.current);
+    }
+
+    localDownloadRefreshTimerRef.current = window.setTimeout(() => {
+      localDownloadRefreshTimerRef.current = undefined;
+
+      if (isLocalFileInDirectory(downloadedLocalPath, localBrowser.path)) {
+        void localBrowser.loadDirectory(localBrowser.path, { recordHistory: false });
+      }
+    }, 150);
+  }, [localBrowser]);
 
   const {
     beginPathEdit,
@@ -276,6 +302,7 @@ export function SftpPanel({
     downloadableEntries,
     entries,
     isRemoteReady,
+    onDownloadCompleted: scheduleLocalRefreshAfterDownload,
     panelId,
     panelRef,
     parentEntryPathKey: sftpParentEntryPath,
@@ -556,4 +583,27 @@ export function SftpPanel({
       </SftpPanelBody>
     </div>
   );
+}
+
+function isLocalFileInDirectory(filePath: string | undefined, directoryPath: string | undefined) {
+  if (!filePath || !directoryPath) {
+    return false;
+  }
+
+  return normalizeLocalPathForCompare(getLocalParentPath(filePath)) === normalizeLocalPathForCompare(directoryPath);
+}
+
+function getLocalParentPath(filePath: string) {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const lastSeparatorIndex = normalizedPath.lastIndexOf('/');
+
+  if (lastSeparatorIndex <= 0) {
+    return normalizedPath;
+  }
+
+  return normalizedPath.slice(0, lastSeparatorIndex);
+}
+
+function normalizeLocalPathForCompare(path: string) {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 }

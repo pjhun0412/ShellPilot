@@ -505,6 +505,7 @@ function showBottomBorderTab(model: Model, tabId: string) {
   }
 
   ensureBottomBorderTab(model, tabId);
+  setBottomBorderVisible(model, true);
   focusWorkspaceTab(model, tabId);
 }
 

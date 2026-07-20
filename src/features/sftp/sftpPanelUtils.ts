@@ -152,14 +152,15 @@ export function mergeTransferEvent(
   next: SftpTransferEvent,
 ): SftpTransferItem {
   if (!previous) {
-    return { ...next, startedAt: Date.now() };
+    return { ...next, startedAt: next.status === 'queued' ? undefined : Date.now() };
   }
 
   return {
     ...previous,
     ...next,
     retryPayload: previous.retryPayload,
-    startedAt: previous.startedAt,
+    startedAt: previous.startedAt ?? (next.status === 'queued' ? undefined : Date.now()),
+    status: previous.status === 'paused' && next.status === 'progress' ? 'paused' : next.status,
     totalBytes: next.totalBytes || previous.totalBytes,
     transferredBytes: next.transferredBytes || previous.transferredBytes,
   };
@@ -258,7 +259,7 @@ export function formatBytes(size: null | number | undefined) {
   }
 
   if (size < 1024) {
-    return `${size} B`;
+    return `${Math.max(0, Math.round(size))} B`;
   }
 
   const units = ['KB', 'MB', 'GB', 'TB'];
