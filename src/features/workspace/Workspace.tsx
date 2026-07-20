@@ -1,10 +1,11 @@
-import { Actions, Layout, Model, type TabNode } from 'flexlayout-react';
+import { Actions, DockLocation, Layout, Model, type TabNode } from 'flexlayout-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   subscribeConnectionStatus,
   type ConnectionStatus,
 } from '@/features/connections/connectionStatus';
+import { dispatchNoteNavigation, subscribeNoteOpen, subscribeNotesMetaChanged } from '@/features/notes/notesNavigation';
 import {
   requestSftpSidebarDisconnect,
   requestSftpSidebarReconnect,
@@ -156,6 +157,109 @@ export function Workspace({
       if (didUpdate) {
         onModelChange(model);
         setWorkspaceVersion((version) => version + 1);
+      }
+    });
+  }, [model, onModelChange]);
+
+  useEffect(() => {
+    return subscribeNotesMetaChanged((notes) => {
+      let didUpdate = false;
+
+      model.visitNodes((node) => {
+        if (node.getType() !== 'tab') {
+          return;
+        }
+
+        const tab = node as TabNode;
+        const config = tab.getConfig() as {
+          noteId?: string;
+          panelType?: WorkspacePanelType;
+        };
+
+        if (config.panelType !== 'note' || !config.noteId) {
+          return;
+        }
+
+        const note = notes.find((candidate) => candidate.id === config.noteId);
+
+        if (!note) {
+          return;
+        }
+
+        model.doAction(
+          Actions.updateNodeAttributes(tab.getId(), {
+            config: {
+              ...config,
+              noteId: note.id,
+            },
+          } as never),
+        );
+        model.doAction(Actions.renameTab(tab.getId(), `${note.title}.md`));
+        didUpdate = true;
+      });
+
+      if (didUpdate) {
+        onModelChange(model);
+        setWorkspaceVersion((version) => version + 1);
+      }
+    });
+  }, [model, onModelChange]);
+
+  useEffect(() => {
+    return subscribeNoteOpen((request) => {
+      let existingTabId: string | undefined;
+
+      model.visitNodes((node) => {
+        if (existingTabId || node.getType() !== 'tab') {
+          return;
+        }
+
+        const tab = node as TabNode;
+        const config = tab.getConfig() as {
+          noteId?: string;
+          panelType?: WorkspacePanelType;
+        };
+
+        if (config.panelType === 'note' && config.noteId === request.noteId) {
+          existingTabId = tab.getId();
+        }
+      });
+
+      if (existingTabId) {
+        model.doAction(Actions.selectTab(existingTabId));
+        setActivePanelId(existingTabId);
+      } else {
+        const tabId = `note-${request.noteId}`;
+        model.doAction(
+          Actions.addTab(
+            {
+              component: 'panel',
+              config: {
+                noteId: request.noteId,
+                panelType: 'note',
+              },
+              id: tabId,
+              name: `${request.title ?? 'Untitled note'}.md`,
+            },
+            model.getActiveTabset()?.getId() ?? model.getFirstTabSet().getId(),
+            DockLocation.CENTER,
+            -1,
+            true,
+          ),
+        );
+        model.doAction(Actions.selectTab(tabId));
+        setActivePanelId(tabId);
+      }
+
+      onModelChange(model);
+      setWorkspaceVersion((version) => version + 1);
+
+      if (request.lineNumber) {
+        dispatchNoteNavigation({
+          lineNumber: request.lineNumber,
+          noteId: request.noteId,
+          query: request.query,
+        });
       }
     });
   }, [model, onModelChange]);

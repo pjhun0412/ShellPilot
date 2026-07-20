@@ -8,7 +8,7 @@ ShellPilot uses multiple agents only when work can be split cleanly. The main se
 - Do not revert or overwrite changes made by other agents or the user.
 - Keep edits scoped to the assigned files or module.
 - Prefer meaningful refactors over tiny file splitting.
-- Do not touch AI, SSH/SFTP, settings, or workspace code unless the task explicitly assigns that area.
+- Do not touch AI, SSH/SFTP, RDP, VNC, Notes, settings, or workspace code unless the task explicitly assigns that area.
 - Use the shared `app-scrollbar` styling for in-app scrollable regions; do not introduce native-looking scrollbars in panels, dialogs, sidebars, or queues.
 - Run the most relevant check for the files changed when feasible.
 - Report changed files and any checks run in the final response.
@@ -43,8 +43,11 @@ ShellPilot uses multiple agents only when work can be split cleanly. The main se
 
 - Settings UI refactors: `src/features/settings/**`
 - SFTP browser and transfer work: `src/features/sftp/**`, `src-tauri/src/commands/sftp.rs`
-- SSH terminal work: `src/features/terminal/**`, `src-tauri/src/commands/ssh.rs`
+- SSH terminal work: `src/features/terminal/**`, `src-tauri/src/commands/ssh.rs`, `src-tauri/src/commands/ssh/**`
 - Workspace/tab layout work: `src/features/workspace/**`, `src/types/workspace.ts`
 - AI assistant work: `src/features/ai/**`, `src-tauri/src/commands/ai.rs`
+- RDP work: `src/features/rdp/**`, `src-tauri/src/commands/rdp.rs`, `src-tauri/rdp-sidecar/**`
+- VNC work: `src/features/vnc/**`, `src-tauri/src/commands/vnc.rs`, `src-tauri/vnc-sidecar/**`
+- Notes work: `src/features/notes/**`, `src-tauri/src/commands/notes.rs`
 
 Do not assign two agents to the same write scope at the same time unless the main coordinator explicitly sequences the work.

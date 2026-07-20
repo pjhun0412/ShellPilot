@@ -49,6 +49,7 @@ type PanelNodeConfig = {
   autoConnect?: boolean;
   initialPath?: WorkspacePanel['initialPath'];
   localPtyTarget?: WorkspacePanel['localPtyTarget'];
+  noteId?: WorkspacePanel['noteId'];
   panelType?: WorkspacePanelType | 'sftp-transfer-queue';
   session?: WorkspacePanel['session'];
 };
@@ -70,6 +71,7 @@ function createWorkspacePanelFromNode(
       autoConnect: config.autoConnect,
       initialPath: config.initialPath,
       localPtyTarget: config.localPtyTarget,
+      noteId: config.noteId,
       session: config.session,
       title: node.getName(),
       type: panelType,

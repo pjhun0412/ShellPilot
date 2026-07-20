@@ -216,4 +216,273 @@
     width: 0 !important;
     height: 0 !important;
   }
+
+  .notes-editor-frame {
+    min-height: 0;
+  }
+
+  .notes-toolbar {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .notes-codemirror {
+    height: 100% !important;
+    min-height: 0;
+    background: #0d1117;
+    color: #c9d1d9;
+  }
+
+  .notes-codemirror .cm-editor {
+    height: 100%;
+  }
+
+  .notes-codemirror .cm-content ::selection,
+  .notes-codemirror .cm-line ::selection,
+  .notes-codemirror .cm-line::selection {
+    background-color: #264f78 !important;
+    color: #ffffff !important;
+  }
+
+  .notes-codemirror .cm-selectionMatch {
+    background-color: rgb(156 111 0 / 45%) !important;
+  }
+
+  .notes-codemirror .cm-searchMatch {
+    background-color: rgb(156 111 0 / 52%) !important;
+  }
+
+  .notes-codemirror .cm-searchMatch-selected {
+    background-color: rgb(202 138 4 / 64%) !important;
+  }
+
+  .notes-codemirror .cm-tooltip {
+    border: 1px solid hsl(var(--border) / 0.9);
+    background: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+    box-shadow: 0 18px 44px rgb(0 0 0 / 0.42);
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul {
+    max-height: 15rem;
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul:hover {
+    scrollbar-color: hsl(var(--scrollbar-thumb) / 0.78) transparent;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul::-webkit-scrollbar-track,
+  .notes-codemirror .cm-tooltip-autocomplete > ul::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    background-clip: content-box;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul:hover::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--scrollbar-thumb) / 0.78);
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--scrollbar-thumb-hover) / 0.9);
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete ul li {
+    padding: 0.35rem 0.55rem;
+  }
+
+  .notes-codemirror .cm-tooltip-autocomplete ul li[aria-selected] {
+    background: hsl(var(--primary) / 0.2);
+    color: hsl(var(--foreground));
+  }
+
+  .notes-codemirror .cm-scroller {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: none;
+  }
+
+  .notes-codemirror:hover .cm-scroller {
+    scrollbar-color: transparent transparent;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-track,
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    background-clip: content-box;
+  }
+
+  .notes-codemirror:hover .cm-scroller::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--scrollbar-thumb) / 0.78);
+  }
+
+  .notes-codemirror .cm-scroller::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--scrollbar-thumb-hover) / 0.9);
+  }
+
+  .notes-toolbar {
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+
+  .notes-toolbar:hover {
+    scrollbar-color: hsl(var(--scrollbar-thumb) / 0.78) transparent;
+  }
+
+  .notes-toolbar::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .notes-toolbar::-webkit-scrollbar-track,
+  .notes-toolbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .notes-toolbar::-webkit-scrollbar-button {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+
+  .notes-toolbar::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background-color: transparent;
+    background-clip: content-box;
+  }
+
+  .notes-toolbar:hover::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--scrollbar-thumb) / 0.78);
+  }
+
+  .notes-toolbar::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--scrollbar-thumb-hover) / 0.9);
+  }
+
+  .notes-markdown-preview {
+    min-height: 0;
+    overflow: auto;
+    border-left: 1px solid #30363d;
+    background: #0d1117;
+    padding: 2rem;
+    color: #c9d1d9;
+  }
+
+  .notes-markdown-preview.wmde-markdown,
+  .notes-markdown-preview .wmde-markdown,
+  .notes-markdown-preview .wmde-markdown-var {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-size: 0.875rem;
+    line-height: 1.65;
+  }
+
+  .notes-markdown-preview .notes-markdown-preview-body {
+    max-width: 980px;
+    margin: 0 auto;
+  }
+
+  .notes-markdown-preview h1,
+  .notes-markdown-preview h2,
+  .notes-markdown-preview h3,
+  .notes-markdown-preview h4,
+  .notes-markdown-preview h5,
+  .notes-markdown-preview h6 {
+    color: #f0f6fc;
+    border-color: #30363d;
+    font-weight: 600;
+  }
+
+  .notes-markdown-preview a {
+    color: #58a6ff;
+  }
+
+  .notes-markdown-preview hr {
+    border-color: #30363d;
+    background-color: #30363d;
+  }
+
+  .notes-markdown-preview code {
+    border-radius: 6px;
+    background: rgb(110 118 129 / 0.4);
+    color: #c9d1d9;
+  }
+
+  .notes-markdown-preview pre {
+    border-radius: 6px;
+    background: #161b22 !important;
+    color: #c9d1d9;
+  }
+
+  .notes-markdown-preview pre code {
+    background: transparent;
+    color: inherit;
+  }
+
+  .notes-markdown-preview table {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .notes-markdown-preview tr {
+    border-top: 1px solid #30363d;
+  }
+
+  .notes-markdown-preview tr:nth-child(2n) {
+    background: #161b22;
+  }
+
+  .notes-markdown-preview th,
+  .notes-markdown-preview td {
+    border-color: #30363d;
+  }
+
+  .notes-markdown-preview blockquote {
+    border-left-color: #30363d;
+    color: #8b949e;
+  }
+
+  .notes-markdown-preview img {
+    max-width: 100%;
+    background: #0d1117;
+  }
 }

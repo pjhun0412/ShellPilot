@@ -5,6 +5,12 @@ import { fileURLToPath, URL } from 'node:url';
 export default defineConfig({
   plugins: [react()],
   build: {
+    // xterm 6.0.0's parser can be miscompiled by Vite's default esbuild
+    // minifier in packaged builds, causing vi/full-screen TUI escape handling
+    // to crash with `ReferenceError: i is not defined` inside requestMode.
+    // Keep production code unminified until xterm/minifier versions are
+    // upgraded together and vi/top/less are verified in the packaged app.
+    minify: false,
     rollupOptions: {
       output: {
         manualChunks(id) {
