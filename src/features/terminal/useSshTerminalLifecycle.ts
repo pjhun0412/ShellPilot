@@ -17,14 +17,18 @@ import { handleSshTerminalEvent, type SshCloseIntent, type SshHostKeyWarning } f
 import { bindSshTerminalInput } from './sshTerminalInput';
 import { getSshOpenFailure, type SshTerminalFailure } from './sshTerminalUi';
 import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
-import { createTerminalFitScheduler, createTerminalWriteBuffer } from './terminalPerformance';
+import {
+  attachTerminalAlternateScreenScrollGuard,
+  createTerminalFitScheduler,
+  createTerminalWriteBuffer,
+} from './terminalPerformance';
 import type { SshTerminalUiStatus } from './useSshTerminalStatus';
 
 interface UseSshTerminalLifecycleOptions {
   autoConnect: boolean;
   closeIntentRef: MutableRefObject<SshCloseIntent | undefined>;
   containerRef: RefObject<HTMLDivElement>;
-  endpointLabel: string;
+  endpointLabelRef: MutableRefObject<string>;
   failedAttemptRef: MutableRefObject<boolean>;
   fitAddonRef: MutableRefObject<FitAddon | undefined>;
   lastHostKeyWarningRef: MutableRefObject<SshHostKeyWarning | undefined>;
@@ -32,7 +36,7 @@ interface UseSshTerminalLifecycleOptions {
   pendingPasswordRef: MutableRefObject<string | undefined>;
   pendingUsernameRef: MutableRefObject<string | undefined>;
   publishClosedStatus: (updateState?: boolean) => void;
-  session: SessionItem;
+  sessionRef: MutableRefObject<SessionItem>;
   setTerminalStatus: (status: SshTerminalUiStatus, failure?: SshTerminalFailure) => void;
   shouldRememberPasswordRef: MutableRefObject<boolean>;
   shouldRememberUsernameRef: MutableRefObject<boolean>;
@@ -43,7 +47,7 @@ export function useSshTerminalLifecycle({
   autoConnect,
   closeIntentRef,
   containerRef,
-  endpointLabel,
+  endpointLabelRef,
   failedAttemptRef,
   fitAddonRef,
   lastHostKeyWarningRef,
@@ -51,7 +55,7 @@ export function useSshTerminalLifecycle({
   pendingPasswordRef,
   pendingUsernameRef,
   publishClosedStatus,
-  session,
+  sessionRef,
   setTerminalStatus,
   shouldRememberPasswordRef,
   shouldRememberUsernameRef,
@@ -68,6 +72,7 @@ export function useSshTerminalLifecycle({
     fitAddonRef.current = fitAddon;
     registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
+    const alternateScreenScrollGuard = attachTerminalAlternateScreenScrollGuard(terminal);
     const fitScheduler = createTerminalFitScheduler({
       fitAddon,
       onResize: () => {
@@ -79,10 +84,10 @@ export function useSshTerminalLifecycle({
     fitScheduler.fit();
     if (autoConnect) {
       failedAttemptRef.current = false;
-      terminal.writeln(`Connecting to ${endpointLabel}...`);
+      terminal.writeln(`Connecting to ${endpointLabelRef.current}...`);
       setTerminalStatus('connecting');
     } else {
-      terminal.writeln(`Session restored: ${endpointLabel}`);
+      terminal.writeln(`Session restored: ${endpointLabelRef.current}`);
       terminal.writeln('Use Reconnect to open a new SSH connection.');
       setTerminalStatus('restored');
     }
@@ -130,7 +135,7 @@ export function useSshTerminalLifecycle({
           panelId,
           pendingPasswordRef,
           pendingUsernameRef,
-          session,
+          session: sessionRef.current,
           setTerminalStatus,
           shouldRememberPasswordRef,
           shouldRememberUsernameRef,
@@ -144,7 +149,7 @@ export function useSshTerminalLifecycle({
       }
 
       if (autoConnect) {
-        await openSshShell(panelId, session);
+        await openSshShell(panelId, sessionRef.current);
       }
     };
 
@@ -162,6 +167,7 @@ export function useSshTerminalLifecycle({
       writeBuffer.dispose();
       inputBinding.dispose();
       fitScheduler.dispose();
+      alternateScreenScrollGuard.dispose();
       diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();
@@ -175,7 +181,7 @@ export function useSshTerminalLifecycle({
     autoConnect,
     closeIntentRef,
     containerRef,
-    endpointLabel,
+    endpointLabelRef,
     failedAttemptRef,
     fitAddonRef,
     lastHostKeyWarningRef,
@@ -183,7 +189,7 @@ export function useSshTerminalLifecycle({
     pendingPasswordRef,
     pendingUsernameRef,
     publishClosedStatus,
-    session,
+    sessionRef,
     setTerminalStatus,
     shouldRememberPasswordRef,
     shouldRememberUsernameRef,

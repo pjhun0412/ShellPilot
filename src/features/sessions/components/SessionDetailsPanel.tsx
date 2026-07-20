@@ -48,20 +48,27 @@ export function SessionDetailsPanel({
 }: SessionDetailsPanelProps) {
   const [draft, setDraft] = useState<SessionDetailsDraft>(() => createDraft(session));
   const [draftSessionId, setDraftSessionId] = useState(session?.id);
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState(session?.updatedAt);
   const [error, setError] = useState<string>();
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
 
   useEffect(() => {
     setDraft(createDraft(session));
     setDraftSessionId(session?.id);
+    setDraftUpdatedAt(session?.updatedAt);
     setError(undefined);
     setAutoSaveStatus('idle');
-  }, [session?.id]);
+  }, [session?.id, session?.updatedAt]);
 
   const hasDraftChanges = session ? isDraftChanged(session, draft) : false;
 
   useEffect(() => {
-    if (!session || draftSessionId !== session.id || !hasDraftChanges) {
+    if (
+      !session ||
+      draftSessionId !== session.id ||
+      draftUpdatedAt !== session.updatedAt ||
+      !hasDraftChanges
+    ) {
       return;
     }
 
@@ -85,7 +92,7 @@ export function SessionDetailsPanel({
     }, 650);
 
     return () => window.clearTimeout(saveTimer);
-  }, [draft, draftSessionId, hasDraftChanges, session]);
+  }, [draft, draftSessionId, draftUpdatedAt, hasDraftChanges, session]);
 
   useEffect(() => {
     if (autoSaveStatus !== 'saved') {

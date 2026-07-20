@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { appAlert, appConfirm, appPrompt } from '@/components/ui/app-dialog';
 import { deleteStoredCredential, savePendingCredentialSecret } from '@/features/sessions/credentialStore';
@@ -8,6 +8,7 @@ import {
   loadSessionGroups,
   loadSessionGroupsWithMigration,
   persistSessionGroups,
+  requestSessionPatch,
   subscribeSessionPatch,
   UNGROUPED_GROUP_ID,
 } from '@/features/sessions/sessionStorage';
@@ -23,6 +24,12 @@ export function useSessionRegistry({
   const [groups, setGroups] = useState<SessionGroup[]>(initialGroups);
   const [isRegistryLoaded, setIsRegistryLoaded] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>();
+  const groupsRef = useRef(initialGroups);
+  const hasLocalRegistryMutationRef = useRef(false);
+
+  useEffect(() => {
+    groupsRef.current = groups;
+  }, [groups]);
 
   useEffect(() => {
     let isMounted = true;
@@ -33,7 +40,10 @@ export function useSessionRegistry({
           return;
         }
 
-        setGroups(loadedGroups);
+        if (!hasLocalRegistryMutationRef.current) {
+          groupsRef.current = loadedGroups;
+          setGroups(loadedGroups);
+        }
         setIsRegistryLoaded(true);
       })
       .catch((error: unknown) => {
@@ -63,21 +73,31 @@ export function useSessionRegistry({
   }, [groups, isRegistryLoaded]);
 
   useEffect(() => {
-    return subscribeSessionPatch(({ patch, sessionId }) => {
-      setGroups((current) =>
-        current.map((group) => ({
-          ...group,
-          sessions: group.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  ...patch,
-                  updatedAt: Date.now(),
-                }
-              : session,
-          ),
-        })),
-      );
+    return subscribeSessionPatch(({ onApplied, patch, sessionId }) => {
+      let didUpdate = false;
+      const nextGroups = groupsRef.current.map((group) => ({
+        ...group,
+        sessions: group.sessions.map((session) => {
+          if (session.id !== sessionId) {
+            return session;
+          }
+
+          didUpdate = true;
+          return {
+            ...session,
+            ...patch,
+            updatedAt: Date.now(),
+          };
+        }),
+      }));
+
+      if (didUpdate) {
+        hasLocalRegistryMutationRef.current = true;
+        groupsRef.current = nextGroups;
+        setGroups(nextGroups);
+      }
+
+      onApplied?.(didUpdate);
     });
   }, []);
 
@@ -87,6 +107,12 @@ export function useSessionRegistry({
   };
 
   const saveSession = async (result: CreateSessionResult, editingSession?: SessionItem) => {
+    // Set this before any await below. A background load kicked off at mount
+    // (loadSessionGroupsWithMigration) can resolve while we're still awaiting
+    // the credential save, and would otherwise overwrite the in-progress edit
+    // with pre-edit data once it lands.
+    hasLocalRegistryMutationRef.current = true;
+
     if (result.secret) {
       const didSaveCredential = await queueCredentialForBackend(result.secret);
 
@@ -97,31 +123,36 @@ export function useSessionRegistry({
 
     if (editingSession) {
       const nextGroups = updateSessionInRegistry({
-        groups,
+        groups: groupsRef.current,
         newGroupName: result.groupName,
         previousSessionId: editingSession.id,
         session: result.session,
       });
 
+      groupsRef.current = nextGroups;
       setGroups(nextGroups);
+      await persistSessionGroups(nextGroups);
       await cleanupOrphanedCredentialRefs({
         credentialRefs: [editingSession.credentialRef],
         remainingGroups: nextGroups,
       });
+      requestSessionPatch({
+        sessionId: editingSession.id,
+        patch: createSessionPatch(result.session),
+      });
       return;
     }
 
-    setGroups((current) => {
-      const nextGroups = appendSessionToRegistry({
-        groups: current,
-        newGroupName: result.groupName,
-        session: result.session,
-      });
-
-      setSelectedSessionId(result.session.id);
-      onCreateSession(result.session);
-      return nextGroups;
+    const nextGroups = appendSessionToRegistry({
+      groups: groupsRef.current,
+      newGroupName: result.groupName,
+      session: result.session,
     });
+
+    groupsRef.current = nextGroups;
+    setGroups(nextGroups);
+    setSelectedSessionId(result.session.id);
+    onCreateSession(result.session);
   };
 
   const renameFolder = async (group: SessionGroup) => {
@@ -443,6 +474,22 @@ function updateSessionInRegistry({
     newGroupName,
     session,
   });
+}
+
+function createSessionPatch(session: SessionItem) {
+  return {
+    authMethod: session.authMethod,
+    credentialRef: session.credentialRef,
+    favorite: session.favorite,
+    groupId: session.groupId,
+    host: session.host,
+    kind: session.kind,
+    metadata: session.metadata,
+    name: session.name,
+    port: session.port,
+    tags: session.tags,
+    username: session.username,
+  };
 }
 
 function findSessionLocation(groups: SessionGroup[], sessionId: string) {

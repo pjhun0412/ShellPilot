@@ -129,7 +129,7 @@ export function buildCreateSessionResult({
       }),
       favorite: Boolean(input.favorite),
       tags,
-      metadata: createSessionMetadata(input),
+      metadata: createSessionMetadata(input, initialSession),
       createdAt: initialSession?.createdAt ?? timestamp,
       updatedAt: timestamp,
     },
@@ -160,12 +160,14 @@ function resolveSessionCredentialRef({
     : undefined;
 }
 
-function createSessionMetadata(input: CreateSessionInput): SessionItem['metadata'] {
-  if (input.authMethod !== 'key' || !input.privateKeyPath?.trim()) {
-    return undefined;
+function createSessionMetadata(input: CreateSessionInput, initialSession?: SessionItem): SessionItem['metadata'] {
+  const nextMetadata: Record<string, unknown> = { ...initialSession?.metadata };
+
+  if (input.authMethod === 'key' && input.privateKeyPath?.trim()) {
+    nextMetadata.privateKeyPath = input.privateKeyPath.trim();
+  } else {
+    delete nextMetadata.privateKeyPath;
   }
 
-  return {
-    privateKeyPath: input.privateKeyPath.trim(),
-  };
+  return Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined;
 }

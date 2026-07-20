@@ -14,7 +14,11 @@ import {
 } from './localPtyBridge';
 import { bindLocalPtyInput } from './localPtyInput';
 import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
-import { createTerminalFitScheduler, createTerminalWriteBuffer } from './terminalPerformance';
+import {
+  attachTerminalAlternateScreenScrollGuard,
+  createTerminalFitScheduler,
+  createTerminalWriteBuffer,
+} from './terminalPerformance';
 import { subscribeTerminalClosing } from './terminalLifecycle';
 import { registerTerminal, unregisterTerminal } from './terminalRegistry';
 
@@ -48,6 +52,7 @@ export function useLocalPtyLifecycle({
     fitAddonRef.current = fitAddon;
     registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
+    const alternateScreenScrollGuard = attachTerminalAlternateScreenScrollGuard(terminal);
     const fitScheduler = createTerminalFitScheduler({
       fitAddon,
       onResize: () => {
@@ -133,6 +138,7 @@ export function useLocalPtyLifecycle({
       writeBuffer.dispose();
       inputBinding.dispose();
       fitScheduler.dispose();
+      alternateScreenScrollGuard.dispose();
       diagnosticsHighlighter.dispose();
       resizeObserver.disconnect();
       unsubscribeClosing();

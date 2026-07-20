@@ -179,7 +179,6 @@ export function SshActivityPanel({
     };
     try {
       const didSave = await patchStoredSession({
-        notifyWorkspace: false,
         sessionId: activeSession.id,
         patch: {
           metadata: writeSshSessionMetadata(activeSession, nextMetadata),
@@ -212,7 +211,6 @@ export function SshActivityPanel({
     };
     try {
       const didSave = await patchStoredSession({
-        notifyWorkspace: false,
         sessionId: activeSession.id,
         patch: {
           metadata: writeSshSessionMetadata(activeSession, nextMetadata),

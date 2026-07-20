@@ -58,7 +58,7 @@ enum SshTerminalStatus {
 }
 
 const DATA_FLUSH_INTERVAL: Duration = Duration::from_millis(12);
-const DATA_FLUSH_MAX_BYTES: usize = 32 * 1024;
+const DATA_FLUSH_MAX_BYTES: usize = 64 * 1024;
 const EXEC_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
 // Directory tracking: identify the interactive shell's own PID via a
@@ -334,7 +334,7 @@ async fn run_shell_session(
         // touching the interactive channel. Never fatal if this fails.
         let shell_pid = detect_shell_pid(&mut session, local_port).await;
 
-        let mut pending_data = Vec::new();
+        let mut pending_data = Vec::with_capacity(DATA_FLUSH_MAX_BYTES);
         let mut data_flush = time::interval(DATA_FLUSH_INTERVAL);
         data_flush.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
