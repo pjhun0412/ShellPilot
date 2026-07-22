@@ -2,6 +2,8 @@
 
 ShellPilot uses multiple agents only when work can be split cleanly. The main session stays responsible for coordination, final review, build checks, and commits.
 
+For a sufficiently complex task with two or more independent, bounded workstreams, the main session should delegate those workstreams to the project agents in `.codex/agents/`. Prefer parallel read-only analysis; sequence write-heavy work and give every writing agent explicit file ownership. For small or tightly coupled tasks, keep the work in the main session.
+
 ## General Rules
 
 - Work in UTF-8.
