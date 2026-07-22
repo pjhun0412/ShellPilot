@@ -304,3 +304,53 @@ fn permission_triplet(
 
     format!("{read}{write}{execute}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        format_symbolic_permissions, is_sftp_no_such_file_error, join_remote_path,
+        normalize_remote_path,
+    };
+
+    #[test]
+    fn remote_path_normalization_maps_blank_input_to_current_directory() {
+        assert_eq!(normalize_remote_path(""), ".");
+        assert_eq!(normalize_remote_path(" \t\r\n"), ".");
+        assert_eq!(normalize_remote_path("  /srv/data  "), "/srv/data");
+    }
+
+    #[test]
+    fn remote_path_join_handles_root_and_trailing_slashes() {
+        assert_eq!(join_remote_path("/", "file.txt"), "/file.txt");
+        assert_eq!(
+            join_remote_path("/srv/data/", "file.txt"),
+            "/srv/data/file.txt"
+        );
+        assert_eq!(join_remote_path(".", "file.txt"), "./file.txt");
+    }
+
+    #[test]
+    fn symbolic_permissions_formats_regular_and_special_bits() {
+        assert_eq!(format_symbolic_permissions(0o755), "rwxr-xr-x");
+        assert_eq!(format_symbolic_permissions(0o640), "rw-r-----");
+        assert_eq!(format_symbolic_permissions(0o7755), "rwsr-sr-t");
+        assert_eq!(format_symbolic_permissions(0o7000), "--S--S--T");
+    }
+
+    #[test]
+    fn missing_remote_path_errors_are_recognized_case_insensitively() {
+        for message in [
+            "No Such File",
+            "remote entry NOT FOUND",
+            "path does not exist",
+            "No Such Path",
+        ] {
+            assert!(
+                is_sftp_no_such_file_error(&message),
+                "expected missing-path error: {message}"
+            );
+        }
+
+        assert!(!is_sftp_no_such_file_error(&"permission denied"));
+    }
+}

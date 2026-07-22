@@ -431,6 +431,44 @@ pub(super) fn format_bytes_for_message(size: u64) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{
+        format_bytes_for_message, get_upload_resume_message, make_remote_upload_temp_path,
+    };
+
+    #[test]
+    fn remote_upload_temp_path_appends_upload_identifier() {
+        assert_eq!(
+            make_remote_upload_temp_path("/srv/archive.tar", "upload-42"),
+            "/srv/archive.tar.tmp-shellpilot-upload-42"
+        );
+    }
+
+    #[test]
+    fn byte_format_uses_expected_units_and_precision() {
+        assert_eq!(format_bytes_for_message(0), "0 B");
+        assert_eq!(format_bytes_for_message(1023), "1023 B");
+        assert_eq!(format_bytes_for_message(1024), "1.0 KB");
+        assert_eq!(format_bytes_for_message(9 * 1024), "9.0 KB");
+        assert_eq!(format_bytes_for_message(10 * 1024), "10 KB");
+        assert_eq!(format_bytes_for_message(1536), "1.5 KB");
+        assert_eq!(format_bytes_for_message(1024 * 1024 - 1), "1024 KB");
+        assert_eq!(format_bytes_for_message(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes_for_message(1024 * 1024 * 1024), "1.0 GB");
+        assert_eq!(format_bytes_for_message(1024_u64.pow(4)), "1.0 TB");
+    }
+
+    #[test]
+    fn upload_resume_message_is_only_present_for_nonzero_offset() {
+        assert_eq!(get_upload_resume_message(0), None);
+        assert_eq!(
+            get_upload_resume_message(1536),
+            Some("Resuming from 1.5 KB".to_string())
+        );
+    }
+}
+
 async fn write_local_file_to_remote(
     app: &AppHandle,
     request: &SftpTransferRequest,

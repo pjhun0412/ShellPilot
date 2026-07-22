@@ -456,3 +456,31 @@ fn make_local_sidecar_path(local_path: &Path, marker: &str, transfer_id: &str) -
         local_path.to_string_lossy()
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use super::{get_download_resume_message, make_local_sidecar_path};
+
+    #[test]
+    fn local_sidecar_path_appends_marker_and_transfer_identifier() {
+        assert_eq!(
+            make_local_sidecar_path(Path::new("downloads/archive.tar"), "tmp-shellpilot", "dl-7"),
+            PathBuf::from("downloads/archive.tar.tmp-shellpilot-dl-7")
+        );
+        assert_eq!(
+            make_local_sidecar_path(Path::new("downloads/archive.tar"), "bak-shellpilot", "tx-8"),
+            PathBuf::from("downloads/archive.tar.bak-shellpilot-tx-8")
+        );
+    }
+
+    #[test]
+    fn download_resume_message_is_only_present_for_nonzero_offset() {
+        assert_eq!(get_download_resume_message(0), None);
+        assert_eq!(
+            get_download_resume_message(1536),
+            Some("Resuming from 1.5 KB".to_string())
+        );
+    }
+}

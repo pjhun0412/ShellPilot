@@ -98,3 +98,40 @@ pub(super) struct SftpTransferRequest {
     pub(super) transfer_id: String,
     pub(super) upload_id: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{SftpTransferDirection, SftpTransferEvent, SftpTransferStatus};
+
+    #[test]
+    fn transfer_event_serializes_fields_and_variants_in_camel_case() {
+        let event = SftpTransferEvent {
+            direction: SftpTransferDirection::Download,
+            message: Some("Resuming from 1.5 KB".to_string()),
+            panel_id: "panel-1".to_string(),
+            remote_path: "/remote/file.txt".to_string(),
+            local_path: "C:\\downloads\\file.txt".to_string(),
+            status: SftpTransferStatus::Started,
+            total_bytes: 4096,
+            transferred_bytes: 1536,
+            transfer_id: "transfer-1".to_string(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(event).expect("transfer event should serialize"),
+            json!({
+                "direction": "download",
+                "message": "Resuming from 1.5 KB",
+                "panelId": "panel-1",
+                "remotePath": "/remote/file.txt",
+                "localPath": "C:\\downloads\\file.txt",
+                "status": "started",
+                "totalBytes": 4096,
+                "transferredBytes": 1536,
+                "transferId": "transfer-1",
+            })
+        );
+    }
+}

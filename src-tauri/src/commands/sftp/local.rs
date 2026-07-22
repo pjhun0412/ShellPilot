@@ -281,6 +281,54 @@ fn reveal_path_in_file_manager(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{
+        validate_absolute_local_path, validate_display_local_path, validate_local_path_text,
+    };
+
+    #[test]
+    fn local_path_text_rejects_blank_and_nul_input() {
+        assert_eq!(
+            validate_local_path_text(" \t\r\n").unwrap_err(),
+            "local path is required"
+        );
+        assert_eq!(
+            validate_local_path_text("valid\0invalid").unwrap_err(),
+            "local path cannot contain NUL bytes"
+        );
+    }
+
+    #[test]
+    fn display_local_path_preserves_valid_input() {
+        let path = "  relative/path  ".to_string();
+
+        assert_eq!(validate_display_local_path(path.clone()), Ok(path));
+    }
+
+    #[test]
+    fn absolute_local_path_rejects_relative_input() {
+        assert_eq!(
+            validate_absolute_local_path("relative/path".to_string()).unwrap_err(),
+            "local path must be absolute"
+        );
+    }
+
+    #[test]
+    fn absolute_local_path_accepts_absolute_input() {
+        let path = if cfg!(windows) {
+            std::path::PathBuf::from(r"C:\\shellpilot-test")
+        } else {
+            std::path::PathBuf::from("/shellpilot-test")
+        };
+
+        assert_eq!(
+            validate_absolute_local_path(path.to_string_lossy().into_owned()),
+            Ok(path)
+        );
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn reveal_path_in_file_manager(path: &Path) -> Result<(), String> {
     std::process::Command::new("open")
