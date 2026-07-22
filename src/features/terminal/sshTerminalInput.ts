@@ -58,7 +58,7 @@ export function bindSshTerminalInput({
     if (event.code === 'KeyV') {
       event.preventDefault();
       event.stopPropagation();
-      void pasteClipboardToSsh(panelId);
+      void pasteClipboardToSsh(panelId, terminal);
     }
   };
 
@@ -76,7 +76,7 @@ export function bindSshTerminalInput({
     if (event.code === 'KeyV') {
       void navigator.clipboard.readText().then((text) => {
         if (text) {
-          void writeSshData(panelId, text);
+          terminal.paste(text);
         }
       }).catch(() => undefined);
       return false;

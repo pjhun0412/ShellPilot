@@ -271,7 +271,7 @@ export function SshTerminal({
             }
 
             event.preventDefault();
-            void pasteClipboardToSsh(panelId);
+            void pasteClipboardToSsh(panelId, terminalRef.current);
           }}
         >
           <div ref={containerRef} className="h-full min-h-0 overflow-hidden" />
@@ -331,7 +331,7 @@ export function SshTerminal({
           Copy
           <ContextMenuShortcut>select</ContextMenuShortcut>
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => void pasteClipboardToSsh(panelId)}>
+        <ContextMenuItem onSelect={() => void pasteClipboardToSsh(panelId, terminalRef.current)}>
           <Clipboard className="size-3.5" />
           Paste
           <ContextMenuShortcut>middle</ContextMenuShortcut>

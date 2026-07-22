@@ -51,6 +51,12 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // Cargo continuously updates Rust build artifacts while `tauri dev` is
+      // running. They are not frontend sources, and watching them can make
+      // Windows' native file watcher terminate Vite with an UNKNOWN error.
+      ignored: ['**/src-tauri/target/**'],
+    },
   },
   envPrefix: ['VITE_', 'TAURI_'],
 });

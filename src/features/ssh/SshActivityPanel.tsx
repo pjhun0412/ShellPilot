@@ -73,7 +73,10 @@ export function SshActivityPanel({
   const [connectionStatuses, setConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const activeSshTab = useMemo(
     () =>
-      sshTabs.find((tab) => tab.id === activePanelId && connectionStatuses[tab.id] === 'connected') ??
+      // Keep the sidebar bound to the selected SSH tab while its status event is
+      // still pending. Otherwise it can fall back to another connected tab and
+      // ignore that selected tab's favorite/snippet metadata updates.
+      sshTabs.find((tab) => tab.id === activePanelId) ??
       sshTabs.find((tab) => connectionStatuses[tab.id] === 'connected'),
     [activePanelId, connectionStatuses, sshTabs],
   );
@@ -83,7 +86,6 @@ export function SshActivityPanel({
     () => readSshSessionMetadata(activeSession).favoritePaths,
   );
   const [commandSnippetSearchInput, setCommandSnippetSearchInput] = useState('');
-  const [snippetLabelInput, setSnippetLabelInput] = useState('');
   const [snippetCommandInput, setSnippetCommandInput] = useState('');
   const [commandSnippets, setCommandSnippets] = useState<SshCommandSnippet[]>(
     () => readSshSessionMetadata(activeSession).commandSnippets,
@@ -130,7 +132,6 @@ export function SshActivityPanel({
     setFavoritePathSearchInput('');
     setCommandSnippetSearchInput('');
     setSnippetCommandInput('');
-    setSnippetLabelInput('');
     setIsAddingCommandSnippet(false);
     setEditingCommandSnippet(undefined);
     setEditingFavoritePath(undefined);
@@ -313,14 +314,13 @@ export function SshActivityPanel({
 
     const nextCommandSnippets = [
       ...commandSnippets,
-      createSshCommandSnippet(command, snippetLabelInput || createCommandSnippetLabel(typedCommand), {
+      createSshCommandSnippet(command, createCommandSnippetLabel(typedCommand), {
         basePath: currentDirectory,
         displayCommand: options.useCurrentDirectory ? typedCommand : undefined,
       }),
     ];
 
     setSnippetCommandInput('');
-    setSnippetLabelInput('');
     setIsAddingCommandSnippet(false);
     await saveCommandSnippets(nextCommandSnippets);
   };
@@ -533,12 +533,6 @@ export function SshActivityPanel({
             </div>
             {isAddingCommandSnippet && (
               <div className="grid gap-2 rounded-md border border-primary/25 bg-background/40 p-2">
-                <input
-                  className="h-8 rounded border border-input bg-background/70 px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
-                  placeholder="Label (optional)"
-                  value={snippetLabelInput}
-                  onChange={(event) => setSnippetLabelInput(event.target.value)}
-                />
                 <div className="grid grid-cols-[minmax(0,1fr)_1.75rem] gap-1.5">
                   <input
                     className="h-8 rounded border border-input bg-background/70 px-2 font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary"
