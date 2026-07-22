@@ -10,7 +10,7 @@ export interface ResolvedNoteLink extends NoteLink {
 }
 
 export function createWikiLinkPreviewSource(content: string) {
-  return content.replace(/\[\[([^\]\n]+)\]\]/g, (_match, raw: string) => {
+  return transformObsidianCallouts(stripObsidianFrontmatter(content)).replace(/(!?)\[\[([^\]\n]+)\]\]/g, (_match, embedMarker: string, raw: string) => {
     const parsed = parseWikiLink(raw);
 
     if (!parsed) {
@@ -19,8 +19,29 @@ export function createWikiLinkPreviewSource(content: string) {
 
     const href = parsed.heading ? `${parsed.target}#${parsed.heading}` : parsed.target;
 
-    return `[${parsed.label}](${wikiLinkPreviewPrefix}${encodeURIComponent(href)})`;
+    const label = embedMarker ? `Embedded note: ${parsed.label}` : parsed.label;
+
+    return `[${label}](${wikiLinkPreviewPrefix}${encodeURIComponent(href)})`;
   });
+}
+
+function stripObsidianFrontmatter(content: string) {
+  return content.replace(/^\uFEFF?---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/, '');
+}
+
+function transformObsidianCallouts(content: string) {
+  return content.replace(
+    /^>\s*\[!([a-z][a-z0-9_-]*)[+-]?\]\s*(.*)$/gim,
+    (_match, type: string, title: string) => `> **${title.trim() || formatCalloutType(type)}**`,
+  );
+}
+
+function formatCalloutType(value: string) {
+  return value
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((segment) => `${segment[0]?.toUpperCase() ?? ''}${segment.slice(1)}`)
+    .join(' ');
 }
 
 export function parseWikiLink(raw: string) {

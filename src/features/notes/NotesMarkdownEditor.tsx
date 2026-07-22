@@ -5,6 +5,7 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import MarkdownPreview from '@uiw/react-markdown-preview';
 import '@uiw/react-markdown-preview/markdown.css';
+import remarkBreaks from 'remark-breaks';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
@@ -253,6 +254,8 @@ export function NotesMarkdownEditor({
         >
           <MarkdownPreview
             className="notes-markdown-preview-body"
+            remarkPlugins={[remarkBreaks]}
+            skipHtml={false}
             source={previewSource}
             urlTransform={(url) => resolveNotePreviewUrl(url, assetBaseDir)}
             wrapperElement={{ 'data-color-mode': 'dark' }}
