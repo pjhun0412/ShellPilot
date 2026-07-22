@@ -42,6 +42,7 @@ pub fn run() {
             commands::notes::notes_delete,
             commands::notes::notes_delete_folder,
             commands::notes::notes_list,
+            commands::notes::notes_open_external_url,
             commands::notes::notes_read,
             commands::notes::notes_reveal_assets,
             commands::notes::notes_reveal_file,

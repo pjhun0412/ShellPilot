@@ -36,6 +36,7 @@ export function NotesMarkdownEditor({
   showLineNumbers,
   viewMode,
   onSaveImageAsset,
+  onOpenExternalUrl,
   onOpenWikiLink,
 }: {
   assetBaseDir: string;
@@ -51,6 +52,7 @@ export function NotesMarkdownEditor({
   showLineNumbers: boolean;
   viewMode: NoteViewMode;
   onSaveImageAsset: (file: File, data: number[]) => Promise<NoteAsset>;
+  onOpenExternalUrl: (url: string) => void;
   onOpenWikiLink: (target: string) => void;
 }) {
   const previousViewModeRef = useRef(viewMode);
@@ -229,15 +231,24 @@ export function NotesMarkdownEditor({
           onClick={(event) => {
             const link = (event.target as HTMLElement).closest('a');
             const href = link?.getAttribute('href');
-            const target = href ? readWikiLinkPreviewTarget(href) : undefined;
 
-            if (!target) {
+            if (!href) {
               return;
             }
 
+            const target = readWikiLinkPreviewTarget(href);
+
             event.preventDefault();
             event.stopPropagation();
-            onOpenWikiLink(target);
+
+            if (target) {
+              onOpenWikiLink(target);
+              return;
+            }
+
+            if (isHttpUrl(href)) {
+              onOpenExternalUrl(href);
+            }
           }}
         >
           <MarkdownPreview
@@ -454,6 +465,10 @@ function resolveNotePreviewUrl(url: string, assetBaseDir: string) {
 
 function isExternalUrl(url: string) {
   return /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url);
+}
+
+function isHttpUrl(url: string) {
+  return /^https?:\/\//i.test(url);
 }
 
 function resolveNavigationRange(view: EditorView, navigation: NoteNavigationRequest) {

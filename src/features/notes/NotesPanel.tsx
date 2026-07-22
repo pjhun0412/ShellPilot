@@ -26,7 +26,7 @@ import {
   subscribeNotesChanged,
   type NoteNavigationRequest,
 } from './notesNavigation';
-import { createNote, listNotes, readNote, saveNoteAsset, updateNote } from './notesBridge';
+import { createNote, listNotes, openExternalNoteUrl, readNote, saveNoteAsset, updateNote } from './notesBridge';
 import type { NoteHeading, NoteLink, NoteMention, NoteMeta, NoteViewMode } from './notesTypes';
 
 type SaveStatus = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
@@ -406,6 +406,9 @@ export function NotesPanel({ noteId }: { noteId?: string }) {
             onChange={(value) => {
               setContent(value);
               scheduleSave(value);
+            }}
+            onOpenExternalUrl={(url) => {
+              void openExternalNoteUrl(url).catch((caught) => setError(formatError(caught)));
             }}
             onOpenWikiLink={(target) => void openWikiLinkTarget(target)}
             onSaveImageAsset={saveImageAsset}

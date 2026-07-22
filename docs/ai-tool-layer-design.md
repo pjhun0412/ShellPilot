@@ -1,5 +1,8 @@
 # ShellPilot AI Tool Layer Plan
 
+> Status: **frozen / read-only architecture reference**
+> Phase 1-3 구현을 유지한다. 명시적으로 개발을 재개하기 전에는 Phase 4 mutating approval gate나 대규모 리팩터링을 진행하지 않는다.
+
 ## Goal
 
 ShellPilot AI should feel like an operator sitting beside the user: it can inspect the bound SSH/SFTP tab, run safe read-only checks when useful, explain what it found, and ask for approval before any future mutating action.
@@ -110,7 +113,7 @@ The first-pass routing flow is:
 
 Heavy intents are still represented in the catalog, but broad health questions route to `quick_health` first. The answer can then suggest deeper checks such as process, network, log, or full snapshot analysis.
 
-Current and near-term intents:
+Current intents:
 
 | Intent | Example user request | ShellPilot recipe |
 | --- | --- | --- |
@@ -122,14 +125,10 @@ Current and near-term intents:
 | `quick_health` | Why is server slow? First-pass health? | Minimal OS, uptime/load, memory, and disk checks |
 | `system_snapshot` | Deep system diagnosis | OS, uptime, memory, disk, CPU, top processes |
 | `inspect_process` | Is Tomcat running? Where is it? | OS-specific process query recipe |
+| `analyze_log` | Analyze an absolute log path | Fixed `stat`, `find`, `tail`, `grep`, and `journalctl` checks |
+| `inspect_network` | Inspect ports and network state | OS-specific `ss`/`netstat` recipe |
 
-Planned additions:
-
-| Intent | Purpose |
-| --- | --- |
-| `analyze_log` | File/directory log inspection with tail and error pattern checks |
-| `inspect_network` | Port/process/network checks with `ss`, `netstat`, `pgrep` where available |
-| `sftp_context` | Explain currently visible SFTP path, selected entries, and listing |
+SFTP-bound panels also publish a structured context snapshot containing the current remote path, visible entries, selected entries, and connection state.
 
 ## Remote OS Strategy
 
@@ -165,7 +164,7 @@ Future options:
 
 ### SFTP Context
 
-Before implementing `sftp_context`, confirm whether the SFTP panel's current path, visible entries, and selection are readable outside `SftpPanel`. If not, add a small panel snapshot registry keyed by `panelId`.
+SFTP context snapshot support is implemented. It is a context source rather than a generic shell command intent. Very large listings and selected-file content still need explicit size limits and read-only review policies if this area is resumed.
 
 ## Implementation Phases
 
@@ -204,4 +203,4 @@ Status: implemented. `inspect_network`, `inspect_process`, and `analyze_log` are
 
 ## Next Step
 
-Begin Phase 4 design for mutating approval gates, or refine SFTP context into explicit read-only intents such as selected-file summary and large-file review.
+Development is currently frozen after Phase 3. If work resumes, decide separately whether to design Phase 4 approval gates or refine SFTP context into explicit read-only intents such as selected-file summary and large-file review.

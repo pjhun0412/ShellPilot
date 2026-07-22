@@ -69,3 +69,7 @@ export async function renameNoteFolder(oldPath: string, newPath: string) {
 export async function deleteNoteFolder(path: string) {
   return invoke<NotesListResult>('notes_delete_folder', { path });
 }
+
+export async function openExternalNoteUrl(url: string) {
+  return invoke<void>('notes_open_external_url', { url });
+}

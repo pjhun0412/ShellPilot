@@ -1,6 +1,7 @@
 # RDP Design
 
-> 한국어 빠른 인계 문서는 `docs/rdp-handoff.md`를 먼저 보세요. 이 문서는 상세 설계, 단계별 계획, 결정 로그를 함께 보관하는 장기 설계 문서입니다.
+> Status: **frozen historical design / decision log**
+> 현재 구현은 `docs/rdp-handoff.md`를 먼저 본다. 이 문서는 상세 설계, 단계별 계획, 결정 로그를 보존하며 현재 로드맵으로 사용하지 않는다.
 
 ShellPilot RDP is planned as an embedded tab experience, not an external client launcher.
 The first target is Windows development and Windows RDP servers. macOS support is a later

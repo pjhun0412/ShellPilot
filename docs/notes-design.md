@@ -1,10 +1,13 @@
 # Notes 설계 메모
 
+> 상태: **활성 개발 / 기준 문서**
+> 이 문서는 Notes의 현재 구현과 유지보수 정책을 함께 기록한다.
+
 ShellPilot Notes는 SSH/SFTP/RDP/VNC 작업 중 필요한 메모, 런북, 서버별 작업 기록을 한 앱 안에서 관리하기 위한 Markdown 노트 기능이다. 현재 구현은 세션에 강제로 묶이지 않는 일반 노트를 기본으로 하며, 세션/그룹 연계는 추후 확장 항목으로 둔다.
 
 ## 현재 구현 범위
 
-- Active Bar에 `Notes` 항목을 제공한다.
+- Activity Bar에 `Notes` 항목을 제공한다.
 - 좌측 Notes 패널은 Obsidian에 가까운 폴더/노트 트리 형태로 표시한다.
 - 폴더와 노트는 inline 생성/이름 변경을 지원한다.
 - 폴더와 노트는 우클릭 메뉴로 생성, 이름 변경, 삭제, 저장 위치 열기를 처리한다.
@@ -18,6 +21,9 @@ ShellPilot Notes는 SSH/SFTP/RDP/VNC 작업 중 필요한 메모, 런북, 서버
 - 입력은 debounce 저장하며, blur/unmount 시 pending 저장을 flush한다.
 - 검색은 `index.json`의 경량 검색 인덱스를 사용하며, 파일별 검색 결과를 접고 펼칠 수 있다.
 - 검색 결과 라인을 클릭하면 이미 열린 노트 탭을 재사용하고 해당 라인/검색어로 이동한다.
+- wiki link, heading link, backlink/outgoing link, unlinked mention을 지원한다.
+- 본문 태그를 추출해 태그 목록과 검색 필터에 반영한다.
+- 이미지와 일반 파일 첨부를 지원하고 위험한 실행형 확장자는 안전한 파일명으로 바꾼다.
 - 에디터/프리뷰 스타일은 GitHub Markdown Dark와 VS Code Dark 계열에 맞춘다.
 
 ## 저장 구조
@@ -73,20 +79,21 @@ notes/
 }
 ```
 
-사용자가 입력한 노트 경로는 UI 트리와 메타데이터에서만 사용한다. 실제 파일명은 내부 `note-*` id를 사용해서 파일명 충돌, path traversal, OS별 특수문자 차이를 피한다.
+`note-*` id는 노트의 안정적인 내부 식별자로 유지한다. 실제 Markdown 파일은 `pages/{folder}/{title}.md` 형태를 우선 사용하고, 각 경로 segment의 OS 금지 문자를 안전하게 치환한다. 기존 `pages/note-*.md`는 호환용 fallback으로 읽으며 다음 저장·이름 변경·이동 시 사용자 경로 기반 파일로 옮긴다.
 
 ## 백엔드 명령
 
 파일: `src-tauri/src/commands/notes.rs`
 
 - `notes_list()`
-- `notes_create(title, folder_path)`
+- `notes_create(title)` — `title`에는 정규화된 폴더 포함 경로를 전달할 수 있다.
 - `notes_read(id)`
 - `notes_update(id, content)`
 - `notes_rename(id, title)`
 - `notes_delete(id)`
 - `notes_search(query)`
 - `notes_save_asset(id, file_name, mime_type, data)`
+- `notes_open_external_url(url)`
 - `notes_reveal_root()`
 - `notes_reveal_file(id)`
 - `notes_reveal_assets(id)`
@@ -209,24 +216,21 @@ Notes는 GitHub Markdown과 VS Code Dark 계열을 기준으로 한다.
 - 저장 실패 시 본문은 화면에 유지하고 에러만 표시한다.
 - 저장 성공 후 사이드바 트리와 검색 결과를 갱신한다.
 
-## 이미지 asset 정책
+## 첨부 asset 정책
 
-- 1차 범위는 이미지 붙여넣기와 이미지 파일 drag & drop만 지원한다.
-- 지원 MIME type은 `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/bmp`, `image/svg+xml`이다.
-- 이미지는 노트별 `assets/{noteId}/` 디렉터리에 저장한다.
+- 이미지 붙여넣기와 이미지/일반 파일 drag & drop을 지원한다.
+- 첨부는 노트별 `assets/{noteId}/` 디렉터리에 저장한다.
 - 파일명은 원본 파일명을 기반으로 안전한 ASCII 파일명으로 정리하고 timestamp를 붙여 충돌을 피한다.
-- 저장 가능한 이미지 크기는 15 MB로 제한한다.
-- Markdown에는 `![alt](../assets/{noteId}/{fileName})` 형태로 삽입한다.
+- 실행 파일 계열 확장자는 안전한 fallback 확장자로 바꾼다.
+- 저장 가능한 첨부 크기는 50 MB로 제한한다.
+- Markdown에는 이미지 `![alt](../assets/{noteId}/{fileName})`, 일반 파일 `[label](../assets/{noteId}/{fileName})` 형태로 삽입한다.
 - Preview에서는 해당 상대 경로를 현재 노트의 asset 디렉터리 기준 파일 URL로 변환해 표시한다.
-- 일반 파일 첨부, 이미지 크기 조절, asset 정리는 추후 확장 항목이다.
+- 이미지 크기 조절, 첨부 목록 관리, 사용하지 않는 asset 정리는 추후 확장 항목이다.
 
 ## 향후 확장 항목
 
-- 일반 파일 첨부와 첨부 목록 관리
-- 이미지 크기 조절과 asset 정리
-- `[[노트명]]` 스타일 내부 링크
+- 첨부 목록 관리, 이미지 크기 조절과 사용하지 않는 asset 정리
 - 일반 Markdown 링크 클릭 시 같은 앱 안에서 노트 열기
-- `#tag` 자동 인식과 태그 탐색
 - 검색 결과 다음/이전 이동
 - 세션/그룹 관련 노트 연결
 - SSH 선택 텍스트를 노트로 저장
@@ -234,7 +238,7 @@ Notes는 GitHub Markdown과 VS Code Dark 계열을 기준으로 한다.
 - Obsidian vault import/export
 - 노트 즐겨찾기/최근 노트
 
-## 최근 반영 사항
+## 구현 상세 기록
 
 - Notes 사이드바의 일회성 오류 배너는 닫기 버튼을 제공하고, 5초 뒤 자동으로 사라진다.
 - Notes 본문 패널의 읽기/저장 오류 배너는 닫기 버튼으로 사용자가 직접 닫을 수 있다.

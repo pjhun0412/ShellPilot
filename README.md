@@ -15,12 +15,15 @@ Tauri 2 + Rust + React 기반의 원격 접속 통합 클라이언트
 
 ---
 
-> 최신 한국어 인계 문서는 [docs/index.md](docs/index.md)를 먼저 보세요.
+> 현재 개발 범위는 [유지보수 상태](docs/maintenance-status.md), 세부 인계는 [문서 인덱스](docs/index.md)를 먼저 보세요.
 
 ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 하나의 탭 기반 워크스페이스에서 관리하는 데스크톱 앱입니다. 세션은 서버별로 그룹핑해 저장하고, 비밀번호/키 passphrase 같은 secret은 OS 자격 증명 저장소에만 보관합니다.
 
+현재 개발은 실제 사용 중인 **SSH, SFTP, Notes**의 안정화와 유지보수에 집중합니다. RDP, VNC, AI Assistant는 구현된 큰 구조를 보존하는 동결 상태이며, 명시적으로 개발을 재개하기 전에는 기능 추가나 대규모 리팩터링을 진행하지 않습니다. 저장소 버전 `1.0.4`는 릴리스 준비 상태입니다.
+
 ## 목차
 
+- [현재 개발 범위](#현재-개발-범위)
 - [주요 기능](#주요-기능)
 - [기술 스택](#기술-스택)
 - [시작하기](#시작하기)
@@ -28,6 +31,18 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 - [문서](#문서)
 - [로드맵](#로드맵)
 - [라이선스](#라이선스)
+
+## 현재 개발 범위
+
+| 영역 | 상태 | 방향 |
+| --- | --- | --- |
+| SSH / Local PTY | 활성 유지보수 | 접속·인증·known_hosts·터미널 안정화 |
+| SFTP | 활성 유지보수 | Commander·전송 큐·대용량 전송 안정화 |
+| Notes | 활성 개발 | 편집·검색·링크·첨부 안정화 |
+| Workspace / Sessions / Credentials | 공통 기반 | 활성 기능에 필요한 범위에서만 변경 |
+| RDP / VNC / AI Assistant | 동결 | 현재 구조 유지, 명시적 재개 전 기능 확장 보류 |
+
+세부 기준과 문서 우선순위는 [docs/maintenance-status.md](docs/maintenance-status.md)를 따릅니다.
 
 ## 주요 기능
 
@@ -42,10 +57,11 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 ### 📁 SFTP
 
 - SSH 세션에서 바로 SFTP 탭 열기 (탭에서 이동한 현재 원격 경로로 초기 오픈)
-- 원격 파일 탐색, 정렬, 다중/범위 선택, breadcrumb·경로 직접 편집
+- Remote Explorer와 Local/Remote 2-pane Commander, 정렬, 다중/범위 선택, breadcrumb·경로 직접 편집
 - 파일/폴더 업로드·다운로드, 드래그 앤 드롭 업로드
-- 전송 큐(진행률, 속도/ETA, 취소, 실패 재시도), temp/backup 기반 안전한 파일 교체
-- 열린 탐색기 사이드바, 원격 경로 북마크
+- 전송 큐(진행률, 속도/ETA, 동시성 제어, pause/resume, 취소, retry/restart)
+- temp/backup 기반 안전한 파일 교체와 조건부 업로드·다운로드 이어받기
+- 열린 탐색기 사이드바, Local/Remote 즐겨찾기
 
 ### 🖧 RDP
 
@@ -96,7 +112,8 @@ ShellPilot은 SSH 터미널, SFTP 파일 전송, RDP/VNC 원격 데스크톱을 
 
 - 세션 데이터에는 host, port, username, tag, group, auth method, credential reference만 저장합니다.
 - 비밀번호와 SSH key passphrase는 session JSON이나 localStorage에 저장하지 않고, OS 자격 증명 저장소(`keyring`)를 통해서만 저장/조회합니다. 렌더러 메모리 캐시는 5분 TTL만 유지합니다.
-- 저장된 credential을 읽을 때 `credentialId`만 신뢰하지 않고, 세션 레지스트리의 `sessionId`/`credentialRef`/host/port/username을 함께 대조합니다. SSH shell, SFTP, SSH 읽기 전용 실행, 연결 테스트가 모두 같은 검증 경로를 씁니다.
+- SSH/SFTP에서 저장된 credential을 읽을 때 `credentialId`만 신뢰하지 않고, 세션 레지스트리의 `sessionId`/`credentialRef`/host/port/username을 함께 대조합니다. SSH shell, SFTP, SSH 읽기 전용 실행, 연결 테스트가 모두 같은 검증 경로를 씁니다.
+- RDP/VNC의 credential binding은 SSH/SFTP와 같은 수준으로 확장하기 전까지 남은 보안 고도화 항목입니다. 해당 기능은 현재 동결 상태입니다.
 - SSH host key는 앱 로컬 데이터 디렉터리의 known_hosts 저장소에서 관리하며, 변경된 host key는 접속을 차단합니다. 신규 host key는 직전 경고에서 확인한 fingerprint와 일치할 때만 신뢰 저장합니다.
 - 세션 삭제·인증 정보 변경 시 가능한 범위에서 고아 credential을 정리하고, 세션 복제 시 credential reference는 기본적으로 복사하지 않습니다.
 
@@ -159,6 +176,7 @@ src/
     connections/      연결 상태 publish/subscribe
     rdp/              RDP 패널, 입력/프레임 렌더링
     vnc/               VNC 패널, 입력/프레임 렌더링
+    notes/             Markdown 노트, 검색, wiki link, 첨부
     sessions/         세션 CRUD, 트리 UI, 자격 증명 브리지
     sftp/             SFTP 탐색기, 전송 큐
     terminal/         SSH / 로컬 PTY 터미널
@@ -179,6 +197,7 @@ scripts/
 ## 문서
 
 - [문서 인덱스](docs/index.md)
+- [현재 유지보수 상태](docs/maintenance-status.md)
 - [프로젝트 구조 & 작업 인계](docs/project-overview.md)
 - [SSH 인계 문서](docs/ssh-handoff.md)
 - [SFTP 인계 문서](docs/sftp-handoff.md)
@@ -193,16 +212,21 @@ scripts/
 
 ## 로드맵
 
-- SSH key validation 고도화
-- 세션 import/export
-- 워크스페이스 layout reset/preset
-- 테마 토큰 정리 및 light/high-contrast 테마
-- SFTP Commander 모드(로컬/원격 2-pane), pinned/recent 경로
-- SFTP 전송 일시정지/이어받기, 로컬 파일 접근 dialog-grant 기반 제한
-- VNC TLS(VeNCrypt) 지원, RDP/VNC credential 바인딩을 SSH/SFTP 수준으로 확장
-- Notes 본문 전체 검색 인덱스 최적화 및 대용량 vault 대응, 백링크/태그 패널 별도 사이드 패널화
-- Notes Markdown 확장 문법(Mermaid, callout, task query) 검토
-- macOS 자동 업데이트, code signing, GitHub Release 업로드 자동화
+현재 우선순위:
+
+- SSH 인증·known_hosts·터미널 회귀 테스트 보강
+- SFTP 대용량 전송과 temp/resume 정책 실사용 검증
+- SFTP 백엔드의 session/file operation/transfer/control 경계 정리
+- Notes 현재 기능 안정화와 storage/index/link/assets 경계 정리
+- Notes 본문 검색 인덱스 최적화 및 대용량 vault 대응
+- 세션 import/export, 워크스페이스 layout reset/preset
+
+보류 항목:
+
+- RDP/VNC/AI 기능 확장과 대규모 리팩터링
+- VNC TLS(VeNCrypt), RDP/VNC credential binding 고도화
+- AI mutating action approval gate
+- macOS 자동 업데이트, code signing/notarization, GitHub Release 업로드 자동화
 
 ## 라이선스
 

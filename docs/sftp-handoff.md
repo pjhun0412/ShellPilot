@@ -1,6 +1,9 @@
 # SFTP handoff
 
-Last updated: 2026-07-21
+> 상태: **활성 유지보수 / 기준 문서**
+> 과거 계획이 남은 `sftp-design.md`보다 이 문서를 우선한다.
+
+Last updated: 2026-07-22
 
 이 문서는 ShellPilot SFTP 영역의 현재 구현 상태와 다음 유지보수 포인트를 정리한다. 세부 전송 큐 정책은 `docs/sftp-transfer-queue.md`를 우선 참고한다.
 

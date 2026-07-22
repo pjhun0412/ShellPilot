@@ -1,5 +1,8 @@
 # RDP 현행 인계
 
+> 상태: **동결 / 현행 참고 문서**
+> 현재 구현과 큰 구조를 보존한다. 명시적으로 개발을 재개하기 전에는 기능 추가나 대규모 리팩터링을 진행하지 않는다.
+
 RDP는 외부 클라이언트 실행이 아니라 ShellPilot 탭 안에 내장되는 원격 데스크톱 패널입니다. 현재는 Tauri backend가 IronRDP sidecar process를 관리하고, React가 canvas에 frame을 렌더링합니다.
 
 ## 현재 구현 요약

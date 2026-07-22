@@ -1,8 +1,9 @@
 # SFTP 구현 설계
 
-이 문서는 ShellPilot SFTP 탭의 현재 구현 기준과 앞으로 확장할 방향을 정리합니다.
+> 상태: **과거 설계 / 참고용**
+> 이 문서에는 Remote-only 탐색기 시기의 계획이 남아 있다. 현재 구현과 유지보수 기준은 `sftp-handoff.md`, 전송 정책은 `sftp-transfer-queue.md`를 우선한다.
 
-SFTP는 SSH 터미널의 보조 기능이지만 파일 작업 중에는 독립적인 원격 파일 탐색기처럼 동작해야 합니다. 현재는 Remote Only 탐색기와 전송 큐를 우선 구현했고, Commander 모드는 이후 확장 항목으로 남겨둡니다.
+이 문서는 초기 SFTP 탭 모델, 원격 탐색기, 안전한 파일 교체에 관한 결정 배경을 보존한다. 이후 Local/Remote Commander, 전송 pause/resume, retry/restart와 조건부 이어받기가 구현되었으므로 아래의 “남은 확장 항목”은 현재 로드맵으로 간주하지 않는다.
 
 ## 현재 목표
 
@@ -306,40 +307,19 @@ SFTP는 SSH 보안 정책을 그대로 따릅니다.
 - SFTP 사이드바 열린 탐색기, 원격 북마크, 경로 복사, clone/reconnect/disconnect 메뉴
 - Open Tabs 서버별 그룹, 연결 상태 replay, reconnect queued, 그룹 reconnect/disconnect/close 메뉴
 
-## 남은 확장 항목
+## 초기 확장 계획의 현재 상태
 
-### 1. Commander 모드
+이 절은 과거 계획과 현재 상태를 대조하기 위해 남긴다.
 
-WinSCP 스타일의 좌측 로컬, 우측 원격 패널입니다.
+| 초기 계획 | 현재 상태 |
+| --- | --- |
+| Local/Remote Commander | 구현됨. 세부 동작은 `sftp-handoff.md` 참고 |
+| 전송 pause/resume | 구현됨. chunk boundary 기준으로 동작 |
+| upload/download 이어받기 | 조건부 구현됨. size/mtime과 temp 상태에 따라 resume 또는 restart |
+| 전송 동시성 설정 | 구현됨. UI에서 1~8 범위 조정 |
+| retry/restart | 구현됨. retry는 metadata를 재사용하고 restart는 새 transfer id 사용 |
+| Pinned / Recent Paths | 미구현. Local/Remote favorites는 구현됨 |
+| uid/gid 이름 변환 | 미구현 |
+| 전송 기록 영속화 | 미구현. 현재 실행 중 store 기준 |
 
-- 로컬 파일 브라우저
-- 로컬/원격 양방향 복사
-- 로컬 경로 기억
-- 로컬 선택 항목과 원격 선택 항목의 전송 액션
-
-### 2. Pinned / Recent Paths
-
-서버별 자주 쓰는 원격 경로와 최근 경로를 저장합니다.
-
-- Pinned Paths
-- Recent Paths
-- 사이드바 또는 path bar 메뉴 연동
-
-### 3. 전송 고도화
-
-- 일시정지
-- 이어받기
-- 연결 끊김 후 부분 재시도
-- 병렬 전송 수 설정
-- 대용량 전송 프로파일
-
-### 4. 권한/소유자 고도화
-
-현재는 SFTP attrs 기반 권한과 uid/gid 정보를 표시합니다. 서버별 `uid -> username`, `gid -> groupname` 치환은 추가 명령 또는 캐시 전략이 필요합니다.
-
-## 열어둔 결정 사항
-
-- 같은 SSH 세션의 SFTP 탭이 이미 있을 때 기존 탭을 활성화할지, 항상 새 탭을 만들지 결정이 필요합니다.
-- Commander 모드에서 로컬 패널의 기본 경로를 어디로 둘지 결정이 필요합니다.
-- transfer history를 앱 재시작 후에도 남길지, 실행 중 메모리에만 둘지 결정이 필요합니다.
-- SFTP 전송 병렬 수를 고정값으로 둘지 설정값으로 노출할지 결정이 필요합니다.
+현재 남은 후보와 결정 사항은 `sftp-handoff.md`의 “다음 고도화 후보”를 기준으로 한다.

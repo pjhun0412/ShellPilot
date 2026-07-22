@@ -1,5 +1,8 @@
 # SSH 현행 인계
 
+> 상태: **활성 유지보수 / 기준 문서**
+> SSH와 Local PTY의 현재 동작과 유지보수 기준은 이 문서를 우선한다.
+
 이 문서는 SSH/로컬 터미널 영역을 새 스레드에서 바로 이어받기 위한 기준선입니다. ShellPilot의 터미널 작업은 `src/features/terminal/**`, `src/features/settings/**`, `src-tauri/src/commands/ssh.rs`, `src-tauri/src/commands/ssh/**`, `src-tauri/src/commands/local_pty.rs`가 중심입니다.
 
 ## 현재 구현 상태

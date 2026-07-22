@@ -5,6 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Manager};
+use tauri_plugin_shell::ShellExt;
 
 const NOTE_SEARCH_INDEX_VERSION: u32 = 5;
 
@@ -128,6 +129,26 @@ pub struct NoteAsset {
     pub file_name: String,
     pub markdown_path: String,
     pub mime_type: String,
+}
+
+#[tauri::command]
+pub fn notes_open_external_url(app: AppHandle, url: String) -> Result<(), String> {
+    let trimmed = url.trim();
+
+    if !is_supported_external_note_url(trimmed) {
+        return Err("Only http and https note links can be opened externally.".to_string());
+    }
+
+    #[allow(deprecated)]
+    app.shell()
+        .open(trimmed, None)
+        .map_err(|error| format!("failed to open external URL: {error}"))
+}
+
+fn is_supported_external_note_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+
+    lower.starts_with("https://") || lower.starts_with("http://")
 }
 
 #[derive(Clone, Deserialize, Serialize)]

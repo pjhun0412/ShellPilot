@@ -1,6 +1,8 @@
 # SFTP Transfer Queue
 
-Last updated: 2026-07-21
+> 상태: **활성 유지보수 / 전송 정책 기준 문서**
+
+Last updated: 2026-07-22
 
 이 문서는 ShellPilot SFTP 전송 큐의 현재 동작과 유지보수 정책을 정리한다.
 
