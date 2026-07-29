@@ -60,6 +60,7 @@ type NoteDragPayload =
     };
 
 const noteDragMimeType = 'application/x-shellpilot-note-tree-item';
+const notesCollapsedFoldersStorageKey = 'shellpilot.notes.collapsed-folders.v1';
 
 type PendingTreeInput =
   | {
@@ -86,7 +87,9 @@ export function NotesSidebar({
   onSelectPanel: (panelId: string) => void;
   workspaceTabs: WorkspaceTabItem[];
 }) {
-  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
+    () => loadCollapsedNoteFolders(),
+  );
   const [error, setError] = useState<string>();
   const [isCreating, setIsCreating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -172,6 +175,10 @@ export function NotesSidebar({
   useEffect(() => {
     void refreshNotes();
   }, []);
+
+  useEffect(() => {
+    saveCollapsedNoteFolders(collapsedFolders);
+  }, [collapsedFolders]);
 
   useEffect(
     () => () => {
@@ -1509,4 +1516,22 @@ function NotesEmptyState({ description, title }: { description: string; title: s
 
 function formatError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function loadCollapsedNoteFolders() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(notesCollapsedFoldersStorageKey) ?? '[]');
+
+    return new Set(Array.isArray(stored) ? stored.filter((path): path is string => typeof path === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function saveCollapsedNoteFolders(folders: Set<string>) {
+  try {
+    window.localStorage.setItem(notesCollapsedFoldersStorageKey, JSON.stringify([...folders]));
+  } catch {
+    // Keeping the in-memory state is sufficient when localStorage is unavailable.
+  }
 }

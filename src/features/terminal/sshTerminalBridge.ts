@@ -147,10 +147,15 @@ export async function forgetSshKnownHost(session: SessionItem) {
   });
 }
 
-export async function pasteClipboardToSsh(panelId: string) {
+export async function pasteClipboardToSsh(panelId: string, terminal?: Terminal) {
   const text = await navigator.clipboard.readText().catch(() => '');
 
   if (!text) {
+    return;
+  }
+
+  if (terminal) {
+    terminal.paste(text);
     return;
   }
 

@@ -223,7 +223,6 @@
 
   .notes-toolbar {
     max-width: 100%;
-    overflow-x: auto;
   }
 
   .notes-codemirror {
@@ -444,6 +443,13 @@
     border-radius: 6px;
     background: rgb(110 118 129 / 0.4);
     color: #c9d1d9;
+  }
+
+  .notes-markdown-preview mark {
+    border-radius: 3px;
+    background: rgb(250 204 21 / 0.35);
+    color: inherit;
+    padding: 0 0.15em;
   }
 
   .notes-markdown-preview pre {

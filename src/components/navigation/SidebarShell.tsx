@@ -1,4 +1,5 @@
 import { PanelLeftClose } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { AiSidebar } from '@/features/ai/AiSidebar';
@@ -41,12 +42,14 @@ export function SidebarShell({
   workspaceTabs: WorkspaceTabItem[];
   onToggle: () => void;
 }) {
-  if (isCollapsed) {
-    return null;
-  }
-
   return (
-    <aside className="app-scrollbar flex min-w-0 flex-col gap-4 overflow-hidden border-r bg-card p-4">
+    <aside
+      className={
+        isCollapsed
+          ? 'hidden'
+          : 'app-scrollbar flex min-w-0 flex-col gap-4 overflow-hidden border-r bg-card p-4'
+      }
+    >
       <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-2">
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold text-foreground">{getActivityTitle(activeActivity)}</h1>
@@ -106,12 +109,16 @@ function SidebarContent({
   sftpExplorers: SftpSidebarExplorer[];
   workspaceTabs: WorkspaceTabItem[];
 }) {
+  const sessionsView = <SessionsView onAddPanel={onAddPanel} />;
+
   if (activeActivity === 'sessions') {
-    return <SessionsView onAddPanel={onAddPanel} />;
+    return sessionsView;
   }
 
+  let activeContent: ReactNode;
+
   if (activeActivity === 'files') {
-    return (
+    activeContent = (
       <SftpSidebar
         activePanelId={activePanelId}
         explorers={sftpExplorers}
@@ -121,10 +128,8 @@ function SidebarContent({
         onSelectPanel={onSelectPanel}
       />
     );
-  }
-
-  if (activeActivity === 'ssh') {
-    return (
+  } else if (activeActivity === 'ssh') {
+    activeContent = (
       <SshActivityPanel
         activePanelId={activePanelId}
         onClosePanel={onClosePanel}
@@ -133,10 +138,8 @@ function SidebarContent({
         workspaceTabs={workspaceTabs}
       />
     );
-  }
-
-  if (activeActivity === 'notes') {
-    return (
+  } else if (activeActivity === 'notes') {
+    activeContent = (
       <NotesSidebar
         activePanelId={activePanelId}
         onAddPanel={onAddPanel}
@@ -145,10 +148,8 @@ function SidebarContent({
         workspaceTabs={workspaceTabs}
       />
     );
-  }
-
-  if (activeActivity === 'tabs') {
-    return (
+  } else if (activeActivity === 'tabs') {
+    activeContent = (
       <WorkspaceTabsSidebar
         activePanelId={activePanelId}
         onAddPanel={onAddPanel}
@@ -158,11 +159,16 @@ function SidebarContent({
         workspaceTabs={workspaceTabs}
       />
     );
+  } else if (activeActivity === 'ai') {
+    activeContent = <AiSidebar onAddPanel={onAddPanel} />;
+  } else {
+    activeContent = <SidebarStaticList items={['General', 'Credentials', 'AI Providers']} />;
   }
 
-  if (activeActivity === 'ai') {
-    return <AiSidebar onAddPanel={onAddPanel} />;
-  }
-
-  return <SidebarStaticList items={['General', 'Credentials', 'AI Providers']} />;
+  return (
+    <>
+      <div className="hidden">{sessionsView}</div>
+      {activeContent}
+    </>
+  );
 }

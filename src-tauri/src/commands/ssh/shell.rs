@@ -131,7 +131,7 @@ async fn detect_shell_pid(
         Some(port) => format!(
             "match=\"\"; \
 for pid in $(ps -eo pid,tty | awk '$2 ~ /^pts/ {{print $1}}'); do \
-  line=$(tr '\\0' '\\n' < /proc/$pid/environ 2>/dev/null | grep '^SSH_CONNECTION='); \
+  line=$({{ tr '\\0' '\\n' < /proc/$pid/environ; }} 2>/dev/null | grep '^SSH_CONNECTION='); \
   if [ -n \"$line\" ]; then set -- $line; if [ \"$2\" = \"{port}\" ]; then match=$pid; break; fi; fi; \
 done; \
 if [ -n \"$match\" ]; then echo $match; else {fallback}; fi"

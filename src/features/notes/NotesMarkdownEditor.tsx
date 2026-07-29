@@ -1,10 +1,21 @@
 import { markdown } from '@codemirror/lang-markdown';
-import { EditorSelection } from '@codemirror/state';
+import {
+  cursorLineBoundaryBackward,
+  cursorLineBoundaryForward,
+  cursorPageDown,
+  cursorPageUp,
+  selectLineBoundaryBackward,
+  selectLineBoundaryForward,
+  selectPageDown,
+  selectPageUp,
+} from '@codemirror/commands';
+import { EditorSelection, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
 import MarkdownPreview from '@uiw/react-markdown-preview';
 import '@uiw/react-markdown-preview/markdown.css';
+import remarkBreaks from 'remark-breaks';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { OverlayScrollArea } from '@/components/ui/overlay-scroll-area';
@@ -65,6 +76,18 @@ export function NotesMarkdownEditor({
         { key: 'Mod-i', run: insertItalic },
         { key: 'Mod-k', run: insertLink },
       ]),
+    [],
+  );
+  const navigationKeymap = useMemo(
+    () =>
+      Prec.highest(
+        keymap.of([
+          { key: 'Home', run: cursorLineBoundaryBackward, shift: selectLineBoundaryBackward, preventDefault: true },
+          { key: 'End', run: cursorLineBoundaryForward, shift: selectLineBoundaryForward, preventDefault: true },
+          { key: 'PageUp', run: cursorPageUp, shift: selectPageUp, preventDefault: true },
+          { key: 'PageDown', run: cursorPageDown, shift: selectPageDown, preventDefault: true },
+        ]),
+      ),
     [],
   );
   const assetHandler = useMemo(
@@ -209,6 +232,7 @@ export function NotesMarkdownEditor({
               codeMirrorTheme,
               EditorView.lineWrapping,
               wikiLinkCompletion,
+              navigationKeymap,
               editorKeymap,
             assetHandler,
             ]}
@@ -253,6 +277,8 @@ export function NotesMarkdownEditor({
         >
           <MarkdownPreview
             className="notes-markdown-preview-body"
+            remarkPlugins={[remarkBreaks]}
+            skipHtml={false}
             source={previewSource}
             urlTransform={(url) => resolveNotePreviewUrl(url, assetBaseDir)}
             wrapperElement={{ 'data-color-mode': 'dark' }}
