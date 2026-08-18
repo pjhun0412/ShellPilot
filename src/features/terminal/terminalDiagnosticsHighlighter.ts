@@ -10,26 +10,25 @@ interface DiagnosticRule {
   underline: boolean;
 }
 
-const WRITE_SCAN_THROTTLE_MS = 80;
+const WRITE_SCAN_IDLE_MS = 160;
 
 export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
   const preferences = loadPreferences().terminal;
 
   if (!preferences.diagnosticsHighlight) {
-    return { dispose() {} };
+    return { dispose() {}, refresh() {} };
   }
 
   const diagnosticRules = compileDiagnosticRules(preferences.diagnosticRules);
 
   if (diagnosticRules.length === 0) {
-    return { dispose() {} };
+    return { dispose() {}, refresh() {} };
   }
 
   const decorations = new Set<IDecoration>();
   let lastVisibleSignature = '';
   let scanFrame: number | undefined;
   let scanTimer: number | undefined;
-  let lastScanAt = 0;
 
   const clearDecorations = () => {
     for (const decoration of Array.from(decorations)) {
@@ -131,7 +130,6 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
 
   const runScheduledScan = () => {
     scanFrame = undefined;
-    lastScanAt = performance.now();
     scanVisibleRows();
   };
 
@@ -143,40 +141,56 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
     scanFrame = window.requestAnimationFrame(runScheduledScan);
   };
 
-  const scheduleScan = ({ throttle = true }: { throttle?: boolean } = {}) => {
-    if (scanFrame !== undefined || scanTimer !== undefined) {
+  const scheduleScan = ({ deferUntilIdle = false }: { deferUntilIdle?: boolean } = {}) => {
+    if (terminal.buffer.active.type !== 'normal') {
+      if (scanFrame !== undefined) {
+        window.cancelAnimationFrame(scanFrame);
+        scanFrame = undefined;
+      }
+
+      if (scanTimer !== undefined) {
+        window.clearTimeout(scanTimer);
+        scanTimer = undefined;
+      }
+
+      if (lastVisibleSignature || decorations.size > 0) {
+        clearDecorations();
+        lastVisibleSignature = '';
+      }
       return;
     }
 
-    if (!throttle) {
+    if (!deferUntilIdle) {
       requestScanFrame();
       return;
     }
 
-    const elapsed = performance.now() - lastScanAt;
-    const delay = Math.max(WRITE_SCAN_THROTTLE_MS - elapsed, 0);
-
-    if (delay === 0) {
-      requestScanFrame();
-      return;
+    if (scanTimer !== undefined) {
+      window.clearTimeout(scanTimer);
     }
 
     scanTimer = window.setTimeout(() => {
       scanTimer = undefined;
       requestScanFrame();
-    }, delay);
+    }, WRITE_SCAN_IDLE_MS);
   };
 
-  const parsedDisposable = terminal.onWriteParsed(() => scheduleScan());
-  const renderDisposable = terminal.onRender(() => scheduleScan());
-  const scrollDisposable = terminal.onScroll(() => scheduleScan({ throttle: false }));
+  // Parsed output, scrolling, and resizing are the only events that can
+  // change which text needs highlighting. onRender also fires for cursor and
+  // paint-only updates, causing redundant full viewport scans during tools
+  // such as top.
+  // Continuous output used to trigger a full visible-row scan every 80 ms.
+  // Debounce that work until output becomes idle so large `cat` streams do
+  // not periodically allocate column maps and recreate decorations.
+  const parsedDisposable = terminal.onWriteParsed(() => scheduleScan({ deferUntilIdle: true }));
+  const scrollDisposable = terminal.onScroll(() => scheduleScan({ deferUntilIdle: true }));
   const resizeDisposable = terminal.onResize(() => {
     clearDecorations();
     lastVisibleSignature = '';
-    scheduleScan({ throttle: false });
+    scheduleScan();
   });
 
-  scheduleScan({ throttle: false });
+  scheduleScan();
 
   return {
     dispose() {
@@ -189,10 +203,14 @@ export function attachTerminalDiagnosticsHighlighter(terminal: Terminal) {
       }
 
       parsedDisposable.dispose();
-      renderDisposable.dispose();
       scrollDisposable.dispose();
       resizeDisposable.dispose();
       clearDecorations();
+    },
+    refresh() {
+      clearDecorations();
+      lastVisibleSignature = '';
+      scheduleScan();
     },
   };
 }

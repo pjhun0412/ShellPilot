@@ -1,10 +1,20 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
+
+#[cfg(debug_assertions)]
+use std::time::Instant;
 
 use russh::{client, ChannelMsg, Disconnect};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{mpsc, oneshot, Mutex};
-use tokio::time::{self, MissedTickBehavior};
+use tokio::time;
 
 use super::{
     auth::{authenticate_session, SshAuthRequest},
@@ -22,6 +32,10 @@ struct SshSessionHandle {
 }
 
 enum SshSessionCommand {
+    AcknowledgeOutput {
+        stream_id: u64,
+        through_sequence: u64,
+    },
     Close,
     QueryCwd {
         respond_to: oneshot::Sender<Option<String>>,
@@ -41,6 +55,8 @@ struct SshTerminalEvent {
     data: Option<String>,
     host_key_fingerprint: Option<String>,
     message: Option<String>,
+    output_sequence: Option<u64>,
+    output_stream_id: Option<u64>,
     panel_id: String,
     retryable: bool,
     status: SshTerminalStatus,
@@ -57,9 +73,308 @@ enum SshTerminalStatus {
     Failed,
 }
 
-const DATA_FLUSH_INTERVAL: Duration = Duration::from_millis(12);
-const DATA_FLUSH_MAX_BYTES: usize = 64 * 1024;
+const SSH_CHANNEL_BUFFER_MESSAGES: usize = 8;
+const SSH_CHANNEL_MAX_PACKET_BYTES: usize = 32 * 1024;
+// This is remote transport credit, not an application output buffer. Keep
+// russh's 2 MiB default so a normal network round trip cannot drain the SSH
+// window during high-throughput output. Application memory is bounded
+// separately by the channel message cap and OUTPUT_CREDIT_BYTES below.
+const SSH_CHANNEL_WINDOW_BYTES: u32 = 2 * 1024 * 1024;
+const OUTPUT_CREDIT_BATCHES: usize = 8;
+const OUTPUT_CREDIT_BYTES: usize = OUTPUT_CREDIT_BATCHES * (SSH_CHANNEL_MAX_PACKET_BYTES + 4);
+const OUTPUT_COALESCE_BYTES: usize = SSH_CHANNEL_MAX_PACKET_BYTES;
+const OUTPUT_COALESCE_IDLE: Duration = Duration::from_millis(2);
 const EXEC_COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
+static NEXT_OUTPUT_STREAM_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(debug_assertions)]
+const PERF_REPORT_INTERVAL: Duration = Duration::from_secs(2);
+
+#[cfg(debug_assertions)]
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SshTerminalPerfEvent {
+    ack_count: u64,
+    credit_wait_count: u64,
+    credit_wait_max_ms: f64,
+    credit_wait_total_ms: f64,
+    max_receive_gap_ms: f64,
+    outstanding_batches: usize,
+    outstanding_bytes: usize,
+    panel_id: String,
+    received_bytes: u64,
+    received_packets: u64,
+    stream_id: u64,
+}
+
+#[cfg(debug_assertions)]
+struct SshOutputPerf {
+    ack_count: u64,
+    credit_wait_count: u64,
+    credit_wait_max: Duration,
+    credit_wait_started: Option<Instant>,
+    credit_wait_total: Duration,
+    last_receive_at: Option<Instant>,
+    max_receive_gap: Duration,
+    received_bytes: u64,
+    received_packets: u64,
+    report_started_at: Instant,
+}
+
+#[cfg(debug_assertions)]
+impl SshOutputPerf {
+    fn new() -> Self {
+        Self {
+            ack_count: 0,
+            credit_wait_count: 0,
+            credit_wait_max: Duration::ZERO,
+            credit_wait_started: None,
+            credit_wait_total: Duration::ZERO,
+            last_receive_at: None,
+            max_receive_gap: Duration::ZERO,
+            received_bytes: 0,
+            received_packets: 0,
+            report_started_at: Instant::now(),
+        }
+    }
+
+    fn record_ack(&mut self, can_receive_after_ack: bool) {
+        self.ack_count += 1;
+        if can_receive_after_ack {
+            self.finish_credit_wait();
+        }
+    }
+
+    fn record_receive(&mut self, bytes: usize, can_receive_after_packet: bool) {
+        let now = Instant::now();
+        if let Some(previous) = self.last_receive_at {
+            self.max_receive_gap = self
+                .max_receive_gap
+                .max(now.saturating_duration_since(previous));
+        }
+        self.last_receive_at = Some(now);
+        self.received_bytes += bytes as u64;
+        self.received_packets += 1;
+
+        if !can_receive_after_packet && self.credit_wait_started.is_none() {
+            self.credit_wait_started = Some(now);
+            self.credit_wait_count += 1;
+        }
+    }
+
+    fn maybe_emit(
+        &mut self,
+        app: &AppHandle,
+        panel_id: &str,
+        stream_id: u64,
+        output_flow: &SshOutputFlow,
+    ) {
+        if self.report_started_at.elapsed() < PERF_REPORT_INTERVAL {
+            return;
+        }
+
+        let active_credit_wait = self
+            .credit_wait_started
+            .map(|started_at| started_at.elapsed())
+            .unwrap_or_default();
+        let _ = app.emit(
+            "shellpilot-ssh-terminal-perf",
+            SshTerminalPerfEvent {
+                ack_count: self.ack_count,
+                credit_wait_count: self.credit_wait_count,
+                credit_wait_max_ms: duration_ms(self.credit_wait_max.max(active_credit_wait)),
+                credit_wait_total_ms: duration_ms(self.credit_wait_total + active_credit_wait),
+                max_receive_gap_ms: duration_ms(self.max_receive_gap),
+                outstanding_batches: output_flow.outstanding.len(),
+                outstanding_bytes: output_flow.outstanding_bytes,
+                panel_id: panel_id.to_string(),
+                received_bytes: self.received_bytes,
+                received_packets: self.received_packets,
+                stream_id,
+            },
+        );
+
+        self.ack_count = 0;
+        self.credit_wait_count = 0;
+        self.credit_wait_max = Duration::ZERO;
+        self.credit_wait_total = Duration::ZERO;
+        self.max_receive_gap = Duration::ZERO;
+        self.received_bytes = 0;
+        self.received_packets = 0;
+        self.report_started_at = Instant::now();
+        if self.credit_wait_started.is_some() {
+            self.credit_wait_started = Some(Instant::now());
+        }
+    }
+
+    fn finish_credit_wait(&mut self) {
+        let Some(started_at) = self.credit_wait_started.take() else {
+            return;
+        };
+        let elapsed = started_at.elapsed();
+        self.credit_wait_total += elapsed;
+        self.credit_wait_max = self.credit_wait_max.max(elapsed);
+    }
+}
+
+#[cfg(debug_assertions)]
+fn duration_ms(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+struct SshOutputBatch {
+    data: String,
+    sequence: u64,
+}
+
+struct SshOutputCoalescer {
+    flush_deadline: Option<time::Instant>,
+    pending: Vec<u8>,
+}
+
+impl SshOutputCoalescer {
+    fn new() -> Self {
+        Self {
+            flush_deadline: None,
+            pending: Vec::with_capacity(OUTPUT_COALESCE_BYTES),
+        }
+    }
+
+    fn flush_deadline(&self) -> Option<time::Instant> {
+        self.flush_deadline
+    }
+
+    fn pending_bytes(&self) -> usize {
+        self.pending.len()
+    }
+
+    fn push(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        self.pending.extend_from_slice(data);
+        if self.pending.len() >= OUTPUT_COALESCE_BYTES {
+            let remainder = self.pending.split_off(OUTPUT_COALESCE_BYTES);
+            let batch = std::mem::replace(&mut self.pending, remainder);
+            self.flush_deadline =
+                (!self.pending.is_empty()).then(|| time::Instant::now() + OUTPUT_COALESCE_IDLE);
+            return Some(batch);
+        }
+
+        self.flush_deadline = Some(time::Instant::now() + OUTPUT_COALESCE_IDLE);
+        None
+    }
+
+    fn take_pending(&mut self) -> Vec<u8> {
+        self.flush_deadline = None;
+        std::mem::replace(&mut self.pending, Vec::with_capacity(OUTPUT_COALESCE_BYTES))
+    }
+}
+
+struct SshOutputFlow {
+    decoder_tail: Vec<u8>,
+    next_sequence: u64,
+    outstanding: VecDeque<(u64, usize)>,
+    outstanding_bytes: usize,
+    stream_id: u64,
+}
+
+impl SshOutputFlow {
+    fn new(stream_id: u64) -> Self {
+        Self {
+            decoder_tail: Vec::with_capacity(4),
+            next_sequence: 1,
+            outstanding: VecDeque::with_capacity(OUTPUT_CREDIT_BATCHES),
+            outstanding_bytes: 0,
+            stream_id,
+        }
+    }
+
+    fn acknowledge(&mut self, stream_id: u64, through_sequence: u64) {
+        if stream_id != self.stream_id
+            || through_sequence >= self.next_sequence
+            || self
+                .outstanding
+                .front()
+                .is_some_and(|(sequence, _)| through_sequence < *sequence)
+        {
+            return;
+        }
+
+        while self
+            .outstanding
+            .front()
+            .is_some_and(|(sequence, _)| *sequence <= through_sequence)
+        {
+            if let Some((_, raw_bytes)) = self.outstanding.pop_front() {
+                self.outstanding_bytes = self.outstanding_bytes.saturating_sub(raw_bytes);
+            }
+        }
+    }
+
+    fn can_receive_packet(&self, pending_bytes: usize) -> bool {
+        self.outstanding.len() < OUTPUT_CREDIT_BATCHES
+            && self.outstanding_bytes + pending_bytes + SSH_CHANNEL_MAX_PACKET_BYTES + 4
+                <= OUTPUT_CREDIT_BYTES
+    }
+
+    fn finish_with(&mut self, data: &[u8]) -> Option<SshOutputBatch> {
+        self.decode_and_track(data, true)
+    }
+
+    fn is_drained(&self) -> bool {
+        self.outstanding.is_empty()
+    }
+
+    fn push(&mut self, data: &[u8]) -> Option<SshOutputBatch> {
+        self.decode_and_track(data, false)
+    }
+
+    fn decode_and_track(&mut self, data: &[u8], final_chunk: bool) -> Option<SshOutputBatch> {
+        self.decoder_tail.extend_from_slice(data);
+        let consumed = utf8_consumed_prefix(&self.decoder_tail, final_chunk);
+
+        if consumed == 0 {
+            return None;
+        }
+
+        let raw = self.decoder_tail.drain(..consumed).collect::<Vec<_>>();
+        let text = String::from_utf8_lossy(&raw).into_owned();
+
+        if text.is_empty() {
+            return None;
+        }
+
+        let sequence = self.next_sequence;
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        self.outstanding_bytes += raw.len();
+        self.outstanding.push_back((sequence, raw.len()));
+
+        Some(SshOutputBatch {
+            data: text,
+            sequence,
+        })
+    }
+}
+
+fn utf8_consumed_prefix(data: &[u8], final_chunk: bool) -> usize {
+    if final_chunk {
+        return data.len();
+    }
+
+    let mut offset = 0;
+    while offset < data.len() {
+        match std::str::from_utf8(&data[offset..]) {
+            Ok(_) => return data.len(),
+            Err(error) => {
+                let valid_end = offset + error.valid_up_to();
+                match error.error_len() {
+                    Some(invalid_bytes) => offset = valid_end + invalid_bytes,
+                    None => return valid_end,
+                }
+            }
+        }
+    }
+
+    data.len()
+}
 
 // Directory tracking: identify the interactive shell's own PID via a
 // throwaway exec channel (never the interactive one the user is looking at,
@@ -165,6 +480,7 @@ pub(crate) async fn open_shell(
     let auth = SshAuthRequest::from_target(&target);
     let (tx, rx) = mpsc::unbounded_channel();
     let panel_id = target.panel_id.clone();
+    let output_stream_id = NEXT_OUTPUT_STREAM_ID.fetch_add(1, Ordering::Relaxed);
 
     store
         .sessions
@@ -172,7 +488,27 @@ pub(crate) async fn open_shell(
         .await
         .insert(panel_id, SshSessionHandle { tx });
 
-    tauri::async_runtime::spawn(run_shell_session(app, target, auth, rx));
+    tauri::async_runtime::spawn(run_shell_session(app, target, auth, output_stream_id, rx));
+    Ok(())
+}
+
+pub(crate) async fn acknowledge_shell_output(
+    store: State<'_, SshSessionStore>,
+    panel_id: String,
+    stream_id: u64,
+    through_sequence: u64,
+) -> Result<(), String> {
+    let sessions = store.sessions.lock().await;
+    if let Some(handle) = sessions.get(&panel_id) {
+        let _ = handle.tx.send(SshSessionCommand::AcknowledgeOutput {
+            stream_id,
+            through_sequence,
+        });
+    }
+
+    // ACKs are advisory and may race with a normal close. Treat a missing or
+    // already-closed session as acknowledged so parser callbacks cannot create
+    // an endless retry loop after disconnect.
     Ok(())
 }
 
@@ -226,6 +562,7 @@ async fn run_shell_session(
     app: AppHandle,
     target: SshShellTarget,
     auth: SshAuthRequest,
+    output_stream_id: u64,
     mut rx: mpsc::UnboundedReceiver<SshSessionCommand>,
 ) {
     let panel_id = target.panel_id.clone();
@@ -233,19 +570,24 @@ async fn run_shell_session(
         emit_terminal_event(
             &app,
             &panel_id,
+            output_stream_id,
             SshTerminalStatus::Info,
             None,
             Some("resolving credential".to_string()),
         );
         let config = Arc::new(client::Config {
+            channel_buffer_size: SSH_CHANNEL_BUFFER_MESSAGES,
             inactivity_timeout: None,
             keepalive_interval: Some(Duration::from_secs(30)),
             keepalive_max: 3,
+            maximum_packet_size: SSH_CHANNEL_MAX_PACKET_BYTES as u32,
+            window_size: SSH_CHANNEL_WINDOW_BYTES,
             ..Default::default()
         });
         emit_terminal_event(
             &app,
             &panel_id,
+            output_stream_id,
             SshTerminalStatus::Info,
             None,
             Some("opening tcp/ssh transport".to_string()),
@@ -273,13 +615,15 @@ async fn run_shell_session(
                 target.port,
                 target.accept_new_host_key.unwrap_or(false),
                 target.accepted_host_key_fingerprint.clone(),
-            ),
+            )
+            .with_terminal_stream_id(output_stream_id),
         )
         .await
         .map_err(|error| classify_connect_error(error.to_string()))?;
         emit_terminal_event(
             &app,
             &panel_id,
+            output_stream_id,
             SshTerminalStatus::Info,
             None,
             Some(format!("authenticating {}", auth.label())),
@@ -307,6 +651,7 @@ async fn run_shell_session(
         emit_terminal_event(
             &app,
             &panel_id,
+            output_stream_id,
             SshTerminalStatus::Info,
             None,
             Some("requesting pty".to_string()),
@@ -318,6 +663,7 @@ async fn run_shell_session(
         emit_terminal_event(
             &app,
             &panel_id,
+            output_stream_id,
             SshTerminalStatus::Info,
             None,
             Some("requesting shell".to_string()),
@@ -327,107 +673,189 @@ async fn run_shell_session(
             .await
             .map_err(|error| SshFailure::session(format!("failed to request shell: {error}")))?;
 
-        emit_terminal_event(&app, &panel_id, SshTerminalStatus::Connected, None, None);
+        emit_terminal_connected(&app, &panel_id, output_stream_id);
 
         // Best-effort: identify the shell's own PID once, via a separate
         // exec channel, so cwd lookups can be resolved later without ever
         // touching the interactive channel. Never fatal if this fails.
         let shell_pid = detect_shell_pid(&mut session, local_port).await;
 
-        let mut pending_data = Vec::with_capacity(DATA_FLUSH_MAX_BYTES);
-        let mut data_flush = time::interval(DATA_FLUSH_INTERVAL);
-        data_flush.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut output_coalescer = SshOutputCoalescer::new();
+        let mut output_flow = SshOutputFlow::new(output_stream_id);
+        let mut remote_result: Option<Result<(), SshFailure>> = None;
+        #[cfg(debug_assertions)]
+        let mut output_perf = SshOutputPerf::new();
 
-        loop {
+        let session_result = loop {
+            if remote_result.is_some() && output_flow.is_drained() {
+                break remote_result.take().expect("remote result is present");
+            }
+
+            let flush_deadline = output_coalescer.flush_deadline();
             tokio::select! {
-                _ = data_flush.tick() => {
-                    flush_terminal_data(&app, &panel_id, &mut pending_data);
-                }
+                biased;
                 command = rx.recv() => {
                     match command {
                         Some(SshSessionCommand::Close) | None => {
-                            flush_terminal_data(&app, &panel_id, &mut pending_data);
                             let _ = channel.eof().await;
                             let _ = session.disconnect(Disconnect::ByApplication, "closed", "en").await;
-                            break;
+                            break Ok(());
+                        }
+                        Some(SshSessionCommand::AcknowledgeOutput {
+                            stream_id,
+                            through_sequence,
+                        }) => {
+                            output_flow.acknowledge(stream_id, through_sequence);
+                            #[cfg(debug_assertions)]
+                            {
+                                output_perf.record_ack(
+                                    output_flow.can_receive_packet(
+                                        output_coalescer.pending_bytes(),
+                                    ),
+                                );
+                                output_perf.maybe_emit(
+                                    &app,
+                                    &panel_id,
+                                    output_stream_id,
+                                    &output_flow,
+                                );
+                            }
                         }
                         Some(SshSessionCommand::QueryCwd { respond_to }) => {
-                            let cwd = match &shell_pid {
-                                Some(pid) => query_shell_cwd(&mut session, pid).await,
-                                None => None,
+                            let cwd = if remote_result.is_some() {
+                                None
+                            } else {
+                                match &shell_pid {
+                                    Some(pid) => query_shell_cwd(&mut session, pid).await,
+                                    None => None,
+                                }
                             };
                             let _ = respond_to.send(cwd);
                         }
                         Some(SshSessionCommand::Resize { cols, rows }) => {
-                            channel
-                                .window_change(cols, rows, 0, 0)
-                                .await
-                                .map_err(|error| SshFailure::session(format!("failed to resize pty: {error}")))?;
+                            if remote_result.is_none() {
+                                channel
+                                    .window_change(cols, rows, 0, 0)
+                                    .await
+                                    .map_err(|error| SshFailure::session(format!("failed to resize pty: {error}")))?;
+                            }
                         }
                         Some(SshSessionCommand::Write(data)) => {
-                            channel
-                                .data_bytes(data.into_bytes())
-                                .await
-                                .map_err(|error| SshFailure::session(format!("failed to write ssh data: {error}")))?;
+                            if remote_result.is_none() {
+                                channel
+                                    .data_bytes(data.into_bytes())
+                                    .await
+                                    .map_err(|error| SshFailure::session(format!("failed to write ssh data: {error}")))?;
+                            }
                         }
                     }
                 }
-                message = channel.wait() => {
+                _ = time::sleep_until(
+                    flush_deadline.unwrap_or_else(time::Instant::now)
+                ), if flush_deadline.is_some() => {
+                    let pending = output_coalescer.take_pending();
+                    if let Some(batch) = output_flow.push(&pending) {
+                        emit_terminal_data(&app, &panel_id, output_stream_id, batch);
+                    }
+                }
+                message = channel.wait(),
+                    if remote_result.is_none()
+                        && output_flow.can_receive_packet(output_coalescer.pending_bytes()) => {
                     match message {
                         Some(ChannelMsg::Data { data }) => {
-                            pending_data.extend_from_slice(&data);
-                            if pending_data.len() >= DATA_FLUSH_MAX_BYTES {
-                                flush_terminal_data(&app, &panel_id, &mut pending_data);
+                            #[cfg(debug_assertions)]
+                            let received_bytes = data.len();
+                            if let Some(coalesced) = output_coalescer.push(&data) {
+                                if let Some(batch) = output_flow.push(&coalesced) {
+                                    emit_terminal_data(&app, &panel_id, output_stream_id, batch);
+                                }
+                            }
+                            #[cfg(debug_assertions)]
+                            {
+                                output_perf.record_receive(
+                                    received_bytes,
+                                    output_flow.can_receive_packet(
+                                        output_coalescer.pending_bytes(),
+                                    ),
+                                );
+                                output_perf.maybe_emit(
+                                    &app,
+                                    &panel_id,
+                                    output_stream_id,
+                                    &output_flow,
+                                );
                             }
                         }
                         Some(ChannelMsg::ExtendedData { data, .. }) => {
-                            pending_data.extend_from_slice(&data);
-                            if pending_data.len() >= DATA_FLUSH_MAX_BYTES {
-                                flush_terminal_data(&app, &panel_id, &mut pending_data);
+                            #[cfg(debug_assertions)]
+                            let received_bytes = data.len();
+                            if let Some(coalesced) = output_coalescer.push(&data) {
+                                if let Some(batch) = output_flow.push(&coalesced) {
+                                    emit_terminal_data(&app, &panel_id, output_stream_id, batch);
+                                }
+                            }
+                            #[cfg(debug_assertions)]
+                            {
+                                output_perf.record_receive(
+                                    received_bytes,
+                                    output_flow.can_receive_packet(
+                                        output_coalescer.pending_bytes(),
+                                    ),
+                                );
+                                output_perf.maybe_emit(
+                                    &app,
+                                    &panel_id,
+                                    output_stream_id,
+                                    &output_flow,
+                                );
                             }
                         }
                         Some(ChannelMsg::ExitStatus { exit_status }) => {
-                            flush_terminal_data(&app, &panel_id, &mut pending_data);
+                            let pending = output_coalescer.take_pending();
+                            if let Some(batch) = output_flow.finish_with(&pending) {
+                                emit_terminal_data(&app, &panel_id, output_stream_id, batch);
+                            }
                             emit_terminal_event(
                                 &app,
                                 &panel_id,
+                                output_stream_id,
                                 SshTerminalStatus::Info,
                                 None,
                                 Some(format!("remote shell exited with status {exit_status}")),
                             );
-                            break;
+                            remote_result = Some(Ok(()));
                         }
                         Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => {
-                            flush_terminal_data(&app, &panel_id, &mut pending_data);
-                            return Err(SshFailure::connection(
+                            let pending = output_coalescer.take_pending();
+                            if let Some(batch) = output_flow.finish_with(&pending) {
+                                emit_terminal_data(&app, &panel_id, output_stream_id, batch);
+                            }
+                            remote_result = Some(Err(SshFailure::connection(
                                 "SSH connection was lost unexpectedly. Reconnect to open a new shell session.",
-                            ));
+                            )));
                         }
                         _ => {}
                     }
                 }
             }
-        }
+        };
 
+        session_result?;
         Ok::<(), SshFailure>(())
     }
     .await;
 
     match result {
-        Ok(()) => emit_terminal_event(&app, &panel_id, SshTerminalStatus::Closed, None, None),
-        Err(error) => emit_terminal_failure(&app, &panel_id, error),
+        Ok(()) => emit_terminal_event(
+            &app,
+            &panel_id,
+            output_stream_id,
+            SshTerminalStatus::Closed,
+            None,
+            None,
+        ),
+        Err(error) => emit_terminal_failure(&app, &panel_id, output_stream_id, error),
     }
-}
-
-fn flush_terminal_data(app: &AppHandle, panel_id: &str, pending_data: &mut Vec<u8>) {
-    if pending_data.is_empty() {
-        return;
-    }
-
-    let data = String::from_utf8_lossy(pending_data).to_string();
-    pending_data.clear();
-
-    emit_terminal_event(app, panel_id, SshTerminalStatus::Data, Some(data), None);
 }
 
 async fn send_session_command(
@@ -449,6 +877,7 @@ async fn send_session_command(
 fn emit_terminal_event(
     app: &AppHandle,
     panel_id: &str,
+    output_stream_id: u64,
     status: SshTerminalStatus,
     data: Option<String>,
     message: Option<String>,
@@ -461,6 +890,8 @@ fn emit_terminal_event(
             data,
             host_key_fingerprint: None,
             message,
+            output_sequence: None,
+            output_stream_id: Some(output_stream_id),
             panel_id: panel_id.to_string(),
             retryable: false,
             status,
@@ -468,7 +899,53 @@ fn emit_terminal_event(
     );
 }
 
-fn emit_terminal_failure(app: &AppHandle, panel_id: &str, error: SshFailure) {
+fn emit_terminal_connected(app: &AppHandle, panel_id: &str, output_stream_id: u64) {
+    let _ = app.emit(
+        "shellpilot-ssh-terminal",
+        SshTerminalEvent {
+            auth_prompt: false,
+            code: None,
+            data: None,
+            host_key_fingerprint: None,
+            message: None,
+            output_sequence: None,
+            output_stream_id: Some(output_stream_id),
+            panel_id: panel_id.to_string(),
+            retryable: false,
+            status: SshTerminalStatus::Connected,
+        },
+    );
+}
+
+fn emit_terminal_data(
+    app: &AppHandle,
+    panel_id: &str,
+    output_stream_id: u64,
+    batch: SshOutputBatch,
+) {
+    let _ = app.emit(
+        "shellpilot-ssh-terminal",
+        SshTerminalEvent {
+            auth_prompt: false,
+            code: None,
+            data: Some(batch.data),
+            host_key_fingerprint: None,
+            message: None,
+            output_sequence: Some(batch.sequence),
+            output_stream_id: Some(output_stream_id),
+            panel_id: panel_id.to_string(),
+            retryable: false,
+            status: SshTerminalStatus::Data,
+        },
+    );
+}
+
+fn emit_terminal_failure(
+    app: &AppHandle,
+    panel_id: &str,
+    output_stream_id: u64,
+    error: SshFailure,
+) {
     let _ = app.emit(
         "shellpilot-ssh-terminal",
         SshTerminalEvent {
@@ -477,6 +954,8 @@ fn emit_terminal_failure(app: &AppHandle, panel_id: &str, error: SshFailure) {
             data: None,
             host_key_fingerprint: None,
             message: Some(error.message),
+            output_sequence: None,
+            output_stream_id: Some(output_stream_id),
             panel_id: panel_id.to_string(),
             retryable: error.retryable,
             status: SshTerminalStatus::Failed,
@@ -487,15 +966,17 @@ fn emit_terminal_failure(app: &AppHandle, panel_id: &str, error: SshFailure) {
 pub(crate) fn emit_terminal_warning(
     app: &AppHandle,
     panel_id: Option<&str>,
+    output_stream_id: Option<u64>,
     code: &'static str,
     message: String,
 ) {
-    emit_terminal_warning_with_host_key(app, panel_id, code, message, None);
+    emit_terminal_warning_with_host_key(app, panel_id, output_stream_id, code, message, None);
 }
 
 pub(crate) fn emit_terminal_warning_with_host_key(
     app: &AppHandle,
     panel_id: Option<&str>,
+    output_stream_id: Option<u64>,
     code: &'static str,
     message: String,
     host_key_fingerprint: Option<String>,
@@ -509,10 +990,152 @@ pub(crate) fn emit_terminal_warning_with_host_key(
                 data: None,
                 host_key_fingerprint,
                 message: Some(message),
+                output_sequence: None,
+                output_stream_id,
                 panel_id: panel_id.to_string(),
                 retryable: false,
                 status: SshTerminalStatus::Warning,
             },
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_flow_applies_batch_credit_and_cumulative_acknowledgements() {
+        let mut flow = SshOutputFlow::new(41);
+
+        for index in 0..OUTPUT_CREDIT_BATCHES {
+            let batch = flow
+                .push(format!("line-{index}\n").as_bytes())
+                .expect("text batch");
+            assert_eq!(batch.sequence, index as u64 + 1);
+        }
+
+        assert!(!flow.can_receive_packet(0));
+        flow.acknowledge(999, 8);
+        assert!(
+            !flow.can_receive_packet(0),
+            "stale stream ack must be ignored"
+        );
+        flow.acknowledge(41, 4);
+        assert!(flow.can_receive_packet(0));
+        assert_eq!(flow.outstanding.len(), 4);
+        flow.acknowledge(41, 99);
+        assert_eq!(
+            flow.outstanding.len(),
+            4,
+            "ack beyond the last emitted sequence must be ignored"
+        );
+        flow.acknowledge(41, 8);
+        assert!(flow.is_drained());
+    }
+
+    #[test]
+    fn output_flow_preserves_split_utf8_sequences() {
+        let bytes = "한글 출력".as_bytes();
+        let mut flow = SshOutputFlow::new(7);
+        let mut output = String::new();
+
+        for byte in bytes {
+            if let Some(batch) = flow.push(&[*byte]) {
+                output.push_str(&batch.data);
+                flow.acknowledge(7, batch.sequence);
+            }
+        }
+
+        if let Some(batch) = flow.finish_with(&[]) {
+            output.push_str(&batch.data);
+            flow.acknowledge(7, batch.sequence);
+        }
+
+        assert_eq!(output, "한글 출력");
+        assert!(flow.is_drained());
+    }
+
+    #[test]
+    fn output_flow_replaces_only_truly_invalid_or_incomplete_final_bytes() {
+        let mut invalid = SshOutputFlow::new(1);
+        let invalid_batch = invalid.push(&[0xff]).expect("invalid byte is surfaced");
+        assert_eq!(invalid_batch.data, "\u{fffd}");
+
+        let mut incomplete = SshOutputFlow::new(2);
+        assert!(incomplete.push(&[0xe3, 0x81]).is_none());
+        let final_batch = incomplete
+            .finish_with(&[])
+            .expect("incomplete final bytes are surfaced");
+        assert_eq!(final_batch.data, "\u{fffd}");
+    }
+
+    #[test]
+    fn output_flow_preserves_split_utf8_after_an_invalid_byte() {
+        let mut flow = SshOutputFlow::new(3);
+        let invalid_batch = flow
+            .push(&[0xff, 0xe3, 0x81])
+            .expect("invalid prefix is surfaced");
+        assert_eq!(invalid_batch.data, "\u{fffd}");
+        flow.acknowledge(3, invalid_batch.sequence);
+
+        let completed_batch = flow
+            .push(&[0x82])
+            .expect("trailing split character is completed");
+        assert_eq!(completed_batch.data, "\u{3042}");
+        flow.acknowledge(3, completed_batch.sequence);
+        assert!(flow.is_drained());
+    }
+
+    #[test]
+    fn output_flow_memory_counters_remain_bounded_for_long_streams() {
+        let mut flow = SshOutputFlow::new(55);
+        let packet = vec![b'x'; SSH_CHANNEL_MAX_PACKET_BYTES];
+
+        for _ in 0..10_000 {
+            assert!(flow.can_receive_packet(0));
+            let batch = flow.push(&packet).expect("packet batch");
+            assert!(flow.outstanding.len() <= OUTPUT_CREDIT_BATCHES);
+            assert!(flow.outstanding_bytes <= OUTPUT_CREDIT_BYTES);
+            flow.acknowledge(55, batch.sequence);
+        }
+
+        assert!(flow.is_drained());
+        assert_eq!(flow.outstanding_bytes, 0);
+    }
+
+    #[test]
+    fn output_coalescer_groups_small_packets_into_fixed_size_batches() {
+        let mut coalescer = SshOutputCoalescer::new();
+        let half = vec![b'x'; OUTPUT_COALESCE_BYTES / 2];
+
+        assert!(coalescer.push(&half).is_none());
+        assert_eq!(coalescer.pending_bytes(), half.len());
+        assert!(coalescer.flush_deadline().is_some());
+
+        let batch = coalescer
+            .push(&half)
+            .expect("two half packets form one output batch");
+        assert_eq!(batch.len(), OUTPUT_COALESCE_BYTES);
+        assert_eq!(coalescer.pending_bytes(), 0);
+        assert!(coalescer.flush_deadline().is_none());
+    }
+
+    #[test]
+    fn output_credit_includes_unflushed_coalescer_bytes() {
+        let mut flow = SshOutputFlow::new(77);
+        let packet = vec![b'x'; OUTPUT_COALESCE_BYTES];
+
+        for _ in 0..(OUTPUT_CREDIT_BATCHES - 1) {
+            flow.push(&packet).expect("full output batch");
+        }
+
+        let remaining_pending_budget =
+            OUTPUT_CREDIT_BYTES - flow.outstanding_bytes - SSH_CHANNEL_MAX_PACKET_BYTES - 4;
+        assert!(flow.can_receive_packet(remaining_pending_budget));
+        assert!(
+            !flow.can_receive_packet(remaining_pending_budget + 1),
+            "pending coalescer bytes must count against the fixed byte budget"
         );
     }
 }

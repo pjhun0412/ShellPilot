@@ -50,7 +50,6 @@ export function useLocalPtyLifecycle({
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
-    registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
     const alternateScreenScrollGuard = attachTerminalAlternateScreenScrollGuard(terminal);
     const fitScheduler = createTerminalFitScheduler({
@@ -60,6 +59,7 @@ export function useLocalPtyLifecycle({
       },
       terminal,
     });
+    registerTerminal(panelId, terminal, fitScheduler.fit);
     const writeBuffer = createTerminalWriteBuffer(terminal);
     fitScheduler.fit();
     setStatus('connecting');

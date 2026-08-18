@@ -4,11 +4,37 @@ import type { Terminal } from '@xterm/xterm';
 export interface TerminalWriteBuffer {
   dispose: () => void;
   flush: () => void;
-  write: (data: string) => void;
+  write: (data: string, onParsed?: () => void) => void;
 }
 
-export function createTerminalWriteBuffer(terminal: Terminal): TerminalWriteBuffer {
+interface TerminalWriteBufferOptions {
+  delivery?: 'animation-frame' | 'immediate';
+}
+
+export function createTerminalWriteBuffer(
+  terminal: Terminal,
+  { delivery = 'animation-frame' }: TerminalWriteBufferOptions = {},
+): TerminalWriteBuffer {
+  if (delivery === 'immediate') {
+    let isDisposed = false;
+
+    return {
+      dispose() {
+        isDisposed = true;
+      },
+      flush() {},
+      write(data: string, onParsed?: () => void) {
+        if (!data || isDisposed) {
+          return;
+        }
+
+        terminal.write(data, onParsed);
+      },
+    };
+  }
+
   let frame: number | undefined;
+  let pendingCallbacks: Array<() => void> = [];
   let pendingChunks: string[] = [];
 
   const flush = () => {
@@ -22,8 +48,12 @@ export function createTerminalWriteBuffer(terminal: Terminal): TerminalWriteBuff
     }
 
     const data = pendingChunks.length === 1 ? pendingChunks[0] : pendingChunks.join('');
+    const callbacks = pendingCallbacks;
+    pendingCallbacks = [];
     pendingChunks = [];
-    terminal.write(data);
+    terminal.write(data, () => {
+      callbacks.forEach((callback) => callback());
+    });
   };
 
   const scheduleFlush = () => {
@@ -40,12 +70,15 @@ export function createTerminalWriteBuffer(terminal: Terminal): TerminalWriteBuff
   return {
     dispose: flush,
     flush,
-    write(data: string) {
+    write(data: string, onParsed?: () => void) {
       if (!data) {
         return;
       }
 
       pendingChunks.push(data);
+      if (onParsed) {
+        pendingCallbacks.push(onParsed);
+      }
       scheduleFlush();
     },
   };
@@ -110,11 +143,28 @@ export function createTerminalFitScheduler({
     frame = window.requestAnimationFrame(() => {
       frame = undefined;
 
-      if (terminal.element?.isConnected === false) {
+      const terminalElement = terminal.element;
+      const container = terminalElement?.parentElement;
+
+      if (!terminalElement?.isConnected || !container) {
+        return;
+      }
+
+      const containerRect = container.getBoundingClientRect();
+
+      // FlexLayout hides inactive tabs with a zero-size container. FitAddon
+      // clamps that state to 2x1, which would incorrectly resize the remote PTY.
+      if (containerRect.width <= 0 || containerRect.height <= 0) {
         return;
       }
 
       try {
+        const dimensions = fitAddon.proposeDimensions();
+
+        if (!dimensions || dimensions.cols <= 0 || dimensions.rows <= 0) {
+          return;
+        }
+
         fitAddon.fit();
         onResize();
       } catch {

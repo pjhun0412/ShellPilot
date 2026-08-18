@@ -37,7 +37,7 @@ export function LocalPtyTerminal({
 
   useLocalPtyLifecycle({ containerRef, fitAddonRef, panelId, setStatus, target, terminalRef });
 
-  useActiveTerminalFocus({ focusKey: status, isActive, terminalRef });
+  useActiveTerminalFocus({ focusKey: status, isActive, panelId });
 
   const copySelection = () => {
     copyTerminalSelection(terminalRef.current);

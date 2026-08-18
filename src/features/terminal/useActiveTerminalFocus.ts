@@ -1,26 +1,21 @@
-import type { Terminal } from '@xterm/xterm';
-import { useEffect, type MutableRefObject } from 'react';
+import { useEffect } from 'react';
+
+import { focusRegisteredTerminal } from './terminalRegistry';
 
 export function useActiveTerminalFocus({
   focusKey,
   isActive,
-  terminalRef,
+  panelId,
 }: {
   focusKey?: unknown;
   isActive: boolean;
-  terminalRef: MutableRefObject<Terminal | undefined>;
+  panelId: string;
 }) {
   useEffect(() => {
     if (!isActive) {
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      terminalRef.current?.focus();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [focusKey, isActive, terminalRef]);
+    focusRegisteredTerminal(panelId);
+  }, [focusKey, isActive, panelId]);
 }

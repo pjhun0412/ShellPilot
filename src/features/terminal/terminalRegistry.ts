@@ -1,31 +1,79 @@
 import type { Terminal } from '@xterm/xterm';
 
-const registry = new Map<string, Terminal>();
+interface RegisteredTerminal {
+  fit?: () => void;
+  terminal: Terminal;
+}
 
-export function registerTerminal(panelId: string, terminal: Terminal) {
-  registry.set(panelId, terminal);
+const registry = new Map<string, RegisteredTerminal>();
+let activePanelId: string | undefined;
+
+const fitActiveTerminal = () => {
+  if (activePanelId) {
+    registry.get(activePanelId)?.fit?.();
+  }
+};
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    fitActiveTerminal();
+  }
+};
+
+const attachWindowListeners = () => {
+  if (registry.size !== 1) {
+    return;
+  }
+
+  window.addEventListener('focus', fitActiveTerminal);
+  window.addEventListener('resize', fitActiveTerminal);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+};
+
+const detachWindowListeners = () => {
+  if (registry.size !== 0) {
+    return;
+  }
+
+  window.removeEventListener('focus', fitActiveTerminal);
+  window.removeEventListener('resize', fitActiveTerminal);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
+};
+
+export function registerTerminal(panelId: string, terminal: Terminal, fit?: () => void) {
+  registry.set(panelId, { fit, terminal });
+  attachWindowListeners();
 }
 
 export function unregisterTerminal(panelId: string) {
   registry.delete(panelId);
+
+  if (activePanelId === panelId) {
+    activePanelId = undefined;
+  }
+
+  detachWindowListeners();
 }
 
 export function focusRegisteredTerminal(panelId: string) {
-  const terminal = registry.get(panelId);
+  const registeredTerminal = registry.get(panelId);
 
-  if (!terminal) {
+  if (!registeredTerminal) {
     return false;
   }
 
+  activePanelId = panelId;
+  registeredTerminal.fit?.();
+
   window.requestAnimationFrame(() => {
-    terminal.focus();
+    registeredTerminal.terminal.focus();
   });
 
   return true;
 }
 
 export function readTerminalScrollbackText(panelId: string, maxLines = 150): string | undefined {
-  const terminal = registry.get(panelId);
+  const terminal = registry.get(panelId)?.terminal;
 
   if (!terminal) {
     return undefined;

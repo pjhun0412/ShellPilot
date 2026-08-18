@@ -134,7 +134,7 @@ export function SshTerminal({
     terminalRef,
   });
 
-  useActiveTerminalFocus({ focusKey: status, isActive, terminalRef });
+  useActiveTerminalFocus({ focusKey: status, isActive, panelId });
 
   useEffect(() => {
     sshMetadataRef.current = readSshSessionMetadata(session);

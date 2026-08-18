@@ -73,6 +73,7 @@ pub fn run() {
             commands::ssh::forget_ssh_known_host,
             commands::ssh::list_ssh_known_hosts,
             commands::ssh::probe_ssh_connection,
+            commands::ssh::ssh_ack_output,
             commands::ssh::ssh_close,
             commands::ssh::ssh_open_shell,
             commands::ssh::ssh_query_cwd,

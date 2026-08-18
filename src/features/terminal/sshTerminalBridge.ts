@@ -14,6 +14,8 @@ export interface SshTerminalEvent {
   data?: string;
   hostKeyFingerprint?: string;
   message?: string;
+  outputSequence?: number;
+  outputStreamId?: number;
   panelId: string;
   retryable: boolean;
   status: 'closed' | 'connected' | 'data' | 'failed' | 'info' | 'warning';
@@ -64,6 +66,18 @@ export async function openSshShell(
 
 export async function writeSshData(panelId: string, data: string) {
   await invoke('ssh_write', { data, panelId });
+}
+
+export async function acknowledgeSshOutput(
+  panelId: string,
+  streamId: number,
+  throughSequence: number,
+) {
+  await invoke('ssh_ack_output', {
+    panelId,
+    streamId,
+    throughSequence,
+  });
 }
 
 export async function resizeSshPty(panelId: string, terminal: Terminal) {

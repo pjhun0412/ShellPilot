@@ -11,6 +11,8 @@ import { requestSessionPatch } from '@/features/sessions/sessionStorage';
 import type { SessionItem } from '@/types/workspace';
 import { resizeSshPty, type SshTerminalEvent } from './sshTerminalBridge';
 import { isSshHostKeyFailure, type SshTerminalFailure } from './sshTerminalUi';
+import type { SshTerminalOutputAcknowledger } from './sshTerminalOutput';
+import type { SshTerminalPerformanceDebug } from './sshTerminalPerformanceDebug';
 import type { TerminalWriteBuffer } from './terminalPerformance';
 
 export type SshCloseIntent = 'dispose' | 'manual' | 'reconnect';
@@ -30,6 +32,9 @@ interface HandleSshTerminalEventOptions {
   panelId: string;
   pendingPasswordRef: MutableRefObject<string | undefined>;
   pendingUsernameRef: MutableRefObject<string | undefined>;
+  outputAcknowledger: SshTerminalOutputAcknowledger;
+  performanceDebug: SshTerminalPerformanceDebug;
+  refreshDiagnostics: () => void;
   session: SessionItem;
   setTerminalStatus: (status: 'closed' | 'connecting' | 'connected' | 'failed' | 'restored', failure?: SshTerminalFailure) => void;
   shouldRememberPasswordRef: MutableRefObject<boolean>;
@@ -47,6 +52,9 @@ export function handleSshTerminalEvent({
   panelId,
   pendingPasswordRef,
   pendingUsernameRef,
+  outputAcknowledger,
+  performanceDebug,
+  refreshDiagnostics,
   session,
   setTerminalStatus,
   shouldRememberPasswordRef,
@@ -58,12 +66,23 @@ export function handleSshTerminalEvent({
     return;
   }
 
+  if (
+    event.outputStreamId !== undefined &&
+    !outputAcknowledger.acceptStream(event.outputStreamId)
+  ) {
+    return;
+  }
+  if (event.outputStreamId !== undefined) {
+    performanceDebug.acceptStream(event.outputStreamId);
+  }
+
   if (event.status === 'connected') {
     writeBuffer.flush();
     closeIntentRef.current = undefined;
     failedAttemptRef.current = false;
     setTerminalStatus('connected');
     terminal.clear();
+    refreshDiagnostics();
     terminal.focus();
     persistPromptedCredentials({
       pendingPasswordRef,
@@ -95,12 +114,27 @@ export function handleSshTerminalEvent({
   }
 
   if (event.status === 'data' && event.data) {
-    writeBuffer.write(event.data);
+    const { outputSequence, outputStreamId } = event;
+    const receivedAt =
+      outputStreamId === undefined
+        ? 0
+        : performanceDebug.recordData(outputStreamId, event.data.length);
+    writeBuffer.write(
+      event.data,
+      outputSequence !== undefined && outputStreamId !== undefined
+        ? () => {
+            performanceDebug.recordParsed(outputStreamId, receivedAt);
+            outputAcknowledger.acknowledge(outputStreamId, outputSequence);
+          }
+        : undefined,
+    );
     return;
   }
 
   if (event.status === 'failed') {
     writeBuffer.flush();
+    outputAcknowledger.endStream(event.outputStreamId);
+    performanceDebug.endStream(event.outputStreamId);
     closeIntentRef.current = undefined;
     failedAttemptRef.current = true;
     const hostKeyWarning = lastHostKeyWarningRef.current;
@@ -120,6 +154,8 @@ export function handleSshTerminalEvent({
 
   if (event.status === 'closed') {
     writeBuffer.flush();
+    outputAcknowledger.endStream(event.outputStreamId);
+    performanceDebug.endStream(event.outputStreamId);
     if (failedAttemptRef.current) {
       closeIntentRef.current = undefined;
       return;

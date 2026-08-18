@@ -23,8 +23,8 @@ use known_hosts::{
 };
 pub use shell::SshSessionStore;
 use shell::{
-    close_shell, emit_terminal_warning, emit_terminal_warning_with_host_key, open_shell, query_cwd,
-    resize_shell, write_shell,
+    acknowledge_shell_output, close_shell, emit_terminal_warning,
+    emit_terminal_warning_with_host_key, open_shell, query_cwd, resize_shell, write_shell,
 };
 
 #[derive(Serialize)]
@@ -194,6 +194,16 @@ pub async fn ssh_write(
 }
 
 #[tauri::command]
+pub async fn ssh_ack_output(
+    store: State<'_, SshSessionStore>,
+    panel_id: String,
+    stream_id: u64,
+    through_sequence: u64,
+) -> Result<(), String> {
+    acknowledge_shell_output(store, panel_id, stream_id, through_sequence).await
+}
+
+#[tauri::command]
 pub async fn ssh_resize(
     store: State<'_, SshSessionStore>,
     panel_id: String,
@@ -261,6 +271,7 @@ pub(crate) struct ShellPilotSshClient {
     host: String,
     panel_id: Option<String>,
     port: u16,
+    terminal_stream_id: Option<u64>,
 }
 
 impl ShellPilotSshClient {
@@ -279,7 +290,13 @@ impl ShellPilotSshClient {
             host: host.to_string(),
             panel_id,
             port,
+            terminal_stream_id: None,
         }
+    }
+
+    pub(crate) fn with_terminal_stream_id(mut self, terminal_stream_id: u64) -> Self {
+        self.terminal_stream_id = Some(terminal_stream_id);
+        self
     }
 }
 
@@ -308,6 +325,7 @@ impl client::Handler for ShellPilotSshClient {
                     emit_terminal_warning(
                         &self.app,
                         self.panel_id.as_deref(),
+                        self.terminal_stream_id,
                         "host_key_store_failed",
                         format!("Security: failed to store SSH host key: {error}"),
                     );
@@ -317,6 +335,7 @@ impl client::Handler for ShellPilotSshClient {
                 emit_terminal_warning_with_host_key(
                     &self.app,
                     self.panel_id.as_deref(),
+                    self.terminal_stream_id,
                     "host_key_trusted",
                     format!(
                         "Security: trusted new SSH host key for {}:{} ({})",
@@ -330,6 +349,7 @@ impl client::Handler for ShellPilotSshClient {
                 emit_terminal_warning_with_host_key(
                     &self.app,
                     self.panel_id.as_deref(),
+                    self.terminal_stream_id,
                     "host_key_unknown",
                     format!(
                         "Security: unknown SSH host key for {}:{}.\nAlgorithm: {}\nFingerprint: {}\nOnly trust this key if it matches the server you intended to reach.",
@@ -343,6 +363,7 @@ impl client::Handler for ShellPilotSshClient {
                 emit_terminal_warning_with_host_key(
                     &self.app,
                     self.panel_id.as_deref(),
+                    self.terminal_stream_id,
                     "host_key_mismatch",
                     format!(
                         "Security: SSH host key mismatch for {}:{}. Expected {}, got {}.",
@@ -356,6 +377,7 @@ impl client::Handler for ShellPilotSshClient {
                 emit_terminal_warning(
                     &self.app,
                     self.panel_id.as_deref(),
+                    self.terminal_stream_id,
                     "host_key_store_failed",
                     format!("Security: failed to verify SSH host key: {error}"),
                 );

@@ -15,6 +15,12 @@ import {
 import { createXtermTerminal } from './createXtermTerminal';
 import { handleSshTerminalEvent, type SshCloseIntent, type SshHostKeyWarning } from './sshTerminalEventHandler';
 import { bindSshTerminalInput } from './sshTerminalInput';
+import { createSshTerminalOutputAcknowledger } from './sshTerminalOutput';
+import {
+  createSshTerminalPerformanceDebug,
+  isSshTerminalPerformanceDebugEnabled,
+  type SshTerminalBackendPerfEvent,
+} from './sshTerminalPerformanceDebug';
 import { getSshOpenFailure, type SshTerminalFailure } from './sshTerminalUi';
 import { attachTerminalDiagnosticsHighlighter } from './terminalDiagnosticsHighlighter';
 import {
@@ -70,7 +76,6 @@ export function useSshTerminalLifecycle({
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
-    registerTerminal(panelId, terminal);
     const diagnosticsHighlighter = attachTerminalDiagnosticsHighlighter(terminal);
     const alternateScreenScrollGuard = attachTerminalAlternateScreenScrollGuard(terminal);
     const fitScheduler = createTerminalFitScheduler({
@@ -80,7 +85,12 @@ export function useSshTerminalLifecycle({
       },
       terminal,
     });
-    const writeBuffer = createTerminalWriteBuffer(terminal);
+    registerTerminal(panelId, terminal, fitScheduler.fit);
+    const performanceDebug = createSshTerminalPerformanceDebug(panelId);
+    const outputAcknowledger = createSshTerminalOutputAcknowledger(panelId, performanceDebug);
+    // Rust limits unacknowledged SSH output. Each xterm parser callback
+    // returns credit so remote reads slow down instead of growing a UI queue.
+    const writeBuffer = createTerminalWriteBuffer(terminal, { delivery: 'immediate' });
     fitScheduler.fit();
     if (autoConnect) {
       failedAttemptRef.current = false;
@@ -108,6 +118,8 @@ export function useSshTerminalLifecycle({
 
       terminal.writeln('\r\n[closing ssh session...]');
       closeIntentRef.current = 'dispose';
+      outputAcknowledger.endStream();
+      performanceDebug.endStream();
       void closeSshShell(panelId);
       publishClosedStatus(false);
     });
@@ -118,13 +130,22 @@ export function useSshTerminalLifecycle({
 
       terminal.writeln('\r\n[ssh session disconnected]');
       closeIntentRef.current = 'manual';
+      outputAcknowledger.endStream();
+      performanceDebug.endStream();
       void closeSshShell(panelId);
       publishClosedStatus();
     });
 
     let isDisposed = false;
     let unlisten: UnlistenFn | undefined;
+    let unlistenPerformance: UnlistenFn | undefined;
     const startShellAfterListenerReady = async () => {
+      if (isSshTerminalPerformanceDebugEnabled()) {
+        unlistenPerformance = await listen<SshTerminalBackendPerfEvent>(
+          'shellpilot-ssh-terminal-perf',
+          (event) => performanceDebug.recordBackend(event.payload),
+        );
+      }
       unlisten = await listen<SshTerminalEvent>('shellpilot-ssh-terminal', (event) => {
         handleSshTerminalEvent({
           closeIntentRef,
@@ -135,6 +156,9 @@ export function useSshTerminalLifecycle({
           panelId,
           pendingPasswordRef,
           pendingUsernameRef,
+          outputAcknowledger,
+          performanceDebug,
+          refreshDiagnostics: diagnosticsHighlighter.refresh,
           session: sessionRef.current,
           setTerminalStatus,
           shouldRememberPasswordRef,
@@ -145,6 +169,8 @@ export function useSshTerminalLifecycle({
       });
 
       if (isDisposed) {
+        unlisten?.();
+        unlistenPerformance?.();
         return;
       }
 
@@ -165,6 +191,8 @@ export function useSshTerminalLifecycle({
       closeIntentRef.current = 'dispose';
       void closeSshShell(panelId);
       writeBuffer.dispose();
+      outputAcknowledger.dispose();
+      performanceDebug.dispose();
       inputBinding.dispose();
       fitScheduler.dispose();
       alternateScreenScrollGuard.dispose();
@@ -173,6 +201,7 @@ export function useSshTerminalLifecycle({
       unsubscribeClosing();
       unsubscribeDisconnect();
       unlisten?.();
+      unlistenPerformance?.();
       unregisterTerminal(panelId);
       terminal.dispose();
       publishClosedStatus();
