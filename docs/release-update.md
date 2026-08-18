@@ -1,6 +1,6 @@
 ﻿# ShellPilot 릴리즈와 자동 업데이트
 
-> 현재 상태: Windows 릴리스가 기준이다. 저장소 버전 `1.0.4`는 준비 중이며, 아래 `1.0.3` 값은 updater 형식을 설명하기 위한 예시다.
+> 현재 상태: Windows 릴리스가 기준이다. 저장소 버전 `1.0.5`는 준비 중이며, 아래 `1.0.3` 값은 updater 형식을 설명하기 위한 예시다.
 
 ShellPilot은 Tauri v2 updater와 GitHub Releases를 기반으로 업데이트를 제공합니다.
 
