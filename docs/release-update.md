@@ -1,6 +1,6 @@
 ﻿# ShellPilot 릴리즈와 자동 업데이트
 
-> 현재 상태: Windows 릴리스가 기준이다. 저장소 버전 `1.0.5`는 준비 중이며, 아래 `1.0.3` 값은 updater 형식을 설명하기 위한 예시다.
+> 현재 상태: Windows 릴리스가 기준이다. 저장소 버전은 `1.0.6`이며, 아래 `1.0.3` 값은 updater 형식을 설명하기 위한 예시다.
 
 ShellPilot은 Tauri v2 updater와 GitHub Releases를 기반으로 업데이트를 제공합니다.
 
@@ -22,7 +22,14 @@ ShellPilot은 Tauri v2 updater와 GitHub Releases를 기반으로 업데이트�
 
 ## GitHub Releases 산출물
 
-현재 Windows release 스크립트가 공식 업로드 흐름을 담당합니다.
+태그 푸시로 실행되는 GitHub Actions 릴리스는 현재 다음 파일을 업로드합니다.
+
+```text
+ShellPilot-<version>-setup.exe
+ShellPilot-<version>-portable.exe
+```
+
+로컬의 서명된 `npm run release:win` 흐름은 다음 전체 updater 산출물을 업로드하도록 구성되어 있습니다.
 
 ```text
 ShellPilot-<version>-setup.exe
@@ -30,6 +37,8 @@ ShellPilot-<version>-setup.exe.sig
 ShellPilot-<version>-portable.zip
 latest.json
 ```
+
+GitHub Actions에는 updater 서명 키와 `latest.json` 생성 단계가 아직 연결되지 않았으므로, 태그 기반 배포만으로는 자동 업데이트 메타데이터가 게시되지 않습니다.
 
 `latest.json` 예시:
 
