@@ -7,7 +7,7 @@ type SftpTransferStoreListener = (transfers: SftpTransferItem[], event?: SftpTra
 const maxStoredTransfers = 300;
 const listeners = new Set<SftpTransferStoreListener>();
 let transfers: SftpTransferItem[] = [];
-let listenStarted = false;
+let listenPromise: Promise<void> | undefined;
 
 export function getSftpTransferStoreSnapshot() {
   ensureSftpTransferStoreListening();
@@ -97,14 +97,12 @@ export function clearFinishedSftpTransfers() {
   notifySftpTransferStore();
 }
 
-function ensureSftpTransferStoreListening() {
-  if (listenStarted) {
-    return;
+export function ensureSftpTransferStoreListening() {
+  if (listenPromise) {
+    return listenPromise;
   }
 
-  listenStarted = true;
-
-  void listenSftpTransferEvents((event) => {
+  const nextListenPromise = listenSftpTransferEvents((event) => {
     const current = transfers.find((item) => item.transferId === event.transferId);
     const nextItem = mergeTransferEvent(current, event);
 
@@ -113,10 +111,18 @@ function ensureSftpTransferStoreListening() {
       : [nextItem, ...transfers];
     transfers = transfers.slice(0, maxStoredTransfers);
     notifySftpTransferStore(event);
-  }).catch((error) => {
-    listenStarted = false;
+  }).then(() => undefined);
+
+  listenPromise = nextListenPromise;
+  void nextListenPromise.catch((error) => {
+    if (listenPromise === nextListenPromise) {
+      listenPromise = undefined;
+    }
+
     console.error('Failed to listen for SFTP transfer events.', error);
   });
+
+  return nextListenPromise;
 }
 
 function notifySftpTransferStore(event?: SftpTransferEvent) {

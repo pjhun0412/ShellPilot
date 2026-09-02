@@ -2,7 +2,7 @@
 
 > 상태: **활성 유지보수 / 전송 정책 기준 문서**
 
-Last updated: 2026-07-22
+Last updated: 2026-09-02
 
 이 문서는 ShellPilot SFTP 전송 큐의 현재 동작과 유지보수 정책을 정리한다.
 
@@ -19,9 +19,12 @@ Last updated: 2026-07-22
 Frontend scheduler는 `src/features/sftp/sftpTransferScheduler.ts`가 담당한다.
 
 - `queued` item만 concurrency slot이 있을 때 실행한다.
+- backend transfer event listener가 준비된 뒤에만 item을 dequeue하고 `running`으로 전환한다.
+- listener 준비 실패는 item을 실패 처리하고 Promise를 종료하며 concurrency slot을 소비하지 않는다.
 - queue가 paused이면 새 queued item scheduling을 멈춘다.
 - 이미 `running`인 item은 queue pause만으로 자동 중단하지 않는다.
 - concurrency는 UI에서 1~8 범위로 조정한다.
+- 전송 terminal 상태 대기는 전역 store가 관리하므로 SFTP 패널을 닫아도 scheduler slot이 남지 않는다.
 
 ## Running pause/resume
 
@@ -31,6 +34,7 @@ Backend transfer control은 `src-tauri/src/commands/sftp.rs`의 transfer control
 - upload/download loop는 chunk boundary에서 pause flag를 확인하고 대기한다.
 - resume 요청은 flag를 해제하고 waiter를 깨운다.
 - cancel 요청은 canceled flag를 세우고 가능한 temp 파일을 정리한다.
+- 상태 검사와 waiter 등록은 같은 동기화 경계에서 처리해 pause/resume/cancel 알림 유실을 막는다.
 
 제한:
 
@@ -93,10 +97,18 @@ Finalize:
 ## Download resume
 
 - local temp 파일 이름은 stable downloadId 기반이다.
-- temp size가 remote file size 이하이면 offset부터 이어받는다.
+- retry metadata의 remote size/mtime fingerprint가 현재 파일과 일치해야 resume을 허용한다.
+- 기존 temp prefix와 현재 remote prefix가 일치해야 offset부터 이어받는다.
+- 병렬 download writer는 앞에서부터 연속으로 완료된 범위만 재개 가능한 offset으로 기록한다.
 - temp가 remote보다 크거나 open/seek 실패 시 temp를 제거하고 restart한다.
 - 완료 후 temp를 최종 local path로 rename한다.
 - 완료 이벤트를 받은 frontend는 현재 Local pane path와 다운로드 parent가 같을 때 목록을 refresh한다.
+
+디렉터리 다운로드 안전 정책:
+
+- 원격 entry는 단일 파일명으로만 해석하며 `..`, 절대 경로, 구분자와 Windows 예약 이름을 거부한다.
+- Windows 대소문자 비구분 환경에서 같은 local path로 충돌하는 entry를 거부한다.
+- 대상 root와 하위 디렉터리의 symlink, junction, reparse point를 거부하고 canonical path가 선택 root 안에 있는지 확인한다.
 
 ## Clear 정책
 

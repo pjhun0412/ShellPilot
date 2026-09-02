@@ -16,6 +16,7 @@ import {
 } from './sftpPanelUtils';
 import {
   addSftpPendingTransfer,
+  ensureSftpTransferStoreListening,
   markSftpTransferCanceled,
   markSftpTransferFailed,
   markSftpTransferPaused,
@@ -55,6 +56,7 @@ const activeTransferIds = new Set<string>();
 let activeCount = 0;
 let sftpTransferConcurrency = readSftpTransferConcurrency();
 let paused = false;
+let readinessPumpPending = false;
 
 export function enqueueSftpTransfer(
   transfer: SftpTransferItem,
@@ -179,6 +181,32 @@ export function retryFailedSftpTransfers(transfers: SftpTransferItem[]) {
 }
 
 function pumpSftpTransferQueue() {
+  if (
+    readinessPumpPending ||
+    paused ||
+    activeCount >= sftpTransferConcurrency ||
+    queue.length === 0
+  ) {
+    return;
+  }
+
+  readinessPumpPending = true;
+  const pendingTransferId = queue[0].transferId;
+
+  void ensureSftpTransferStoreListening().then(
+    () => {
+      readinessPumpPending = false;
+      startReadySftpTransfers();
+    },
+    (error) => {
+      readinessPumpPending = false;
+      failQueuedSftpTransfer(pendingTransferId, error);
+      pumpSftpTransferQueue();
+    },
+  );
+}
+
+function startReadySftpTransfers() {
   while (!paused && activeCount < sftpTransferConcurrency && queue.length > 0) {
     const item = queue.shift();
 
@@ -207,6 +235,21 @@ function pumpSftpTransferQueue() {
         pumpSftpTransferQueue();
       });
   }
+}
+
+function failQueuedSftpTransfer(transferId: string, error: unknown) {
+  const index = queue.findIndex((item) => item.transferId === transferId);
+
+  if (index === -1) {
+    return;
+  }
+
+  const [item] = queue.splice(index, 1);
+  const message = error instanceof Error ? error.message : String(error);
+
+  markSftpTransferFailed(transferId, message);
+  item.resolve();
+  notifySftpTransferQueue();
 }
 
 function notifySftpTransferQueue() {
@@ -386,10 +429,12 @@ function clampSftpTransferConcurrency(concurrency: number) {
   );
 }
 
-async function runBackendTransferUntilTerminal(
+export async function runBackendTransferUntilTerminal(
   transferId: string,
   action: () => Promise<void>,
 ) {
+  await ensureSftpTransferStoreListening();
+
   let unsubscribe: (() => void) | undefined;
   const completion = new Promise<void>((resolve) => {
     unsubscribe = subscribeSftpTransferStore((_, event) => {

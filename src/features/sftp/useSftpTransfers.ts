@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { revealLocalPath, type SftpTransferEvent } from './sftpBridge';
-import { isSftpTerminalTransferStatus } from './sftpPanelUtils';
 import {
-  addSftpPendingTransfer,
   getSftpTransferStoreSnapshot,
-  markSftpTransferFailed,
   removeSftpTransfer,
   subscribeSftpTransferStore,
 } from './sftpTransferStore';
@@ -24,7 +21,6 @@ export function useSftpTransfers({
   onUploadCompleted: () => void;
   panelId: string;
 }) {
-  const transferWaitersRef = useRef(new Map<string, () => void>());
   const uploadCompletedRefreshTimerRef = useRef<number>();
   const onDownloadCompletedRef = useRef(onDownloadCompleted);
   const onUploadCompletedRef = useRef(onUploadCompleted);
@@ -72,11 +68,6 @@ export function useSftpTransfers({
         return;
       }
 
-      if (isSftpTerminalTransferStatus(event.status)) {
-        transferWaitersRef.current.get(event.transferId)?.();
-        transferWaitersRef.current.delete(event.transferId);
-      }
-
       if (event.status === 'completed' && event.direction === 'upload') {
         scheduleUploadCompletedRefresh();
       }
@@ -98,25 +89,8 @@ export function useSftpTransfers({
     }, 150);
   };
 
-  const addPendingTransfer = (transfer: SftpTransferItem, replaceTransferId?: string) => {
-    addSftpPendingTransfer(transfer, replaceTransferId);
-  };
-
-  const waitForTransferCompletion = (transferId: string) =>
-    new Promise<void>((resolve) => {
-      transferWaitersRef.current.set(transferId, resolve);
-    });
-
-  const markTransferFailed = (transferId: string, message: string) => {
-    markSftpTransferFailed(transferId, message);
-  };
-
   const removeTransfer = (transferId: string) => {
     removeSftpTransfer(transferId);
-  };
-
-  const deleteTransferWaiter = (transferId: string) => {
-    transferWaitersRef.current.delete(transferId);
   };
 
   const revealDownloadedTransfer = async (transfer: SftpTransferItem) => {
@@ -128,14 +102,10 @@ export function useSftpTransfers({
   };
 
   return {
-    addPendingTransfer,
-    deleteTransferWaiter,
-    markTransferFailed,
     removeTransfer,
     revealDownloadedTransfer,
     transferSummary,
     transfers,
-    waitForTransferCompletion,
   };
 }
 

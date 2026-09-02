@@ -3,6 +3,7 @@ import { useState, type RefObject } from 'react';
 import type { SftpOperationNotice } from './SftpPanelBody';
 import type { SftpEntry } from './sftpBridge';
 import { requestSftpRemoteRefresh } from './sftpRemoteRefresh';
+import { markSftpTransferFailed } from './sftpTransferStore';
 import { useSftpFileActions } from './useSftpFileActions';
 import { useSftpRemoteMove } from './useSftpRemoteMove';
 import { useSftpTransferActions } from './useSftpTransferActions';
@@ -46,11 +47,8 @@ export function useSftpPanelRemoteOperations({
 }) {
   const [operationNotice, setOperationNotice] = useState<SftpOperationNotice>();
   const {
-    deleteTransferWaiter,
-    markTransferFailed,
     transferSummary,
     transfers,
-    waitForTransferCompletion,
   } = useSftpTransfers({
     onError: setError,
     onDownloadCompleted: (event) => onDownloadCompleted?.(event.localPath),
@@ -68,13 +66,11 @@ export function useSftpPanelRemoteOperations({
   } = useSftpTransferActions({
     currentEntries: entries,
     currentPath: path,
-    deleteTransferWaiter,
     downloadableEntries,
     isRemoteReady,
-    markTransferFailed,
+    markTransferFailed: markSftpTransferFailed,
     panelId,
     setError,
-    waitForTransferCompletion,
   });
   const {
     dragUploadTargetPath,

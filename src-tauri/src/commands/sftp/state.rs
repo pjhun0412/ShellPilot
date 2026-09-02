@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use russh::client;
@@ -36,7 +39,31 @@ pub(super) struct SftpUploadStream {
 
 #[derive(Default)]
 pub(super) struct SftpTransferControl {
-    pub(super) canceled: AtomicBool,
-    pub(super) paused: AtomicBool,
+    canceled: AtomicBool,
+    paused: AtomicBool,
     pub(super) notify: Notify,
+}
+
+impl SftpTransferControl {
+    pub(super) fn cancel(&self) {
+        self.canceled.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
+    pub(super) fn is_canceled(&self) -> bool {
+        self.canceled.load(Ordering::Acquire)
+    }
+
+    pub(super) fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Acquire)
+    }
+
+    pub(super) fn pause(&self) {
+        self.paused.store(true, Ordering::Release);
+    }
+
+    pub(super) fn resume(&self) {
+        self.paused.store(false, Ordering::Release);
+        self.notify.notify_waiters();
+    }
 }

@@ -1,6 +1,5 @@
 import {
   hasRememberedCredentialPassword,
-  resolveKeyCredentialRef,
   resolvePasswordCredentialRef,
 } from '@/features/connections/sshConnection';
 import type { SessionItem } from '@/types/workspace';
@@ -100,8 +99,10 @@ export function createSshConnectionTarget(
     password: usesPasswordCredential ? options.password ?? null : null,
     passphrase: session.authMethod === 'key' ? options.password ?? null : null,
     passphraseCredentialId:
-      session.authMethod === 'key' && !options.password
-        ? resolveKeyCredentialRef(session).id
+      session.authMethod === 'key' &&
+      !options.password &&
+      session.credentialRef?.kind === 'key'
+        ? session.credentialRef.id
         : null,
     port: session.port ?? 22,
     privateKeyPath,

@@ -249,3 +249,10 @@ Local PTY 동작 수동 확인:
 - 의도: credential id 유추나 UI/IPC 조작만으로 다른 세션의 저장 비밀번호/키 패스프레이즈를 읽어 인증에 쓰는 범위를 줄인다.
 - 세션 레지스트리 저장 시 이전/새 registry를 비교해 더 이상 참조되지 않는 credential은 백엔드에서도 best-effort로 삭제한다. 프론트 cleanup이 1차, 백엔드 cleanup이 2차 안전망이다.
 - 남은 고도화: local file grant registry, 저장소 마이그레이션 실패 시 UX 정리.
+
+## 2026-09-02 암호 없는 개인키 연결 수정
+
+- 증상: passphrase가 없는 개인키로 새 SSH 세션을 만들면 첫 연결에서 key passphrase 입력창이 표시되고, 아무 문자열을 입력해도 재시도 연결은 성공했다.
+- 원인: 새 키 세션에 저장된 passphrase가 없어서 `credentialRef`가 생성되지 않았는데도, 연결 target 조립 단계가 임의의 key credential ID를 만들어 백엔드에 전달했다. 백엔드는 존재하지 않는 ID를 세션 credential 바인딩 실패로 거부했다.
+- 수정: 세션에 실제 `credentialRef.kind === 'key'` 참조가 있을 때만 `passphraseCredentialId`를 전달한다. 암호 없는 키는 처음부터 passphrase 없이 로드하고, 저장된 passphrase가 있는 키와 사용자가 직접 입력해 재시도하는 흐름은 그대로 유지한다.
+- 검증: `npm run build`의 프론트엔드 타입 검사와 프로덕션 빌드가 통과했다. 실제 암호 없는 키, 암호화된 키, 잘못된 키의 수동 연결 결과는 별도로 확인한다.

@@ -35,6 +35,7 @@ Frontend:
 - `src/features/sftp/sftpTransferStore.ts`
   - 전송 item 상태 store.
   - queued/running/paused/completed/failed/canceled 상태를 관리한다.
+  - 전역 backend transfer event listener와 terminal 상태 대기를 관리해 패널 unmount 뒤에도 scheduler slot을 정리한다.
 - `src/features/sftp/sftpTransferTypes.ts`
   - transfer item, retry payload, metadata type 정의.
 - `src/features/sftp/sftpTransferActionHelpers.ts`
@@ -43,7 +44,7 @@ Frontend:
 - `src/features/sftp/useSftpTransferActions.ts`
   - upload/download 요청, conflict dialog, queue enqueue를 담당한다.
 - `src/features/sftp/useSftpTransfers.ts`
-  - backend transfer event를 panel state와 전역 store에 반영한다.
+  - 전역 transfer store 상태를 현재 panel UI에 연결한다.
 - `src/features/sftp/useSftpPanelRemoteOperations.ts`
   - remote create/rename/delete/upload/download/move 등 panel operation wiring.
 - `src/features/sftp/sftpBridge.ts`
@@ -54,7 +55,11 @@ Frontend:
 Backend:
 
 - `src-tauri/src/commands/sftp.rs`
-  - SFTP session store, file operation, upload/download, progress event, cancel/pause/resume control.
+  - SFTP command module facade와 공용 re-export를 담당한다.
+- `src-tauri/src/commands/sftp/state.rs`
+  - SFTP session store와 transfer pause/resume/cancel control을 담당한다.
+- `src-tauri/src/commands/sftp/transfer/`
+  - upload/download 실행, 재개 검증, 임시파일 처리와 progress event를 담당한다.
 - `src-tauri/src/lib.rs`
   - SFTP/local helper command 등록.
 
@@ -107,8 +112,10 @@ Release/version:
 다운로드:
 
 - local temp 파일에 먼저 쓰고, 완료 후 최종 경로로 rename한다.
-- temp size가 remote size 이하이면 offset부터 resume한다.
+- remote size/mtime fingerprint와 기존 temp prefix가 일치할 때만 offset부터 resume한다.
 - temp가 없거나 크기가 맞지 않거나 seek/open이 실패하면 자동 restart 경로로 전환한다.
+- 디렉터리 다운로드는 원격 entry 이름, Windows 예약 이름과 대소문자 충돌을 검증한다.
+- local symlink, junction, reparse point를 통한 선택 디렉터리 밖의 파일 쓰기를 거부한다.
 
 공통:
 
@@ -121,7 +128,9 @@ Release/version:
 현재 구현:
 
 - frontend queue pause는 새 queued item scheduling을 멈춘다.
+- scheduler는 backend transfer event listener 등록이 끝난 뒤에만 item을 dequeue하고 concurrency slot을 사용한다.
 - running transfer pause는 backend transfer control flag를 통해 chunk loop에서 대기한다.
+- backend pause/resume/cancel은 상태 검사와 waiter 등록 사이의 알림 유실이 없도록 동기화한다.
 - 이미 backend I/O 호출 내부에 들어간 순간은 즉시 끊지 않고 다음 chunk boundary에서 멈춘다.
 
 범위 밖:

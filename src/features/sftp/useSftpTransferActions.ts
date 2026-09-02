@@ -17,7 +17,10 @@ import {
   isSftpTransferCanceledError,
   joinLocalPath,
 } from './sftpPanelUtils';
-import { enqueueSftpTransfer } from './sftpTransferScheduler';
+import {
+  enqueueSftpTransfer,
+  runBackendTransferUntilTerminal,
+} from './sftpTransferScheduler';
 import {
   chooseFileConflictDecision,
   createDownloadTransferItem,
@@ -39,23 +42,19 @@ const sftpUploadStreamChunkSize = 4 * 1024 * 1024;
 export function useSftpTransferActions({
   currentEntries,
   currentPath,
-  deleteTransferWaiter,
   downloadableEntries,
   isRemoteReady,
   markTransferFailed,
   panelId,
   setError,
-  waitForTransferCompletion,
 }: {
   currentEntries: SftpEntry[];
   currentPath: string;
-  deleteTransferWaiter: (transferId: string) => void;
   downloadableEntries: SftpEntry[];
   isRemoteReady: boolean;
   markTransferFailed: (transferId: string, message: string) => void;
   panelId: string;
   setError: (message: string) => void;
-  waitForTransferCompletion: (transferId: string) => Promise<void>;
 }) {
   const getEntriesForTargetDirectory = async (targetDirectory: string) => {
     return getEntriesForTransferTargetDirectory({
@@ -65,20 +64,6 @@ export function useSftpTransferActions({
       setError,
       targetDirectory,
     });
-  };
-
-  const runTrackedTransfer = async (
-    transferId: string,
-    action: () => Promise<void>,
-  ) => {
-    try {
-      const completion = waitForTransferCompletion(transferId);
-      await action();
-      await completion;
-    } catch (error) {
-      deleteTransferWaiter(transferId);
-      markTransferFailed(transferId, error instanceof Error ? error.message : String(error));
-    }
   };
 
   const startUpload = async () => {
@@ -162,6 +147,11 @@ export function useSftpTransferActions({
     const downloadTasks: Array<() => Promise<void>> = [];
 
     for (const entry of entries) {
+      if (!isSafeWindowsLocalFilename(entry.filename)) {
+        setError(`Download blocked because the remote filename is not valid on Windows: ${entry.filename}`);
+        return;
+      }
+
       const localPath = joinLocalPath(targetDirectory, entry.filename);
 
       try {
@@ -249,7 +239,7 @@ export function useSftpTransferActions({
       remotePath,
     });
 
-    await enqueueSftpTransfer(transfer, () => runTrackedTransfer(
+    await enqueueSftpTransfer(transfer, () => runBackendTransferUntilTerminal(
       transferId,
       () => uploadSftpFile(panelId, localPath, remotePath, transferId, transfer.retryPayload?.kind === 'path-upload' ? transfer.retryPayload.uploadId : transferId),
     ));
@@ -307,7 +297,7 @@ export function useSftpTransferActions({
       panelId,
     });
 
-    await enqueueSftpTransfer(transfer, () => runTrackedTransfer(
+    await enqueueSftpTransfer(transfer, () => runBackendTransferUntilTerminal(
       transferId,
       () => downloadSftpFile(
         panelId,
@@ -328,4 +318,18 @@ export function useSftpTransferActions({
     startUploadFromPaths,
     startUploadFromDataTransfer,
   };
+}
+
+function isSafeWindowsLocalFilename(filename: string) {
+  if (
+    filename.length === 0 ||
+    filename === '.' ||
+    filename === '..' ||
+    /[<>:"/\\|?*\u0000-\u001f]/u.test(filename) ||
+    /[. ]$/u.test(filename)
+  ) {
+    return false;
+  }
+
+  return !/^(?:con|prn|aux|nul|clock\$|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/iu.test(filename);
 }

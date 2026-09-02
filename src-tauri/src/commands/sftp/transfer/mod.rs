@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{atomic::Ordering, Arc},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -253,8 +253,7 @@ pub async fn sftp_cancel_transfer(
             .ok_or_else(|| "transfer is not running".to_string())?
     };
 
-    control.canceled.store(true, Ordering::Relaxed);
-    control.notify.notify_waiters();
+    control.cancel();
 
     let stream_upload = { store.stream_uploads.lock().await.remove(&transfer_id) };
 
@@ -285,7 +284,7 @@ pub async fn sftp_pause_transfer(
             .ok_or_else(|| "transfer is not running".to_string())?
     };
 
-    control.paused.store(true, Ordering::Relaxed);
+    control.pause();
     Ok(())
 }
 
@@ -302,8 +301,7 @@ pub async fn sftp_resume_transfer(
             .ok_or_else(|| "transfer is not running".to_string())?
     };
 
-    control.paused.store(false, Ordering::Relaxed);
-    control.notify.notify_waiters();
+    control.resume();
     Ok(())
 }
 
@@ -360,19 +358,36 @@ async fn run_sftp_transfer(
 }
 
 async fn wait_for_transfer_resume(control: &SftpTransferControl) -> Result<(), String> {
-    if control.canceled.load(Ordering::Relaxed) {
-        return Err("transfer canceled".to_string());
-    }
+    wait_for_transfer_resume_before_wait(control, || {}).await
+}
 
-    while control.paused.load(Ordering::Relaxed) {
-        control.notify.notified().await;
+async fn wait_for_transfer_resume_before_wait<F>(
+    control: &SftpTransferControl,
+    mut before_wait: F,
+) -> Result<(), String>
+where
+    F: FnMut(),
+{
+    loop {
+        let notified = control.notify.notified();
+        tokio::pin!(notified);
 
-        if control.canceled.load(Ordering::Relaxed) {
+        // Notify::notify_waiters does not retain a permit. Register before
+        // checking the predicates so resume/cancel cannot be lost between
+        // the state check and awaiting the notification.
+        notified.as_mut().enable();
+
+        if control.is_canceled() {
             return Err("transfer canceled".to_string());
         }
-    }
 
-    Ok(())
+        if !control.is_paused() {
+            return Ok(());
+        }
+
+        before_wait();
+        notified.await;
+    }
 }
 
 fn emit_transfer_event(
@@ -490,5 +505,94 @@ async fn confirm_finalized_upload_with_retry(
         }
 
         tokio::time::sleep(SFTP_UPLOAD_FINALIZE_RETRY_DELAY).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use tokio::time::{timeout, Duration};
+
+    use super::{
+        wait_for_transfer_resume, wait_for_transfer_resume_before_wait, SftpTransferControl,
+    };
+
+    #[tokio::test]
+    async fn resume_notification_between_predicate_check_and_wait_is_not_lost() {
+        let control = SftpTransferControl::default();
+        control.pause();
+
+        let result = timeout(
+            Duration::from_secs(1),
+            wait_for_transfer_resume_before_wait(&control, || control.resume()),
+        )
+        .await
+        .expect("resume notification should wake the registered waiter");
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn cancel_notification_between_predicate_check_and_wait_is_not_lost() {
+        let control = SftpTransferControl::default();
+        control.pause();
+
+        let result = timeout(
+            Duration::from_secs(1),
+            wait_for_transfer_resume_before_wait(&control, || control.cancel()),
+        )
+        .await
+        .expect("cancel notification should wake the registered waiter");
+
+        assert_eq!(result, Err("transfer canceled".to_string()));
+    }
+
+    #[tokio::test]
+    async fn resume_releases_all_registered_waiters() {
+        const WAITER_COUNT: usize = 8;
+
+        let control = Arc::new(SftpTransferControl::default());
+        let registered = Arc::new(AtomicUsize::new(0));
+        let all_registered = Arc::new(tokio::sync::Notify::new());
+        let mut waiters = Vec::with_capacity(WAITER_COUNT);
+        control.pause();
+
+        for _ in 0..WAITER_COUNT {
+            let waiter_control = control.clone();
+            let waiter_registered = registered.clone();
+            let waiter_all_registered = all_registered.clone();
+            waiters.push(tokio::spawn(async move {
+                wait_for_transfer_resume_before_wait(&waiter_control, || {
+                    if waiter_registered.fetch_add(1, Ordering::AcqRel) + 1 == WAITER_COUNT {
+                        waiter_all_registered.notify_one();
+                    }
+                })
+                .await
+            }));
+        }
+
+        timeout(Duration::from_secs(1), async {
+            while registered.load(Ordering::Acquire) < WAITER_COUNT {
+                all_registered.notified().await;
+            }
+        })
+        .await
+        .expect("all waiters should register before resume");
+
+        control.resume();
+
+        for waiter in waiters {
+            let result = timeout(Duration::from_secs(1), waiter)
+                .await
+                .expect("resume should wake every waiter")
+                .expect("waiter task should not panic");
+            assert_eq!(result, Ok(()));
+        }
+
+        assert_eq!(wait_for_transfer_resume(&control).await, Ok(()));
     }
 }
